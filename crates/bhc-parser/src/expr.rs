@@ -1,6 +1,8 @@
 //! Expression parsing.
 
-use bhc_ast::*;
+use bhc_ast::{
+    Alt, ArithSeq, Expr, FieldBind, GuardedRhs, Lit, Pat, Rhs, Stmt,
+};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
@@ -28,7 +30,7 @@ impl<'src> Parser<'src> {
                 }
                 TokenKind::Backtick => {
                     // Infix function application: `x `mod` y`
-                    let start = tok.span;
+                    let _start = tok.span;
                     self.advance(); // `
                     let Some(func_tok) = self.current() else {
                         return Err(ParseError::UnexpectedEof {
@@ -57,7 +59,7 @@ impl<'src> Parser<'src> {
                 break;
             }
 
-            let op_span = self.current_span();
+            let _op_span = self.current_span();
             self.advance();
 
             let next_min_prec = match assoc {
@@ -93,15 +95,25 @@ impl<'src> Parser<'src> {
     fn parse_app_expr(&mut self) -> ParseResult<Expr> {
         let mut expr = self.parse_atom_expr()?;
 
-        while let Some(tok) = self.current() {
-            // Check if this looks like an argument
-            if self.is_atom_start(&tok.node.kind) {
-                let arg = self.parse_atom_expr()?;
-                let span = expr.span().to(arg.span());
-                expr = Expr::App(Box::new(expr), Box::new(arg), span);
-            } else {
-                break;
+        loop {
+            // Check for record update: `expr { field = value }`
+            if self.check(&TokenKind::LBrace) && !matches!(expr, Expr::Con(_, _)) {
+                let start = expr.span();
+                expr = self.parse_record_update(expr, start)?;
+                continue;
             }
+
+            // Check if this looks like an argument
+            if let Some(tok) = self.current() {
+                if self.is_atom_start(&tok.node.kind) {
+                    let arg = self.parse_atom_expr()?;
+                    let span = expr.span().to(arg.span());
+                    expr = Expr::App(Box::new(expr), Box::new(arg), span);
+                    continue;
+                }
+            }
+
+            break;
         }
 
         Ok(expr)
@@ -146,6 +158,12 @@ impl<'src> Parser<'src> {
                 let ident = Ident::new(*sym);
                 let span = tok.span;
                 self.advance();
+
+                // Check for record construction: Con { field = value }
+                if self.check(&TokenKind::LBrace) {
+                    return self.parse_record_con(ident, span);
+                }
+
                 Ok(Expr::Con(ident, span))
             }
 
@@ -247,7 +265,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a parenthesized expression or tuple.
+    /// Parse a parenthesized expression, tuple, or operator section.
     fn parse_paren_expr(&mut self) -> ParseResult<Expr> {
         let start = self.current_span();
         self.expect(&TokenKind::LParen)?;
@@ -258,7 +276,36 @@ impl<'src> Parser<'src> {
             return Ok(Expr::Con(Ident::from_str("()"), span));
         }
 
+        // Check for operator section starting with operator: `(+)` or `(+ x)`
+        if let Some(TokenKind::Operator(_)) = self.current_kind() {
+            return self.parse_operator_section(start);
+        }
+
         let first = self.parse_expr()?;
+
+        // Check for left operator section: `(x +)`
+        if let Some(TokenKind::Operator(sym)) = self.current_kind().cloned() {
+            let op = Ident::new(sym);
+            self.advance();
+
+            if self.eat(&TokenKind::RParen) {
+                // Left section: `(x +)` desugars to `(\y -> x + y)`
+                let span = start.to(self.tokens[self.pos - 1].span);
+                let y = Ident::from_str("$section_arg");
+                let y_pat = Pat::Var(y.clone(), Span::DUMMY);
+                let y_expr = Expr::Var(y, Span::DUMMY);
+                let body = Expr::Infix(Box::new(first), op, Box::new(y_expr), span);
+                return Ok(Expr::Lam(vec![y_pat], Box::new(body), span));
+            }
+
+            // Otherwise, this is just an infix expression in parens
+            let rhs = self.parse_infix_expr(0)?;
+            let infix_span = first.span().merge(rhs.span());
+            let infix_expr = Expr::Infix(Box::new(first), op, Box::new(rhs), infix_span);
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+            return Ok(Expr::Paren(Box::new(infix_expr), span));
+        }
 
         if self.eat(&TokenKind::Comma) {
             // Tuple
@@ -527,16 +574,47 @@ impl<'src> Parser<'src> {
     fn parse_alt(&mut self) -> ParseResult<Alt> {
         let start = self.current_span();
         let pat = self.parse_pattern()?;
-        self.expect(&TokenKind::Arrow)?;
-        let expr = self.parse_expr()?;
-        let span = start.to(expr.span());
 
+        // Check for guards: `| guard -> expr`
+        let rhs = if self.check(&TokenKind::Pipe) {
+            let guards = self.parse_guarded_rhss()?;
+            let end_span = guards.last().map(|g| g.span).unwrap_or(start);
+            Rhs::Guarded(guards, start.to(end_span))
+        } else {
+            self.expect(&TokenKind::Arrow)?;
+            let expr = self.parse_expr()?;
+            let span = start.to(expr.span());
+            Rhs::Simple(expr, span)
+        };
+
+        // Parse optional where clause
+        let wheres = if self.eat(&TokenKind::Where) {
+            self.parse_local_decls()?
+        } else {
+            vec![]
+        };
+
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
         Ok(Alt {
             pat,
-            rhs: Rhs::Simple(expr, span),
-            wheres: vec![],
+            rhs,
+            wheres,
             span,
         })
+    }
+
+    /// Parse guarded right-hand sides: `| guard -> expr | guard -> expr ...`
+    fn parse_guarded_rhss(&mut self) -> ParseResult<Vec<GuardedRhs>> {
+        let mut guards = Vec::new();
+        while self.eat(&TokenKind::Pipe) {
+            let start = self.current_span();
+            let guard = self.parse_expr()?;
+            self.expect(&TokenKind::Arrow)?;
+            let body = self.parse_expr()?;
+            let span = start.to(body.span());
+            guards.push(GuardedRhs { guard, body, span });
+        }
+        Ok(guards)
     }
 
     /// Parse a do expression.
@@ -583,6 +661,127 @@ impl<'src> Parser<'src> {
         let span = start.to(end.span);
 
         Ok(Expr::Lazy(Box::new(expr), span))
+    }
+
+    /// Parse record construction: `Con { field = value, ... }`
+    fn parse_record_con(&mut self, con: Ident, start: Span) -> ParseResult<Expr> {
+        self.expect(&TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        if !self.check(&TokenKind::RBrace) {
+            fields.push(self.parse_field_bind()?);
+            while self.eat(&TokenKind::Comma) {
+                if self.check(&TokenKind::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_field_bind()?);
+            }
+        }
+
+        let end = self.expect(&TokenKind::RBrace)?;
+        let span = start.to(end.span);
+        Ok(Expr::RecordCon(con, fields, span))
+    }
+
+    /// Parse record update: `expr { field = value, ... }`
+    fn parse_record_update(&mut self, expr: Expr, start: Span) -> ParseResult<Expr> {
+        self.expect(&TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        if !self.check(&TokenKind::RBrace) {
+            fields.push(self.parse_field_bind()?);
+            while self.eat(&TokenKind::Comma) {
+                if self.check(&TokenKind::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_field_bind()?);
+            }
+        }
+
+        let end = self.expect(&TokenKind::RBrace)?;
+        let span = start.to(end.span);
+        Ok(Expr::RecordUpd(Box::new(expr), fields, span))
+    }
+
+    /// Parse a field binding: `field = expr` or `field` (punning)
+    fn parse_field_bind(&mut self) -> ParseResult<FieldBind> {
+        let tok = self.current().ok_or(ParseError::UnexpectedEof {
+            expected: "field name".to_string(),
+        })?;
+
+        let (name, span) = match &tok.node.kind {
+            TokenKind::Ident(sym) => (Ident::new(*sym), tok.span),
+            _ => {
+                return Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "field name".to_string(),
+                    span: tok.span,
+                });
+            }
+        };
+        self.advance();
+
+        let value = if self.eat(&TokenKind::Eq) {
+            Some(self.parse_expr()?)
+        } else {
+            None // Punning: `Foo { bar }` means `Foo { bar = bar }`
+        };
+
+        let end_span = value.as_ref().map(|e| e.span()).unwrap_or(span);
+        let full_span = span.to(end_span);
+        Ok(FieldBind {
+            name,
+            value,
+            span: full_span,
+        })
+    }
+
+    /// Parse an operator section: `(+ 1)` or `(1 +)`
+    fn parse_operator_section(&mut self, start: Span) -> ParseResult<Expr> {
+        // Already consumed LParen, now at operator
+        let tok = self.current().ok_or(ParseError::UnexpectedEof {
+            expected: "operator".to_string(),
+        })?;
+
+        let op = match &tok.node.kind {
+            TokenKind::Operator(sym) => Ident::new(*sym),
+            _ => {
+                return Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "operator".to_string(),
+                    span: tok.span,
+                });
+            }
+        };
+        self.advance();
+
+        if self.eat(&TokenKind::RParen) {
+            // Just `(+)` - operator as a function
+            let span = start.to(self.tokens[self.pos - 1].span);
+            return Ok(Expr::Var(op, span));
+        }
+
+        // Right section: `(+ 1)`
+        let arg = self.parse_expr()?;
+        let end = self.expect(&TokenKind::RParen)?;
+        let span = start.to(end.span);
+
+        // Desugar (+ x) to (\y -> y + x)
+        let y = Ident::from_str("$section_arg");
+        let y_pat = Pat::Var(y.clone(), Span::DUMMY);
+        let y_expr = Expr::Var(y, Span::DUMMY);
+        let body = Expr::Infix(Box::new(y_expr), op, Box::new(arg), span);
+        Ok(Expr::Lam(vec![y_pat], Box::new(body), span))
+    }
+
+    /// Parse type annotation: `expr :: Type`
+    #[allow(dead_code)]
+    fn parse_type_annotation(&mut self, expr: Expr) -> ParseResult<Expr> {
+        let start = expr.span();
+        self.expect(&TokenKind::DoubleColon)?;
+        let ty = self.parse_type()?;
+        let span = start.to(ty.span());
+        Ok(Expr::Ann(Box::new(expr), ty, span))
     }
 }
 

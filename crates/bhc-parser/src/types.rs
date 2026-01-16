@@ -1,6 +1,6 @@
 //! Type parsing.
 
-use bhc_ast::*;
+use bhc_ast::{Constraint, TyVar, Type};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 
@@ -9,7 +9,117 @@ use crate::{ParseResult, Parser, ParseError};
 impl<'src> Parser<'src> {
     /// Parse a type.
     pub fn parse_type(&mut self) -> ParseResult<Type> {
+        let start = self.current_span();
+
+        // Check for forall
+        if self.check(&TokenKind::Forall) {
+            return self.parse_forall_type();
+        }
+
+        // Try to parse a constrained type: `Eq a => ...`
+        // This is tricky because we need lookahead to distinguish
+        // `Class a => ...` from `Type -> ...`
+        if let Some(constraints) = self.try_parse_context()? {
+            let ty = self.parse_fun_type()?;
+            let span = start.to(ty.span());
+            return Ok(Type::Constrained(constraints, Box::new(ty), span));
+        }
+
         self.parse_fun_type()
+    }
+
+    /// Try to parse a context (type class constraints).
+    /// Returns None if this doesn't look like a context.
+    fn try_parse_context(&mut self) -> ParseResult<Option<Vec<Constraint>>> {
+        // Save position for backtracking
+        let saved_pos = self.pos;
+
+        // A context looks like: `Class arg` or `(Class1 a, Class2 b)` followed by `=>`
+        let constraints = if self.check(&TokenKind::LParen) {
+            // Try to parse parenthesized context
+            self.advance(); // consume (
+
+            if self.check(&TokenKind::RParen) {
+                // Empty context `() =>` - unlikely but valid
+                self.advance();
+                if self.eat(&TokenKind::FatArrow) {
+                    return Ok(Some(vec![]));
+                }
+                // Not a context, backtrack
+                self.pos = saved_pos;
+                return Ok(None);
+            }
+
+            let mut constraints = vec![];
+            match self.try_parse_constraint() {
+                Ok(Some(c)) => constraints.push(c),
+                _ => {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                }
+            }
+
+            while self.eat(&TokenKind::Comma) {
+                match self.try_parse_constraint() {
+                    Ok(Some(c)) => constraints.push(c),
+                    _ => {
+                        self.pos = saved_pos;
+                        return Ok(None);
+                    }
+                }
+            }
+
+            if !self.eat(&TokenKind::RParen) {
+                self.pos = saved_pos;
+                return Ok(None);
+            }
+
+            constraints
+        } else {
+            // Try to parse a single constraint
+            match self.try_parse_constraint() {
+                Ok(Some(c)) => vec![c],
+                _ => {
+                    self.pos = saved_pos;
+                    return Ok(None);
+                }
+            }
+        };
+
+        // Check for =>
+        if self.eat(&TokenKind::FatArrow) {
+            Ok(Some(constraints))
+        } else {
+            // Not a context, backtrack
+            self.pos = saved_pos;
+            Ok(None)
+        }
+    }
+
+    /// Try to parse a single constraint like `Eq a` or `Functor f`.
+    fn try_parse_constraint(&mut self) -> ParseResult<Option<Constraint>> {
+        let start = self.current_span();
+
+        // Constraint class must be a ConId
+        let class = match self.current_kind() {
+            Some(TokenKind::ConId(sym)) => {
+                let ident = Ident::new(*sym);
+                self.advance();
+                ident
+            }
+            _ => return Ok(None),
+        };
+
+        // Parse type arguments
+        let mut args = vec![];
+        while self.is_atype_start() {
+            args.push(self.parse_atype()?);
+        }
+
+        let end_span = args.last().map(|t| t.span()).unwrap_or(start);
+        let span = start.to(end_span);
+
+        Ok(Some(Constraint { class, args, span }))
     }
 
     /// Parse a function type: `a -> b`.
@@ -143,8 +253,7 @@ impl<'src> Parser<'src> {
         Ok(Type::List(Box::new(elem), span))
     }
 
-    /// Parse a forall type.
-    #[allow(dead_code)]
+    /// Parse a forall type: `forall a b. Type`.
     fn parse_forall_type(&mut self) -> ParseResult<Type> {
         let start = self.current_span();
         self.expect(&TokenKind::Forall)?;

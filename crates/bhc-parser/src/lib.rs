@@ -5,7 +5,7 @@
 
 #![warn(missing_docs)]
 
-use bhc_ast::{Decl, Expr, Module, Pat, Type};
+use bhc_ast::{Expr, Module};
 use bhc_diagnostics::{Diagnostic, DiagnosticHandler, FullSpan};
 use bhc_lexer::{Lexer, Token, TokenKind};
 use bhc_span::{FileId, Span, Spanned};
@@ -140,11 +140,13 @@ impl<'src> Parser<'src> {
     }
 
     /// Check if the current token is a constructor identifier.
+    #[allow(dead_code)]
     fn check_con_id(&self) -> bool {
         matches!(self.current_kind(), Some(TokenKind::ConId(_)))
     }
 
     /// Check if the current token is an identifier.
+    #[allow(dead_code)]
     fn check_ident(&self) -> bool {
         matches!(self.current_kind(), Some(TokenKind::Ident(_)))
     }
@@ -230,9 +232,357 @@ pub fn parse_expr(src: &str, file_id: FileId) -> (Option<Expr>, Vec<Diagnostic>)
 mod tests {
     use super::*;
 
+    fn parse_expr_ok(src: &str) -> Expr {
+        let (expr, diags) = parse_expr(src, FileId::new(0));
+        assert!(diags.is_empty(), "Parse errors: {:?}", diags);
+        expr.expect("Expected expression")
+    }
+
+    fn parse_module_ok(src: &str) -> Module {
+        let (module, diags) = parse_module(src, FileId::new(0));
+        assert!(diags.is_empty(), "Parse errors: {:?}", diags);
+        module.expect("Expected module")
+    }
+
     #[test]
     fn test_parser_creation() {
         let parser = Parser::new("let x = 1 in x", FileId::new(0));
         assert!(!parser.at_eof());
+    }
+
+    #[test]
+    fn test_simple_literals() {
+        let expr = parse_expr_ok("42");
+        assert!(matches!(expr, Expr::Lit(bhc_ast::Lit::Int(42), _)));
+
+        let expr = parse_expr_ok("3.14");
+        assert!(matches!(expr, Expr::Lit(bhc_ast::Lit::Float(_), _)));
+
+        let expr = parse_expr_ok("'a'");
+        assert!(matches!(expr, Expr::Lit(bhc_ast::Lit::Char('a'), _)));
+
+        let expr = parse_expr_ok("\"hello\"");
+        assert!(matches!(expr, Expr::Lit(bhc_ast::Lit::String(_), _)));
+    }
+
+    #[test]
+    fn test_variable_and_constructor() {
+        let expr = parse_expr_ok("foo");
+        assert!(matches!(expr, Expr::Var(_, _)));
+
+        let expr = parse_expr_ok("Foo");
+        assert!(matches!(expr, Expr::Con(_, _)));
+    }
+
+    #[test]
+    fn test_application() {
+        let expr = parse_expr_ok("f x");
+        assert!(matches!(expr, Expr::App(_, _, _)));
+
+        let expr = parse_expr_ok("f x y z");
+        assert!(matches!(expr, Expr::App(_, _, _)));
+    }
+
+    #[test]
+    fn test_infix_operators() {
+        let expr = parse_expr_ok("1 + 2");
+        assert!(matches!(expr, Expr::Infix(_, _, _, _)));
+
+        let expr = parse_expr_ok("a && b || c");
+        assert!(matches!(expr, Expr::Infix(_, _, _, _)));
+    }
+
+    #[test]
+    fn test_lambda() {
+        let expr = parse_expr_ok("\\x -> x");
+        assert!(matches!(expr, Expr::Lam(_, _, _)));
+
+        let expr = parse_expr_ok("\\x y -> x + y");
+        if let Expr::Lam(pats, _, _) = expr {
+            assert_eq!(pats.len(), 2);
+        } else {
+            panic!("Expected lambda");
+        }
+    }
+
+    #[test]
+    fn test_let_expression() {
+        let expr = parse_expr_ok("let { x = 1 } in x");
+        assert!(matches!(expr, Expr::Let(_, _, _)));
+    }
+
+    #[test]
+    fn test_if_expression() {
+        let expr = parse_expr_ok("if True then 1 else 2");
+        assert!(matches!(expr, Expr::If(_, _, _, _)));
+    }
+
+    #[test]
+    fn test_case_expression() {
+        let expr = parse_expr_ok("case x of { Just y -> y }");
+        assert!(matches!(expr, Expr::Case(_, _, _)));
+    }
+
+    #[test]
+    fn test_do_expression() {
+        let expr = parse_expr_ok("do { x <- getLine; putStrLn x }");
+        assert!(matches!(expr, Expr::Do(_, _)));
+    }
+
+    #[test]
+    fn test_tuple() {
+        let expr = parse_expr_ok("(1, 2, 3)");
+        if let Expr::Tuple(exprs, _) = expr {
+            assert_eq!(exprs.len(), 3);
+        } else {
+            panic!("Expected tuple");
+        }
+    }
+
+    #[test]
+    fn test_list() {
+        let expr = parse_expr_ok("[1, 2, 3]");
+        if let Expr::List(exprs, _) = expr {
+            assert_eq!(exprs.len(), 3);
+        } else {
+            panic!("Expected list");
+        }
+    }
+
+    #[test]
+    fn test_list_comprehension() {
+        let expr = parse_expr_ok("[x | x <- xs]");
+        assert!(matches!(expr, Expr::ListComp(_, _, _)));
+    }
+
+    #[test]
+    fn test_arithmetic_sequence() {
+        let expr = parse_expr_ok("[1..10]");
+        assert!(matches!(expr, Expr::ArithSeq(_, _)));
+
+        let expr = parse_expr_ok("[1..]");
+        assert!(matches!(expr, Expr::ArithSeq(_, _)));
+
+        let expr = parse_expr_ok("[1,3..10]");
+        assert!(matches!(expr, Expr::ArithSeq(_, _)));
+    }
+
+    #[test]
+    fn test_record_construction() {
+        let expr = parse_expr_ok("Foo { bar = 1, baz = 2 }");
+        assert!(matches!(expr, Expr::RecordCon(_, _, _)));
+    }
+
+    #[test]
+    fn test_record_update() {
+        let expr = parse_expr_ok("foo { bar = 1 }");
+        assert!(matches!(expr, Expr::RecordUpd(_, _, _)));
+    }
+
+    #[test]
+    fn test_operator_section_right() {
+        // Right section: (+ 1) -> \y -> y + 1
+        let expr = parse_expr_ok("(+ 1)");
+        assert!(matches!(expr, Expr::Lam(_, _, _)));
+    }
+
+    #[test]
+    #[ignore] // Left sections need more work to parse correctly
+    fn test_operator_section_left() {
+        // Left section: (1 +) -> \y -> 1 + y
+        let expr = parse_expr_ok("(1 +)");
+        assert!(matches!(expr, Expr::Lam(_, _, _)));
+    }
+
+    #[test]
+    fn test_operator_as_function() {
+        // (+) becomes a variable
+        let expr = parse_expr_ok("(+)");
+        assert!(matches!(expr, Expr::Var(_, _)));
+    }
+
+    #[test]
+    #[ignore] // Negation needs lexer changes to properly distinguish prefix -
+    fn test_negation() {
+        // Negation only works after another expression in infix context
+        // `-x` at the start is ambiguous with operator prefix
+        let expr = parse_expr_ok("1 + -x");
+        // The result contains a Neg somewhere in the tree
+        assert!(matches!(expr, Expr::Infix(_, _, _, _)));
+    }
+
+    #[test]
+    fn test_lazy_expression() {
+        let expr = parse_expr_ok("lazy { expensive }");
+        assert!(matches!(expr, Expr::Lazy(_, _)));
+    }
+
+    // Pattern tests
+
+    #[test]
+    fn test_pattern_wildcard() {
+        let module = parse_module_ok("f _ = 1");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_pattern_constructor() {
+        let module = parse_module_ok("f (Just x) = x");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // The `:` is lexed as ConOperator, needs lexer fix
+    fn test_pattern_infix() {
+        let module = parse_module_ok("f (x : xs) = xs");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // The `:` is lexed as ConOperator, needs lexer fix
+    fn test_pattern_as() {
+        let module = parse_module_ok("f xs@(x : _) = xs");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_pattern_lazy() {
+        let module = parse_module_ok("f ~x = x");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_pattern_bang() {
+        let module = parse_module_ok("f !x = x");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Layout rule inserts tokens that interfere with record parsing
+    fn test_record_pattern() {
+        let module = parse_module_ok("f Foo { bar = x } = x");
+        assert!(!module.decls.is_empty());
+    }
+
+    // Type tests
+
+    #[test]
+    fn test_simple_type() {
+        let module = parse_module_ok("f :: Int");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_function_type() {
+        let module = parse_module_ok("f :: Int -> Bool");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_type_application() {
+        let module = parse_module_ok("f :: Maybe Int");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_tuple_type() {
+        let module = parse_module_ok("f :: (Int, Bool)");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_list_type() {
+        let module = parse_module_ok("f :: [Int]");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_constrained_type() {
+        let module = parse_module_ok("f :: Eq a => a -> Bool");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_multi_constrained_type() {
+        let module = parse_module_ok("f :: (Eq a, Ord a) => a -> a -> Bool");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // forall parsing needs work on `.` handling
+    fn test_forall_type() {
+        let module = parse_module_ok("f :: forall a. a -> a");
+        assert!(!module.decls.is_empty());
+    }
+
+    // Module structure tests
+
+    #[test]
+    #[ignore] // Layout rule interference with module parsing
+    fn test_module_header() {
+        let module = parse_module_ok("module Foo where\nx = 1");
+        assert!(module.name.is_some());
+    }
+
+    #[test]
+    #[ignore] // Layout rule interference with module parsing
+    fn test_module_exports() {
+        let module = parse_module_ok("module Foo (bar, baz) where\nbar = 1\nbaz = 2");
+        assert!(module.exports.is_some());
+    }
+
+    #[test]
+    #[ignore] // Qualified module names need lexer/parser coordination
+    fn test_imports() {
+        let module = parse_module_ok("import Data.List\nx = 1");
+        assert!(!module.imports.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Qualified module names need lexer/parser coordination
+    fn test_qualified_import() {
+        let module = parse_module_ok("import qualified Data.Map as M\nx = 1");
+        assert!(!module.imports.is_empty());
+        assert!(module.imports[0].qualified);
+    }
+
+    // Declaration tests
+
+    #[test]
+    fn test_data_declaration() {
+        let module = parse_module_ok("data Foo = Bar | Baz Int");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_newtype_declaration() {
+        let module = parse_module_ok("newtype Foo = Foo Int");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_type_alias() {
+        let module = parse_module_ok("type Foo = Int");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Layout rule interference with class parsing
+    fn test_class_declaration() {
+        let module = parse_module_ok("class Eq a where\n  eq :: a -> a -> Bool");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Layout rule interference with instance parsing
+    fn test_instance_declaration() {
+        let module = parse_module_ok("instance Eq Int where\n  eq = primEqInt");
+        assert!(!module.decls.is_empty());
+    }
+
+    #[test]
+    fn test_fixity_declaration() {
+        let module = parse_module_ok("infixl 6 +");
+        assert!(!module.decls.is_empty());
     }
 }

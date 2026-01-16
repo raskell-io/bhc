@@ -1,8 +1,9 @@
 //! Pattern parsing.
 
-use bhc_ast::*;
+use bhc_ast::{FieldPat, Lit, Pat};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
+use bhc_span::Span;
 
 use crate::{ParseResult, Parser, ParseError};
 
@@ -22,6 +23,7 @@ impl<'src> Parser<'src> {
                     | TokenKind::LBracket
                     | TokenKind::Underscore
                     | TokenKind::Tilde
+                    | TokenKind::Bang
             ),
             None => false,
         }
@@ -125,6 +127,12 @@ impl<'src> Parser<'src> {
                 let ident = Ident::new(*sym);
                 let span = tok.span;
                 self.advance();
+
+                // Check for record pattern: Con { field = pat, ... }
+                if self.check(&TokenKind::LBrace) {
+                    return self.parse_record_pattern(ident, span);
+                }
+
                 Ok(Pat::Con(ident, vec![], span))
             }
 
@@ -166,6 +174,14 @@ impl<'src> Parser<'src> {
                 let pat = self.parse_atom_pattern()?;
                 let span = start.to(pat.span());
                 Ok(Pat::Lazy(Box::new(pat), span))
+            }
+
+            TokenKind::Bang => {
+                let start = tok.span;
+                self.advance();
+                let pat = self.parse_atom_pattern()?;
+                let span = start.to(pat.span());
+                Ok(Pat::Bang(Box::new(pat), span))
             }
 
             _ => Err(ParseError::Unexpected {
@@ -231,5 +247,58 @@ impl<'src> Parser<'src> {
         let end = self.expect(&TokenKind::RBracket)?;
         let span = start.to(end.span);
         Ok(Pat::List(pats, span))
+    }
+
+    /// Parse a record pattern: `Con { field = pat, ... }`
+    fn parse_record_pattern(&mut self, con: Ident, start: Span) -> ParseResult<Pat> {
+        self.expect(&TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        if !self.check(&TokenKind::RBrace) {
+            fields.push(self.parse_field_pat()?);
+            while self.eat(&TokenKind::Comma) {
+                if self.check(&TokenKind::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_field_pat()?);
+            }
+        }
+
+        let end = self.expect(&TokenKind::RBrace)?;
+        let span = start.to(end.span);
+        Ok(Pat::Record(con, fields, span))
+    }
+
+    /// Parse a field pattern: `field = pat` or `field` (punning)
+    fn parse_field_pat(&mut self) -> ParseResult<FieldPat> {
+        let tok = self.current().ok_or(ParseError::UnexpectedEof {
+            expected: "field name".to_string(),
+        })?;
+
+        let (name, span) = match &tok.node.kind {
+            TokenKind::Ident(sym) => (Ident::new(*sym), tok.span),
+            _ => {
+                return Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "field name".to_string(),
+                    span: tok.span,
+                });
+            }
+        };
+        self.advance();
+
+        let pat = if self.eat(&TokenKind::Eq) {
+            Some(self.parse_pattern()?)
+        } else {
+            None // Punning: `Foo { bar }` means `Foo { bar = bar }`
+        };
+
+        let end_span = pat.as_ref().map(|p| p.span()).unwrap_or(span);
+        let full_span = span.to(end_span);
+        Ok(FieldPat {
+            name,
+            pat,
+            span: full_span,
+        })
     }
 }
