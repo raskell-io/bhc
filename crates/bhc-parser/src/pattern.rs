@@ -128,16 +128,16 @@ impl<'src> Parser<'src> {
                 Ok(Pat::Con(ident, vec![], span))
             }
 
-            TokenKind::IntLit(s) => {
+            TokenKind::IntLit(ref lit) => {
                 let span = tok.span;
-                let value = self.parse_int_literal(&s, span)?;
+                let value = self.parse_int_literal(&lit.text, span)?;
                 self.advance();
                 Ok(Pat::Lit(Lit::Int(value), span))
             }
 
-            TokenKind::FloatLit(s) => {
+            TokenKind::FloatLit(ref lit) => {
                 let span = tok.span;
-                let value = self.parse_float_literal(&s, span)?;
+                let value = self.parse_float_literal(&lit.text, span)?;
                 self.advance();
                 Ok(Pat::Lit(Lit::Float(value), span))
             }

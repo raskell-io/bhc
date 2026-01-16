@@ -736,8 +736,8 @@ impl<'src> Parser<'src> {
 
         // Parse precedence
         let prec = if let Some(tok) = self.current() {
-            if let TokenKind::IntLit(s) = &tok.node.kind {
-                let p: u8 = s.parse().unwrap_or(9);
+            if let TokenKind::IntLit(ref lit) = &tok.node.kind {
+                let p: u8 = lit.parse().map(|v| v as u8).unwrap_or(9);
                 self.advance();
                 p.min(9)
             } else {
