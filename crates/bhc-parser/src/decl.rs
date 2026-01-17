@@ -1,8 +1,9 @@
 //! Declaration parsing.
 
 use bhc_ast::*;
-use bhc_intern::Ident;
+use bhc_intern::{Ident, Symbol};
 use bhc_lexer::TokenKind;
+use bhc_span::Span;
 
 use crate::{ParseResult, Parser, ParseError};
 
@@ -10,6 +11,9 @@ impl<'src> Parser<'src> {
     /// Parse a complete module.
     pub fn parse_module(&mut self) -> ParseResult<Module> {
         let start = self.current_span();
+
+        // Parse pragmas at the start of the module
+        let pragmas = self.parse_pragmas();
 
         // Optional module header
         let (name, exports) = if self.eat(&TokenKind::Module) {
@@ -50,12 +54,115 @@ impl<'src> Parser<'src> {
         let span = start.to(self.tokens.last().map(|t| t.span).unwrap_or(start));
 
         Ok(Module {
+            pragmas,
             name,
             exports,
             imports,
             decls,
             span,
         })
+    }
+
+    /// Parse pragmas at the start of a module.
+    ///
+    /// Consumes all consecutive Pragma tokens and parses their contents.
+    fn parse_pragmas(&mut self) -> Vec<Pragma> {
+        let mut pragmas = Vec::new();
+
+        while let Some(tok) = self.current() {
+            if let TokenKind::Pragma(content) = &tok.node.kind {
+                let span = tok.span;
+                let content = content.clone();
+                self.advance();
+
+                if let Some(pragma) = self.parse_pragma_content(&content, span) {
+                    pragmas.push(pragma);
+                }
+            } else {
+                break;
+            }
+        }
+
+        pragmas
+    }
+
+    /// Parse the content of a pragma.
+    ///
+    /// The content is the text between `{-#` and `#-}`, e.g., `"LANGUAGE GADTs, TypeFamilies"`.
+    fn parse_pragma_content(&self, content: &str, span: Span) -> Option<Pragma> {
+        let content = content.trim();
+        if content.is_empty() {
+            return None;
+        }
+
+        // Split into pragma name and arguments
+        let mut parts = content.splitn(2, char::is_whitespace);
+        let pragma_name = parts.next()?.to_uppercase();
+        let args = parts.next().unwrap_or("").trim();
+
+        let kind = match pragma_name.as_str() {
+            "LANGUAGE" => {
+                // Parse comma-separated extension names
+                let extensions: Vec<Symbol> = args
+                    .split(',')
+                    .map(|s| Symbol::intern(s.trim()))
+                    .filter(|s| !s.as_str().is_empty())
+                    .collect();
+                PragmaKind::Language(extensions)
+            }
+            "OPTIONS_GHC" | "OPTIONS" => {
+                PragmaKind::OptionsGhc(args.to_string())
+            }
+            "INLINE" => {
+                if let Some(name) = args.split_whitespace().next() {
+                    PragmaKind::Inline(Ident::new(Symbol::intern(name)))
+                } else {
+                    PragmaKind::Other(content.to_string())
+                }
+            }
+            "NOINLINE" | "NOTINLINE" => {
+                if let Some(name) = args.split_whitespace().next() {
+                    PragmaKind::NoInline(Ident::new(Symbol::intern(name)))
+                } else {
+                    PragmaKind::Other(content.to_string())
+                }
+            }
+            "INLINABLE" | "INLINEABLE" => {
+                if let Some(name) = args.split_whitespace().next() {
+                    PragmaKind::Inlinable(Ident::new(Symbol::intern(name)))
+                } else {
+                    PragmaKind::Other(content.to_string())
+                }
+            }
+            "UNPACK" => PragmaKind::Unpack,
+            "NOUNPACK" => PragmaKind::NoUnpack,
+            "SOURCE" => PragmaKind::Source,
+            "COMPLETE" => {
+                let names: Vec<Ident> = args
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| Ident::new(Symbol::intern(s)))
+                    .collect();
+                PragmaKind::Complete(names)
+            }
+            "MINIMAL" => PragmaKind::Minimal(args.to_string()),
+            "DEPRECATED" => {
+                // Simple parsing: everything after DEPRECATED is the message
+                // More sophisticated parsing would extract specific names
+                PragmaKind::Deprecated(None, args.to_string())
+            }
+            "WARNING" => {
+                PragmaKind::Warning(None, args.to_string())
+            }
+            "SPECIALIZE" | "SPECIALISE" => {
+                // For now, store as Other since we'd need to parse the type signature
+                PragmaKind::Other(content.to_string())
+            }
+            _ => PragmaKind::Other(content.to_string()),
+        };
+
+        Some(Pragma { kind, span })
     }
 
     /// Parse a module name.

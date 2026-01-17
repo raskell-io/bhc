@@ -26,6 +26,8 @@ define_index! {
 /// A Haskell module.
 #[derive(Clone, Debug)]
 pub struct Module {
+    /// Module pragmas (LANGUAGE, OPTIONS_GHC, etc.).
+    pub pragmas: Vec<Pragma>,
     /// Module name.
     pub name: Option<ModuleName>,
     /// Export list.
@@ -36,6 +38,261 @@ pub struct Module {
     pub decls: Vec<Decl>,
     /// Span of the entire module.
     pub span: Span,
+}
+
+// ============================================================
+// Pragmas
+// ============================================================
+
+/// A pragma in the source code.
+#[derive(Clone, Debug)]
+pub struct Pragma {
+    /// The kind of pragma.
+    pub kind: PragmaKind,
+    /// The span.
+    pub span: Span,
+}
+
+/// The kind of pragma.
+#[derive(Clone, Debug)]
+pub enum PragmaKind {
+    /// Language extension: `{-# LANGUAGE GADTs #-}`
+    Language(Vec<Symbol>),
+    /// GHC options: `{-# OPTIONS_GHC -Wall #-}`
+    OptionsGhc(String),
+    /// Inline pragma: `{-# INLINE foo #-}`
+    Inline(Ident),
+    /// No-inline pragma: `{-# NOINLINE foo #-}`
+    NoInline(Ident),
+    /// Inlinable pragma: `{-# INLINABLE foo #-}`
+    Inlinable(Ident),
+    /// Specialize pragma: `{-# SPECIALIZE foo :: Int -> Int #-}`
+    Specialize(Ident, Type),
+    /// Unpack pragma: `{-# UNPACK #-}`
+    Unpack,
+    /// No-unpack pragma: `{-# NOUNPACK #-}`
+    NoUnpack,
+    /// Source pragma (for generated code): `{-# SOURCE #-}`
+    Source,
+    /// Complete pragma: `{-# COMPLETE Pat1, Pat2 #-}`
+    Complete(Vec<Ident>),
+    /// Minimal pragma: `{-# MINIMAL foo | bar #-}`
+    Minimal(String),
+    /// Deprecated pragma: `{-# DEPRECATED foo "message" #-}`
+    Deprecated(Option<Vec<Ident>>, String),
+    /// Warning pragma: `{-# WARNING foo "message" #-}`
+    Warning(Option<Vec<Ident>>, String),
+    /// Unknown/unsupported pragma (preserved for compatibility)
+    Other(String),
+}
+
+/// Known language extensions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Extension {
+    // Type system
+    /// GADTs
+    GADTs,
+    /// Type families
+    TypeFamilies,
+    /// Data kinds
+    DataKinds,
+    /// Kind signatures
+    KindSignatures,
+    /// Rank-N types
+    RankNTypes,
+    /// Existential quantification
+    ExistentialQuantification,
+    /// Scoped type variables
+    ScopedTypeVariables,
+    /// Type applications
+    TypeApplications,
+    /// Flexible instances
+    FlexibleInstances,
+    /// Flexible contexts
+    FlexibleContexts,
+    /// Multi-param type classes
+    MultiParamTypeClasses,
+    /// Functional dependencies
+    FunctionalDependencies,
+    /// Undecidable instances
+    UndecidableInstances,
+    /// Overlapping instances
+    OverlappingInstances,
+    /// Constraint kinds
+    ConstraintKinds,
+
+    // Syntax
+    /// Lambda case
+    LambdaCase,
+    /// Multi-way if
+    MultiWayIf,
+    /// Block arguments
+    BlockArguments,
+    /// Pattern guards
+    PatternGuards,
+    /// View patterns
+    ViewPatterns,
+    /// Pattern synonyms
+    PatternSynonyms,
+    /// Record wild cards
+    RecordWildCards,
+    /// Named field puns
+    NamedFieldPuns,
+    /// Overloaded strings
+    OverloadedStrings,
+    /// Overloaded lists
+    OverloadedLists,
+    /// Numeric underscores
+    NumericUnderscores,
+    /// Hex float literals
+    HexFloatLiterals,
+    /// Binary literals
+    BinaryLiterals,
+    /// Negative literals
+    NegativeLiterals,
+
+    // Strictness
+    /// Bang patterns
+    BangPatterns,
+    /// Strict data
+    StrictData,
+    /// Strict
+    Strict,
+
+    // Deriving
+    /// Derive functor
+    DeriveFunctor,
+    /// Derive foldable
+    DeriveFoldable,
+    /// Derive traversable
+    DeriveTraversable,
+    /// Derive generic
+    DeriveGeneric,
+    /// Derive data typeable
+    DeriveDataTypeable,
+    /// Derive lift
+    DeriveLift,
+    /// Deriving via
+    DerivingVia,
+    /// Deriving strategies
+    DerivingStrategies,
+    /// Generalized newtype deriving
+    GeneralizedNewtypeDeriving,
+    /// Standalone deriving
+    StandaloneDeriving,
+
+    // FFI
+    /// Foreign function interface
+    ForeignFunctionInterface,
+    /// C API FFI
+    CApiFFI,
+    /// Unsafe FFI
+    UnliftedFFITypes,
+
+    // Other
+    /// Template Haskell
+    TemplateHaskell,
+    /// Template Haskell quotes
+    TemplateHaskellQuotes,
+    /// Quasi quotes
+    QuasiQuotes,
+    /// Type operators
+    TypeOperators,
+    /// Explicit forall
+    ExplicitForAll,
+    /// Explicit namespaces
+    ExplicitNamespaces,
+    /// Empty data declarations
+    EmptyDataDecls,
+    /// Empty case
+    EmptyCase,
+    /// Instance sigs
+    InstanceSigs,
+    /// Default signatures
+    DefaultSignatures,
+    /// Named defaults
+    NamedDefaults,
+
+    /// Unknown extension (preserved)
+    Unknown(Symbol),
+}
+
+impl Extension {
+    /// Parse an extension name.
+    #[must_use]
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            // Type system
+            "GADTs" => Self::GADTs,
+            "TypeFamilies" => Self::TypeFamilies,
+            "DataKinds" => Self::DataKinds,
+            "KindSignatures" => Self::KindSignatures,
+            "RankNTypes" | "Rank2Types" | "PolymorphicComponents" => Self::RankNTypes,
+            "ExistentialQuantification" => Self::ExistentialQuantification,
+            "ScopedTypeVariables" => Self::ScopedTypeVariables,
+            "TypeApplications" => Self::TypeApplications,
+            "FlexibleInstances" => Self::FlexibleInstances,
+            "FlexibleContexts" => Self::FlexibleContexts,
+            "MultiParamTypeClasses" => Self::MultiParamTypeClasses,
+            "FunctionalDependencies" => Self::FunctionalDependencies,
+            "UndecidableInstances" => Self::UndecidableInstances,
+            "OverlappingInstances" | "IncoherentInstances" => Self::OverlappingInstances,
+            "ConstraintKinds" => Self::ConstraintKinds,
+
+            // Syntax
+            "LambdaCase" => Self::LambdaCase,
+            "MultiWayIf" => Self::MultiWayIf,
+            "BlockArguments" => Self::BlockArguments,
+            "PatternGuards" => Self::PatternGuards,
+            "ViewPatterns" => Self::ViewPatterns,
+            "PatternSynonyms" => Self::PatternSynonyms,
+            "RecordWildCards" => Self::RecordWildCards,
+            "NamedFieldPuns" => Self::NamedFieldPuns,
+            "OverloadedStrings" => Self::OverloadedStrings,
+            "OverloadedLists" => Self::OverloadedLists,
+            "NumericUnderscores" => Self::NumericUnderscores,
+            "HexFloatLiterals" => Self::HexFloatLiterals,
+            "BinaryLiterals" => Self::BinaryLiterals,
+            "NegativeLiterals" => Self::NegativeLiterals,
+
+            // Strictness
+            "BangPatterns" => Self::BangPatterns,
+            "StrictData" => Self::StrictData,
+            "Strict" => Self::Strict,
+
+            // Deriving
+            "DeriveFunctor" => Self::DeriveFunctor,
+            "DeriveFoldable" => Self::DeriveFoldable,
+            "DeriveTraversable" => Self::DeriveTraversable,
+            "DeriveGeneric" => Self::DeriveGeneric,
+            "DeriveDataTypeable" => Self::DeriveDataTypeable,
+            "DeriveLift" => Self::DeriveLift,
+            "DerivingVia" => Self::DerivingVia,
+            "DerivingStrategies" => Self::DerivingStrategies,
+            "GeneralizedNewtypeDeriving" | "GeneralisedNewtypeDeriving" => Self::GeneralizedNewtypeDeriving,
+            "StandaloneDeriving" => Self::StandaloneDeriving,
+
+            // FFI
+            "ForeignFunctionInterface" | "FFI" => Self::ForeignFunctionInterface,
+            "CApiFFI" => Self::CApiFFI,
+            "UnliftedFFITypes" => Self::UnliftedFFITypes,
+
+            // Other
+            "TemplateHaskell" => Self::TemplateHaskell,
+            "TemplateHaskellQuotes" => Self::TemplateHaskellQuotes,
+            "QuasiQuotes" => Self::QuasiQuotes,
+            "TypeOperators" => Self::TypeOperators,
+            "ExplicitForAll" => Self::ExplicitForAll,
+            "ExplicitNamespaces" => Self::ExplicitNamespaces,
+            "EmptyDataDecls" => Self::EmptyDataDecls,
+            "EmptyCase" => Self::EmptyCase,
+            "InstanceSigs" => Self::InstanceSigs,
+            "DefaultSignatures" => Self::DefaultSignatures,
+            "NamedDefaults" => Self::NamedDefaults,
+
+            _ => Self::Unknown(Symbol::intern(name)),
+        }
+    }
 }
 
 /// A qualified module name like `Data.List`.

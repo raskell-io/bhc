@@ -585,4 +585,50 @@ mod tests {
         let module = parse_module_ok("infixl 6 +");
         assert!(!module.decls.is_empty());
     }
+
+    // Pragma tests
+
+    #[test]
+    fn test_language_pragma() {
+        let module = parse_module_ok("{-# LANGUAGE GADTs #-}\nx = 1");
+        assert_eq!(module.pragmas.len(), 1);
+        match &module.pragmas[0].kind {
+            bhc_ast::PragmaKind::Language(exts) => {
+                assert_eq!(exts.len(), 1);
+                assert_eq!(exts[0].as_str(), "GADTs");
+            }
+            _ => panic!("Expected Language pragma"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_pragmas() {
+        let module = parse_module_ok("{-# LANGUAGE GADTs #-}\n{-# LANGUAGE TypeFamilies, DataKinds #-}\nx = 1");
+        assert_eq!(module.pragmas.len(), 2);
+    }
+
+    #[test]
+    fn test_options_ghc_pragma() {
+        let module = parse_module_ok("{-# OPTIONS_GHC -Wall -Werror #-}\nx = 1");
+        assert_eq!(module.pragmas.len(), 1);
+        match &module.pragmas[0].kind {
+            bhc_ast::PragmaKind::OptionsGhc(opts) => {
+                assert!(opts.contains("-Wall"));
+                assert!(opts.contains("-Werror"));
+            }
+            _ => panic!("Expected OptionsGhc pragma"),
+        }
+    }
+
+    #[test]
+    fn test_inline_pragma() {
+        let module = parse_module_ok("{-# INLINE foo #-}\nfoo = 1");
+        assert_eq!(module.pragmas.len(), 1);
+        match &module.pragmas[0].kind {
+            bhc_ast::PragmaKind::Inline(name) => {
+                assert_eq!(name.name.as_str(), "foo");
+            }
+            _ => panic!("Expected Inline pragma"),
+        }
+    }
 }

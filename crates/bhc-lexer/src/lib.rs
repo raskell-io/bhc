@@ -141,6 +141,39 @@ impl<'src> Lexer<'src> {
         self.remaining().starts_with(s)
     }
 
+    /// Check if the current position is the start of a line comment.
+    ///
+    /// Per Haskell 2010, a line comment starts with "--" unless it's followed
+    /// by a symbol character (other than "-"). This means:
+    /// - "--"  followed by space/newline/EOF is a comment
+    /// - "---" (or more dashes) is still a comment
+    /// - "-->" or "--=" are operators, not comments
+    fn is_line_comment(&self) -> bool {
+        if !self.starts_with("--") {
+            return false;
+        }
+
+        // Skip past all dashes
+        let remaining = &self.remaining()[2..]; // Skip initial "--"
+        let mut chars = remaining.chars().peekable();
+
+        // Count additional dashes
+        while chars.peek() == Some(&'-') {
+            chars.next();
+        }
+
+        // After all dashes, check what follows
+        match chars.peek() {
+            // End of input or whitespace means it's a comment
+            None => true,
+            Some(c) if c.is_whitespace() => true,
+            // Any operator character (other than dash) means it's an operator
+            Some(c) if Self::is_operator_char(*c) => false,
+            // Any other character means it's a comment
+            _ => true,
+        }
+    }
+
     /// Advance by one character and update position tracking.
     fn advance(&mut self) -> Option<char> {
         let c = self.peek()?;
@@ -224,7 +257,10 @@ impl<'src> Lexer<'src> {
             }
 
             // Check for line comment
-            if self.starts_with("--") && !self.starts_with("---") {
+            // Per Haskell 2010, "--" starts a comment unless followed by a
+            // symbol character (other than "-"). So "---" is still a comment,
+            // but "-->" would be an operator.
+            if self.starts_with("--") && self.is_line_comment() {
                 // Check for doc comment
                 if self.starts_with("-- |") || self.starts_with("-- ^") {
                     if self.config.preserve_doc_comments {
@@ -1345,6 +1381,27 @@ mod tests {
         let kinds = lex_kinds("x -- comment\ny");
         assert!(matches!(kinds[0], TokenKind::Ident(_)));
         assert!(matches!(kinds[1], TokenKind::Ident(_)));
+    }
+
+    #[test]
+    fn test_dash_line_comment() {
+        // A line of dashes is a comment, not an operator
+        let kinds = lex_kinds("x\n-------------------------------------\ny");
+        // x and y should be identifiers, the dashes are a comment
+        assert!(matches!(kinds[0], TokenKind::Ident(_)));
+        assert!(matches!(kinds[1], TokenKind::Ident(_)));
+        // 2 identifiers + Eof, unless layout inserts virtual tokens
+        assert!(kinds.len() >= 2);
+        assert!(!kinds.iter().any(|k| matches!(k, TokenKind::Operator(_))));
+    }
+
+    #[test]
+    fn test_dash_operator() {
+        // "-->" should be an operator, not a comment
+        let kinds = lex_kinds("x --> y");
+        assert!(matches!(kinds[0], TokenKind::Ident(_)));
+        assert!(matches!(kinds[1], TokenKind::Operator(_)));
+        assert!(matches!(kinds[2], TokenKind::Ident(_)));
     }
 
     #[test]

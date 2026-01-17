@@ -26,7 +26,8 @@ This roadmap tracks the implementation of the Basel Haskell Compiler (BHC) from 
 | M7 | GPU Backend | ✅ Complete |
 | M8 | WASM Target | ✅ Complete |
 | M9 | Dependent Types Preview | ✅ Complete |
-| M10 | Cargo-Quality Diagnostics | 🔄 In Progress |
+| M10 | Cargo-Quality Diagnostics | ✅ Complete |
+| M11 | Real-World Haskell Compatibility | 🔄 In Progress |
 
 ---
 
@@ -158,131 +159,128 @@ This roadmap tracks the implementation of the Basel Haskell Compiler (BHC) from 
 
 ---
 
-## Current Milestone
-
-### M10 — Cargo-Quality Diagnostics 🔄
+### M10 — Cargo-Quality Diagnostics ✅
 
 **Goal:** World-class compiler error messages on par with Rust/Cargo.
 
-GHC is notorious for esoteric, hard-to-understand error messages. BHC aims to set a new standard for Haskell compiler diagnostics, taking inspiration from Rust's exemplary error reporting.
+- [x] Phase 1: Diagnostic Infrastructure (Cargo-style rendering, JSON output, error codes)
+- [x] Phase 2: Type Error Overhaul ("Did you mean?" suggestions, type alignment)
+- [x] Phase 3: Shape Error Excellence (Visual ASCII diagrams for tensor shape errors)
+- [x] Phase 4: Contextual Help (Doc links, related codes, common mistakes)
+- [x] Phase 5: IDE Integration (LSP diagnostics, code actions, hover info)
+
+---
+
+## Current Milestone
+
+### M11 — Real-World Haskell Compatibility 🔄
+
+**Goal:** Enable BHC to compile real-world Haskell projects like xmonad, pandoc, and lens.
+
+Currently, BHC's parser requires explicit braces `{}` and doesn't support many standard Haskell features. This milestone focuses on achieving compatibility with existing Haskell codebases.
 
 ### Principles
 
-1. **Human-first** — Errors written for humans, not compiler authors
-2. **Actionable** — Every error suggests how to fix it
-3. **Contextual** — Show relevant code with precise highlighting
-4. **Educational** — Explain *why* something is wrong, not just *what*
-5. **Progressive** — Simple errors get simple messages; complex errors get detailed explanations
+1. **Compatibility** — Parse and compile code written for GHC
+2. **Gradual adoption** — Existing code should "just work"
+3. **Standards-first** — Follow Haskell 2010/GHC extensions where sensible
+4. **Clear errors** — When features aren't supported, say so clearly
 
 ### Deliverables
 
-#### Phase 1: Diagnostic Infrastructure
-- [ ] Rich source spans with multi-line support
-- [ ] Colored terminal output with ASCII art
-- [ ] Machine-readable JSON diagnostic format
-- [ ] Diagnostic severity levels (error, warning, note, help)
-- [ ] Error codes with `--explain E0001` lookup
+#### Phase 1: LANGUAGE Pragmas
+- [ ] Parse `{-# LANGUAGE ExtensionName #-}` at module level
+- [ ] Parse `{-# OPTIONS_GHC ... #-}` (ignore for now)
+- [ ] Parse `{-# INLINE/NOINLINE/SPECIALIZE #-}` pragmas
+- [ ] Track enabled extensions per module
+- [ ] Common extensions: `OverloadedStrings`, `LambdaCase`, `BangPatterns`, etc.
 
-#### Phase 2: Type Error Overhaul
-- [ ] "Expected X, found Y" with source highlighting
-- [ ] Type mismatch shows both types aligned for comparison
-- [ ] Unification trail for complex type errors
-- [ ] "Did you mean?" suggestions for typos
-- [ ] Function arity mismatch with argument highlighting
+#### Phase 2: Layout Rule
+- [ ] Implement Haskell 2010 layout rule (Section 10.3)
+- [ ] Implicit `{`, `}`, `;` insertion based on indentation
+- [ ] Handle `where`, `let`, `do`, `of`, `case` layout contexts
+- [ ] Mixed explicit/implicit layout support
+- [ ] Error recovery for layout mistakes
 
-#### Phase 3: Shape Error Excellence
-- [ ] Matrix dimension mismatch with visual shape diagrams
-- [ ] Broadcasting failure with axis-by-axis breakdown
-- [ ] Shape variable unification explained step-by-step
-- [ ] Tensor operation signatures shown inline
+#### Phase 3: Module System
+- [ ] Full export list syntax: `module Foo (bar, Baz(..), module X) where`
+- [ ] Import declarations with all forms:
+  - `import Foo`
+  - `import Foo (bar, baz)`
+  - `import Foo hiding (bar)`
+  - `import qualified Foo`
+  - `import qualified Foo as F`
+  - `import Foo (Type(..), pattern Pat)`
+- [ ] Qualified names: `Data.Map.lookup`
+- [ ] Hierarchical module names
 
-#### Phase 4: Contextual Help
-- [ ] Related documentation links in errors
-- [ ] Similar function suggestions
-- [ ] Import suggestions for unresolved names
-- [ ] Quick-fix suggestions with `--apply-suggestions`
-- [ ] Common mistake patterns with explanations
+#### Phase 4: Declarations
+- [ ] Type class declarations with methods and default implementations
+- [ ] Instance declarations with method implementations
+- [ ] `deriving` clauses (stock: Eq, Ord, Show, Read, Enum, Bounded)
+- [ ] Standalone deriving: `deriving instance Eq Foo`
+- [ ] GADT syntax for data declarations
+- [ ] Pattern synonyms: `pattern P x = ...`
+- [ ] Foreign declarations: `foreign import/export`
 
-#### Phase 5: IDE Integration
-- [ ] Language Server Protocol (LSP) diagnostics
-- [ ] Inline error rendering
-- [ ] Code action quick fixes
-- [ ] Hover information for error spans
+#### Phase 5: Patterns & Expressions
+- [ ] Pattern guards: `f x | Just y <- g x = ...`
+- [ ] View patterns: `f (view -> pat) = ...`
+- [ ] As-patterns: `f xs@(x:_) = ...`
+- [ ] Record patterns: `f Foo{bar=x} = ...`
+- [ ] Infix constructor patterns: `f (x:xs) = ...`
+- [ ] Where clauses in function definitions
+- [ ] Multi-way if: `if | cond1 -> e1 | cond2 -> e2`
+- [ ] Lambda-case: `\case Pat1 -> e1; Pat2 -> e2`
+- [ ] Typed holes: `_ :: Type`
 
-### Example: Target Error Quality
+#### Phase 6: Types
+- [ ] `forall` quantification: `forall a. a -> a`
+- [ ] Scoped type variables
+- [ ] Type applications: `f @Int x`
+- [ ] Kind signatures: `data Proxy (a :: k) = Proxy`
+- [ ] Type families: `type family F a where ...`
+- [ ] Associated type families in classes
+- [ ] Constraint kinds: `(Show a, Eq a) => ...`
 
-**Before (GHC-style):**
-```
-Couldn't match type 'Tensor '[768, 512] Float'
-                with 'Tensor '[1024, 768] Float'
-Expected: Tensor '[m, k] Float -> Tensor '[k, n] Float -> Tensor '[m, n] Float
-  Actual: Tensor '[1024, 768] Float -> Tensor '[768, 512] Float -> Tensor '[1024, 512] Float
-```
+### Test Strategy
 
-**After (Cargo-style):**
-```
-error[E0030]: matrix multiplication dimension mismatch
-  --> src/Model.hs:42:15
-   |
-42 |   let result = matmul weights input
-   |                ^^^^^^ ^^^^^^^ ^^^^^ Tensor '[768, 512] Float
-   |                |      |
-   |                |      Tensor '[1024, 768] Float
-   |                inner dimensions don't match
-   |
-   = note: matmul requires: Tensor '[m, k] a -> Tensor '[k, n] a -> Tensor '[m, n] a
-   |
-   |       weights: '[1024, 768]  (k = 768)
-   |       input:   '[768, 512]   (k = 768) ✓
-   |
-   |       Wait, these DO match! Let me check again...
-   |
-   = help: the shapes '[1024, 768] @ '[768, 512]' produce '[1024, 512]'
-   = help: did you mean to transpose the input?
-   |
-   |       let result = matmul weights (transpose input)
-   |
-```
+Each phase will be validated against real codebases:
+
+| Phase | Test Target |
+|-------|-------------|
+| 1-2 | Parse xmonad's StackSet.hs without errors |
+| 3 | Resolve imports in a multi-module project |
+| 4 | Compile base library's Data.List |
+| 5-6 | Parse lens library type signatures |
 
 ### Exit Criteria
 
-- [ ] All type errors include source location with highlighted span
-- [ ] All errors have error codes with `--explain` documentation
-- [ ] Shape errors show visual dimension breakdown
-- [ ] 90% of errors include actionable suggestions
-- [ ] LSP integration provides inline diagnostics
-- [ ] User study: BHC errors rated clearer than GHC by 80%+ of participants
+- [ ] `bhc check` succeeds on xmonad source files
+- [ ] `bhc check` succeeds on pandoc source files (excluding Template Haskell)
+- [ ] All Haskell 2010 Report features supported
+- [ ] Common GHC extensions parsed (even if semantics simplified)
+- [ ] Clear error messages for unsupported extensions
 
-### Reference: Rust's Error Design
-
-Key patterns from Rust to adopt:
-- Primary span with `-->` indicator
-- Secondary spans with `|` gutter
-- Color coding: red for errors, yellow for warnings, cyan for notes, green for help
-- Underlines (`^^^`) for precise error location
-- `= note:` for additional context
-- `= help:` for actionable suggestions
-- Error codes (`E0001`) with `--explain` flag
-- Machine-readable JSON with `--error-format=json`
-
-### Key Files to Create/Modify
+### Key Files to Modify
 
 ```
-crates/bhc-diagnostics/src/
-├── lib.rs              # Enhanced diagnostic types
-├── render.rs           # Terminal rendering with colors
-├── span.rs             # Multi-line span handling
-├── suggest.rs          # Suggestion engine
-├── explain.rs          # --explain documentation
-└── json.rs             # JSON output format
+crates/bhc-lexer/src/
+├── lib.rs              # Layout token insertion
+├── layout.rs           # NEW: Layout rule implementation
 
-crates/bhc-typeck/src/
-├── diagnostics.rs      # Type error formatting (enhance existing)
-├── suggest.rs          # Type-specific suggestions
-└── explain/            # Error code explanations
-    ├── E0001.md
-    ├── E0020.md
-    └── ...
+crates/bhc-parser/src/
+├── lib.rs              # Module-level pragma parsing
+├── decl.rs             # Class/instance/GADT declarations
+├── expr.rs             # Pattern guards, lambda-case
+├── pattern.rs          # As-patterns, view patterns
+├── types.rs            # forall, type applications
+├── pragma.rs           # NEW: Pragma parsing
+├── module.rs           # NEW: Import/export parsing
+
+crates/bhc-ast/src/
+├── lib.rs              # New AST nodes for extensions
+├── extension.rs        # NEW: Extension flag tracking
 ```
 
 ---
