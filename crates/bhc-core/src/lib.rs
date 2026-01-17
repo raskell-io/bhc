@@ -61,6 +61,8 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+pub mod eval;
+
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_span::Span;
@@ -524,7 +526,8 @@ mod tests {
         let lit = Expr::Lit(Literal::Int(42), Ty::Error, Span::default());
         assert!(lit.is_value());
 
-        let var = Var::new(Symbol::from_raw(0), VarId::new(0), Ty::Error);
+        // SAFETY: 0 is a valid symbol index for testing
+        let var = Var::new(unsafe { Symbol::from_raw(0) }, VarId::new(0), Ty::Error);
         let var_expr = Expr::Var(var, Span::default());
         assert!(!var_expr.is_value());
     }
@@ -534,17 +537,19 @@ mod tests {
         let lit = Expr::Lit(Literal::Int(42), Ty::Error, Span::default());
         assert!(lit.is_trivial());
 
-        let var = Var::new(Symbol::from_raw(0), VarId::new(0), Ty::Error);
+        // SAFETY: 0 is a valid symbol index for testing
+        let var = Var::new(unsafe { Symbol::from_raw(0) }, VarId::new(0), Ty::Error);
         let var_expr = Expr::Var(var, Span::default());
         assert!(var_expr.is_trivial());
     }
 
     #[test]
     fn test_bind_bound_vars() {
-        let var = Var::new(Symbol::from_raw(0), VarId::new(0), Ty::Error);
+        // SAFETY: 0 is a valid symbol index for testing
+        let var = Var::new(unsafe { Symbol::from_raw(0) }, VarId::new(0), Ty::Error);
         let lit = Expr::Lit(Literal::Int(42), Ty::Error, Span::default());
 
-        let non_rec = Bind::NonRec(var.clone(), lit);
+        let non_rec = Bind::NonRec(var.clone(), Box::new(lit));
         let bound = non_rec.bound_vars();
         assert_eq!(bound.len(), 1);
         assert_eq!(bound[0].id, var.id);
