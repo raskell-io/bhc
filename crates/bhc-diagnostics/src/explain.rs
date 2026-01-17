@@ -14,6 +14,13 @@
 //! - `W0xxx`: Warnings
 //! - `W001x`: Unused bindings (W0010-W0019)
 //! - `W002x`: Deprecated features (W0020-W0029)
+//!
+//! ## M10 Phase 4: Contextual Help
+//!
+//! Each error explanation includes:
+//! - Documentation links to relevant sections
+//! - Related error codes for similar issues
+//! - Common mistake patterns with fixes
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -31,6 +38,21 @@ pub struct ErrorExplanation {
     pub example: Option<&'static str>,
     /// Example of the correct code.
     pub correct_example: Option<&'static str>,
+    /// Link to related documentation.
+    pub doc_link: Option<&'static str>,
+    /// Related error codes that might be relevant.
+    pub related_codes: &'static [&'static str],
+    /// Common mistake patterns that lead to this error.
+    pub common_mistakes: &'static [CommonMistake],
+}
+
+/// A common mistake pattern with its fix.
+#[derive(Clone, Debug)]
+pub struct CommonMistake {
+    /// Description of the mistake pattern.
+    pub pattern: &'static str,
+    /// Suggested fix for this mistake.
+    pub fix: &'static str,
 }
 
 /// Registry of all error code explanations.
@@ -67,6 +89,18 @@ foo :: Int -> Int
 foo x = x + 1
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/type-system"),
+            related_codes: &["E0007", "E0009"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Returning wrong type from function",
+                    fix: "Check the function's type signature matches the return expression",
+                },
+                CommonMistake {
+                    pattern: "Passing string literal where number expected",
+                    fix: "Use numeric literals (42) not strings (\"42\")",
+                },
+            ],
         },
     );
 
@@ -103,6 +137,14 @@ foo :: a -> Tree a
 foo x = Node [Leaf x, foo x]
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/type-inference"),
+            related_codes: &["E0001", "E0022"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Building a list containing the result of a recursive call",
+                    fix: "Use a proper recursive data type instead of lists",
+                },
+            ],
         },
     );
 
@@ -133,6 +175,22 @@ foo = x + 1  -- Error: x is not defined
 foo x = x + 1  -- x is now a parameter
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/scoping"),
+            related_codes: &["E0004"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Typo in variable name (e.g., 'lenght' instead of 'length')",
+                    fix: "Check the 'did you mean?' suggestion in the error message",
+                },
+                CommonMistake {
+                    pattern: "Using a variable from an inner scope",
+                    fix: "Pass the variable as a parameter or define it in the current scope",
+                },
+                CommonMistake {
+                    pattern: "Forgot to import a module",
+                    fix: "Add an import statement for the missing module",
+                },
+            ],
         },
     );
 
@@ -165,6 +223,18 @@ foo = Jus 42  -- Error: typo, should be Just
 foo = Just 42  -- Correct constructor name
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/data-types"),
+            related_codes: &["E0003", "E0005"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Typo in constructor name",
+                    fix: "Check the 'did you mean?' suggestion",
+                },
+                CommonMistake {
+                    pattern: "Constructor not exported",
+                    fix: "Import the module with explicit constructor list",
+                },
+            ],
         },
     );
 
@@ -196,6 +266,14 @@ foo (Point x y) = x + y  -- Correct: matches both fields
 foo (Point x _) = x      -- Ignore second field
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/pattern-matching"),
+            related_codes: &["E0004", "E0008"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Missing pattern variables",
+                    fix: "Use wildcards (_) for fields you don't need",
+                },
+            ],
         },
     );
 
@@ -226,6 +304,18 @@ foo = show (read "42")  -- Error: ambiguous type for read
 foo = show (read "42" :: Int)  -- Explicit type annotation
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/type-inference"),
+            related_codes: &["E0001"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Using read without type annotation",
+                    fix: "Add :: Type after the expression",
+                },
+                CommonMistake {
+                    pattern: "Numeric literal in polymorphic context",
+                    fix: "Add type annotation like (42 :: Int)",
+                },
+            ],
         },
     );
 
@@ -256,6 +346,14 @@ foo :: Int Maybe  -- Error: Int has kind *, not * -> *
 foo :: Maybe Int  -- Correct: Maybe :: * -> *, Int :: *
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/kinds"),
+            related_codes: &["E0001"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Type arguments in wrong order",
+                    fix: "Put type constructor before its argument",
+                },
+            ],
         },
     );
 
@@ -290,6 +388,14 @@ add x y = x + y
 result = add 1 2  -- Correct: 2 arguments
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/functions"),
+            related_codes: &["E0005", "E0009"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Passing extra arguments",
+                    fix: "Check the function's type signature for argument count",
+                },
+            ],
         },
     );
 
@@ -320,6 +426,18 @@ f x = x + 1
 result = f 10  -- Correct: f is a function
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/functions"),
+            related_codes: &["E0001", "E0008"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Applying a non-function value",
+                    fix: "Check if you meant to call a different function",
+                },
+                CommonMistake {
+                    pattern: "Missing operator between values",
+                    fix: "Add the operator like + or * between values",
+                },
+            ],
         },
     );
 
@@ -356,6 +474,18 @@ result = matmul a b  -- Error: dimension mismatch
 result = matmul a b  -- OK: produces [3, 4]
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/tensors/shapes"),
+            related_codes: &["E0023", "E0030", "E0031"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Matrices in wrong order for matmul",
+                    fix: "Try swapping the arguments or transpose one matrix",
+                },
+                CommonMistake {
+                    pattern: "Wrong reshape dimensions",
+                    fix: "Check that total elements match before and after reshape",
+                },
+            ],
         },
     );
 
@@ -390,6 +520,18 @@ b :: Tensor '[10, 5] Float   -- rank 2 (matrix)
 result = matmul a b  -- OK: produces [1, 5]
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/tensors/ranks"),
+            related_codes: &["E0020", "E0030"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Vector where matrix expected",
+                    fix: "Use reshape to add dimension: '[n] -> '[1, n] or '[n, 1]",
+                },
+                CommonMistake {
+                    pattern: "Wrong tensor dimension count",
+                    fix: "Use unsqueeze/squeeze to add/remove dimensions",
+                },
+            ],
         },
     );
 
@@ -439,6 +581,22 @@ result = matmul (transpose weights) input  -- [512, 1024]
 result = matmul input weights  -- Depends on what you want
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/tensors/matmul"),
+            related_codes: &["E0020", "E0023", "E0038"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Arguments in wrong order",
+                    fix: "Try matmul b a instead of matmul a b",
+                },
+                CommonMistake {
+                    pattern: "Forgot to transpose",
+                    fix: "Use transpose on one of the matrices",
+                },
+                CommonMistake {
+                    pattern: "Shapes are reversed from numpy/pytorch convention",
+                    fix: "BHC uses [rows, cols] ordering consistently",
+                },
+            ],
         },
     );
 
@@ -475,6 +633,18 @@ b :: Tensor '[1, 4] Float
 result = a + b  -- OK: b broadcasts to [3, 4]
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/tensors/broadcasting"),
+            related_codes: &["E0020", "E0023"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Non-1 dimensions that don't match",
+                    fix: "Use reshape to make one dimension 1 for broadcasting",
+                },
+                CommonMistake {
+                    pattern: "Broadcasting where elementwise was intended",
+                    fix: "Ensure shapes match exactly or use explicit broadcast",
+                },
+            ],
         },
     );
 
@@ -512,6 +682,18 @@ processTensor dyn = case fromDynamic witness dyn of
     Nothing     -> Nothing  -- Handle shape mismatch
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/tensors/dynamic"),
+            related_codes: &["E0020", "E0023"],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Using fromJust with fromDynamic",
+                    fix: "Always pattern match on Maybe result",
+                },
+                CommonMistake {
+                    pattern: "Not validating runtime shapes",
+                    fix: "Check shape at boundaries using fromDynamic safely",
+                },
+            ],
         },
     );
 
@@ -545,6 +727,18 @@ foo x _y = x + 1  -- No warning: _y is intentionally unused
 foo x y = x + y
 "#,
             ),
+            doc_link: Some("https://bhc.dev/docs/warnings"),
+            related_codes: &[],
+            common_mistakes: &[
+                CommonMistake {
+                    pattern: "Forgot to use variable in computation",
+                    fix: "Use the variable or prefix with _ if intentionally unused",
+                },
+                CommonMistake {
+                    pattern: "Typo in variable name causing apparent unused var",
+                    fix: "Check for similar names used elsewhere",
+                },
+            ],
         },
     );
 
@@ -585,7 +779,34 @@ pub fn format_explanation(explanation: &ErrorExplanation) -> String {
         output.push_str("## Corrected code:\n");
         output.push_str("```haskell");
         output.push_str(correct);
-        output.push_str("```\n");
+        output.push_str("```\n\n");
+    }
+
+    // M10 Phase 4: Common mistakes
+    if !explanation.common_mistakes.is_empty() {
+        output.push_str("## Common Mistakes\n\n");
+        for mistake in explanation.common_mistakes {
+            output.push_str(&format!("**{}**\n", mistake.pattern));
+            output.push_str(&format!("  Fix: {}\n\n", mistake.fix));
+        }
+    }
+
+    // M10 Phase 4: Related error codes
+    if !explanation.related_codes.is_empty() {
+        output.push_str("## Related\n\n");
+        output.push_str("See also: ");
+        let codes: Vec<String> = explanation.related_codes
+            .iter()
+            .map(|c| format!("`{}`", c))
+            .collect();
+        output.push_str(&codes.join(", "));
+        output.push_str("\n\n");
+    }
+
+    // M10 Phase 4: Documentation link
+    if let Some(doc_link) = explanation.doc_link {
+        output.push_str("## Documentation\n\n");
+        output.push_str(&format!("For more information, see: {}\n", doc_link));
     }
 
     output
