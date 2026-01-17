@@ -461,6 +461,7 @@ impl<'src> Parser<'src> {
         let mut decls = Vec::new();
 
         if self.eat(&TokenKind::LBrace) {
+            // Explicit braces
             if !self.check(&TokenKind::RBrace) {
                 decls.push(self.parse_value_decl()?);
                 while self.eat(&TokenKind::Semi) {
@@ -471,8 +472,20 @@ impl<'src> Parser<'src> {
                 }
             }
             self.expect(&TokenKind::RBrace)?;
+        } else if self.eat(&TokenKind::VirtualLBrace) {
+            // Layout-based declarations (implicit braces)
+            if !self.check(&TokenKind::VirtualRBrace) {
+                decls.push(self.parse_value_decl()?);
+                while self.eat(&TokenKind::VirtualSemi) {
+                    if self.check(&TokenKind::VirtualRBrace) {
+                        break;
+                    }
+                    decls.push(self.parse_value_decl()?);
+                }
+            }
+            self.expect(&TokenKind::VirtualRBrace)?;
         } else {
-            // Single declaration (simplified)
+            // Single declaration (no braces)
             decls.push(self.parse_value_decl()?);
         }
 

@@ -471,7 +471,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Layout rule inserts tokens that interfere with record parsing
     fn test_record_pattern() {
         let module = parse_module_ok("f Foo { bar = x } = x");
         assert!(!module.decls.is_empty());
@@ -576,14 +575,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Layout rule interference with class parsing
     fn test_class_declaration() {
         let module = parse_module_ok("class Eq a where\n  eq :: a -> a -> Bool");
         assert!(!module.decls.is_empty());
     }
 
     #[test]
-    #[ignore] // Layout rule interference with instance parsing
     fn test_instance_declaration() {
         let module = parse_module_ok("instance Eq Int where\n  eq = primEqInt");
         assert!(!module.decls.is_empty());
