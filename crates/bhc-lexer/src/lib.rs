@@ -952,7 +952,13 @@ impl<'src> Lexer<'src> {
         match first {
             '\\' => {
                 self.advance();
-                return Token::new(TokenKind::Backslash);
+                // Check if it's part of a longer operator (like \\)
+                if !self.peek().is_some_and(Self::is_operator_char) {
+                    return Token::new(TokenKind::Backslash);
+                }
+                // Restore and continue as general operator
+                self.pos = start;
+                self.column -= 1;
             }
             '=' => {
                 self.advance();

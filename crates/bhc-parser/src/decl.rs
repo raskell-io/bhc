@@ -15,6 +15,9 @@ impl<'src> Parser<'src> {
         // Parse pragmas at the start of the module
         let pragmas = self.parse_pragmas();
 
+        // Skip doc comments that may appear before the module declaration (Haddock)
+        self.skip_doc_comments();
+
         // Optional module header
         let (name, exports) = if self.eat(&TokenKind::Module) {
             let name = self.parse_module_name()?;
@@ -29,10 +32,15 @@ impl<'src> Parser<'src> {
             (None, None)
         };
 
+        // Skip virtual brace from layout rule after `where`
+        self.skip_virtual_tokens();
+
         // Imports
         let mut imports = Vec::new();
         while self.check(&TokenKind::Import) {
             imports.push(self.parse_import()?);
+            // Skip virtual semicolons between imports
+            self.skip_virtual_tokens();
         }
 
         // Declarations
@@ -281,6 +289,32 @@ impl<'src> Parser<'src> {
                 let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
                 Ok(Export::Type(ident, constrs, span))
             }
+            // Handle operators in parentheses: module Foo ((+), (++)) where
+            TokenKind::LParen => {
+                self.advance(); // consume (
+
+                // Expect an operator
+                let op_tok = self.current().ok_or(ParseError::UnexpectedEof {
+                    expected: "operator".to_string(),
+                })?;
+
+                let ident = match &op_tok.node.kind {
+                    TokenKind::Operator(sym) => Ident::new(*sym),
+                    TokenKind::ConOperator(sym) => Ident::new(*sym),
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: op_tok.node.kind.description().to_string(),
+                            expected: "operator".to_string(),
+                            span: op_tok.span,
+                        });
+                    }
+                };
+                self.advance();
+
+                let end = self.expect(&TokenKind::RParen)?;
+                let span = start.to(end.span);
+                Ok(Export::Var(ident, span))
+            }
             _ => Err(ParseError::Unexpected {
                 found: tok.node.kind.description().to_string(),
                 expected: "export item".to_string(),
@@ -314,6 +348,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse an identifier or constructor.
+    /// Also handles operators in parentheses like `(:|)` or `(++)`.
     fn parse_ident_or_con(&mut self) -> ParseResult<Ident> {
         let tok = self.current().ok_or(ParseError::UnexpectedEof {
             expected: "identifier".to_string(),
@@ -323,6 +358,27 @@ impl<'src> Parser<'src> {
             TokenKind::Ident(sym) | TokenKind::ConId(sym) => {
                 let ident = Ident::new(*sym);
                 self.advance();
+                Ok(ident)
+            }
+            // Handle operators in parentheses: (:|), (++)
+            TokenKind::LParen => {
+                self.advance(); // consume (
+                let op_tok = self.current().ok_or(ParseError::UnexpectedEof {
+                    expected: "operator".to_string(),
+                })?;
+
+                let ident = match &op_tok.node.kind {
+                    TokenKind::Operator(sym) | TokenKind::ConOperator(sym) => Ident::new(*sym),
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: op_tok.node.kind.description().to_string(),
+                            expected: "operator".to_string(),
+                            span: op_tok.span,
+                        });
+                    }
+                };
+                self.advance();
+                self.expect(&TokenKind::RParen)?;
                 Ok(ident)
             }
             _ => Err(ParseError::Unexpected {
@@ -421,6 +477,33 @@ impl<'src> Parser<'src> {
 
                 let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
                 Ok(Import::Type(ident, constrs, span))
+            }
+            // Handle operators in parentheses: import Data.Bits ((.|.))
+            TokenKind::LParen => {
+                let start = tok.span;
+                self.advance(); // consume (
+
+                // Expect an operator
+                let op_tok = self.current().ok_or(ParseError::UnexpectedEof {
+                    expected: "operator".to_string(),
+                })?;
+
+                let ident = match &op_tok.node.kind {
+                    TokenKind::Operator(sym) => Ident::new(*sym),
+                    TokenKind::ConOperator(sym) => Ident::new(*sym),
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: op_tok.node.kind.description().to_string(),
+                            expected: "operator".to_string(),
+                            span: op_tok.span,
+                        });
+                    }
+                };
+                self.advance();
+
+                let end = self.expect(&TokenKind::RParen)?;
+                let span = start.to(end.span);
+                Ok(Import::Var(ident, span))
             }
             _ => Err(ParseError::Unexpected {
                 found: tok.node.kind.description().to_string(),

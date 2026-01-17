@@ -174,6 +174,19 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Skip doc comments (Haddock comments like `-- |` or `{- | ... -}`).
+    /// These can appear before module declarations in real-world Haskell code.
+    fn skip_doc_comments(&mut self) {
+        while let Some(kind) = self.current_kind() {
+            match kind {
+                TokenKind::DocCommentLine(_) | TokenKind::DocCommentBlock(_) => {
+                    self.advance();
+                }
+                _ => break,
+            }
+        }
+    }
+
     /// Expect a token of the given kind.
     fn expect(&mut self, kind: &TokenKind) -> ParseResult<Spanned<Token>> {
         if self.check(kind) {
