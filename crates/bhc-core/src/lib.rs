@@ -156,6 +156,15 @@ pub enum Expr {
     /// Case expression: `case e of { alts }`.
     Case(Box<Expr>, Vec<Alt>, Ty, Span),
 
+    /// Lazy evaluation escape hatch: `lazy { e }`.
+    ///
+    /// In strict profiles (Numeric, Edge), this forces the inner expression
+    /// to be evaluated lazily (wrapped in a thunk). This provides an
+    /// escape hatch for code that genuinely needs lazy evaluation.
+    ///
+    /// See H26-SPEC Section 6.4 for the lazy escape hatch specification.
+    Lazy(Box<Expr>, Span),
+
     /// Type cast with a coercion.
     Cast(Box<Expr>, Coercion, Span),
 
@@ -182,6 +191,7 @@ impl Expr {
             | Self::TyLam(_, _, span)
             | Self::Let(_, _, span)
             | Self::Case(_, _, _, span)
+            | Self::Lazy(_, span)
             | Self::Cast(_, _, span)
             | Self::Tick(_, _, span)
             | Self::Type(_, span)
@@ -225,6 +235,7 @@ impl Expr {
             Self::TyLam(tv, body, _) => Ty::Forall(vec![tv.clone()], Box::new(body.ty())),
             Self::Let(_, body, _) => body.ty(),
             Self::Case(_, _, ty, _) => ty.clone(),
+            Self::Lazy(e, _) => e.ty(),
             Self::Cast(_, coercion, _) => coercion.result_ty.clone(),
             Self::Tick(_, e, _) => e.ty(),
             Self::Type(_, _) => Ty::Error, // Types have kind, not type
@@ -237,6 +248,8 @@ impl Expr {
     pub fn is_value(&self) -> bool {
         match self {
             Self::Lit(_, _, _) | Self::Lam(_, _, _) | Self::TyLam(_, _, _) => true,
+            // Lazy blocks create thunks, so they are values (a thunk is WHNF)
+            Self::Lazy(_, _) => true,
             Self::Tick(_, e, _) => e.is_value(),
             Self::Cast(e, _, _) => e.is_value(),
             _ => false,
@@ -311,7 +324,9 @@ impl Expr {
                     }
                 }
             }
-            Self::Cast(e, _, _) | Self::Tick(_, e, _) => e.collect_free_vars(free, bound),
+            Self::Cast(e, _, _) | Self::Tick(_, e, _) | Self::Lazy(e, _) => {
+                e.collect_free_vars(free, bound);
+            }
         }
     }
 }

@@ -136,6 +136,10 @@ pub enum Ty {
     /// A type constructor (e.g., `Int`, `Maybe`, `[]`).
     Con(TyCon),
 
+    /// An unboxed primitive type (e.g., `Int#`, `Double#`).
+    /// Used in Numeric Profile for zero-overhead computation.
+    Prim(PrimTy),
+
     /// Type application (e.g., `Maybe Int`, `Either String`).
     App(Box<Ty>, Box<Ty>),
 
@@ -176,6 +180,39 @@ impl Ty {
         Self::List(Box::new(elem))
     }
 
+    /// Creates an unboxed `Int#` type (64-bit signed integer).
+    #[must_use]
+    pub fn int_prim() -> Self {
+        Self::Prim(PrimTy::I64)
+    }
+
+    /// Creates an unboxed `Double#` type (64-bit float).
+    #[must_use]
+    pub fn double_prim() -> Self {
+        Self::Prim(PrimTy::F64)
+    }
+
+    /// Creates an unboxed `Float#` type (32-bit float).
+    #[must_use]
+    pub fn float_prim() -> Self {
+        Self::Prim(PrimTy::F32)
+    }
+
+    /// Returns true if this is an unboxed primitive type.
+    #[must_use]
+    pub fn is_prim(&self) -> bool {
+        matches!(self, Self::Prim(_))
+    }
+
+    /// Returns the primitive type if this is a Prim variant.
+    #[must_use]
+    pub fn as_prim(&self) -> Option<PrimTy> {
+        match self {
+            Self::Prim(p) => Some(*p),
+            _ => None,
+        }
+    }
+
     /// Returns true if this is a function type.
     #[must_use]
     pub fn is_fun(&self) -> bool {
@@ -203,7 +240,7 @@ impl Ty {
                     vars.push(v.clone());
                 }
             }
-            Self::Con(_) | Self::Error => {}
+            Self::Con(_) | Self::Prim(_) | Self::Error => {}
             Self::App(f, a) | Self::Fun(f, a) => {
                 f.collect_free_vars(vars);
                 a.collect_free_vars(vars);
@@ -356,7 +393,7 @@ impl Subst {
     pub fn apply(&self, ty: &Ty) -> Ty {
         match ty {
             Ty::Var(v) => self.get(v).cloned().unwrap_or_else(|| ty.clone()),
-            Ty::Con(_) => ty.clone(),
+            Ty::Con(_) | Ty::Prim(_) => ty.clone(),
             Ty::App(f, a) => Ty::App(Box::new(self.apply(f)), Box::new(self.apply(a))),
             Ty::Fun(from, to) => Ty::Fun(Box::new(self.apply(from)), Box::new(self.apply(to))),
             Ty::Tuple(tys) => Ty::Tuple(tys.iter().map(|t| self.apply(t)).collect()),
@@ -390,6 +427,101 @@ impl Subst {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.mapping.is_empty()
+    }
+}
+
+/// Unboxed primitive types for the Numeric Profile.
+///
+/// These types represent machine-level primitives that are:
+/// - Unboxed: No heap allocation, stored directly in registers/stack
+/// - Strict: Always fully evaluated, no thunks
+/// - Fixed-size: Known size at compile time
+///
+/// Used in Numeric Profile for zero-overhead numeric computation.
+/// See H26-SPEC Section 6.2 for unboxed type requirements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PrimTy {
+    /// 32-bit signed integer (Int32#).
+    I32,
+    /// 64-bit signed integer (Int64#, Int#).
+    I64,
+    /// 32-bit unsigned integer (Word32#).
+    U32,
+    /// 64-bit unsigned integer (Word64#, Word#).
+    U64,
+    /// 32-bit IEEE 754 float (Float#).
+    F32,
+    /// 64-bit IEEE 754 double (Double#).
+    F64,
+    /// 8-bit character/byte (Char#).
+    Char,
+    /// Machine-sized pointer (Addr#).
+    Addr,
+}
+
+impl PrimTy {
+    /// Returns the size in bytes of this primitive type.
+    #[must_use]
+    pub const fn size_bytes(self) -> usize {
+        match self {
+            Self::I32 | Self::U32 | Self::F32 => 4,
+            Self::I64 | Self::U64 | Self::F64 | Self::Addr => 8,
+            Self::Char => 4, // Unicode code point
+        }
+    }
+
+    /// Returns the alignment requirement in bytes.
+    #[must_use]
+    pub const fn alignment(self) -> usize {
+        self.size_bytes()
+    }
+
+    /// Returns the GHC-style name for this primitive type.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::I32 => "Int32#",
+            Self::I64 => "Int#",
+            Self::U32 => "Word32#",
+            Self::U64 => "Word#",
+            Self::F32 => "Float#",
+            Self::F64 => "Double#",
+            Self::Char => "Char#",
+            Self::Addr => "Addr#",
+        }
+    }
+
+    /// Returns true if this is a signed integer type.
+    #[must_use]
+    pub const fn is_signed_int(self) -> bool {
+        matches!(self, Self::I32 | Self::I64)
+    }
+
+    /// Returns true if this is an unsigned integer type.
+    #[must_use]
+    pub const fn is_unsigned_int(self) -> bool {
+        matches!(self, Self::U32 | Self::U64)
+    }
+
+    /// Returns true if this is a floating-point type.
+    #[must_use]
+    pub const fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+
+    /// Returns true if this is a numeric type.
+    #[must_use]
+    pub const fn is_numeric(self) -> bool {
+        matches!(
+            self,
+            Self::I32 | Self::I64 | Self::U32 | Self::U64 | Self::F32 | Self::F64
+        )
+    }
+}
+
+impl std::fmt::Display for PrimTy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 
@@ -492,5 +624,69 @@ mod tests {
         let int_con = TyCon::new(unsafe { Symbol::from_raw(0) }, Kind::Star);
         let scheme = Scheme::mono(Ty::Con(int_con));
         assert!(scheme.is_mono());
+    }
+
+    #[test]
+    fn test_prim_ty_properties() {
+        assert_eq!(PrimTy::I64.size_bytes(), 8);
+        assert_eq!(PrimTy::I32.size_bytes(), 4);
+        assert_eq!(PrimTy::F64.size_bytes(), 8);
+        assert_eq!(PrimTy::F32.size_bytes(), 4);
+
+        assert!(PrimTy::I64.is_signed_int());
+        assert!(PrimTy::I32.is_signed_int());
+        assert!(!PrimTy::U64.is_signed_int());
+
+        assert!(PrimTy::F64.is_float());
+        assert!(PrimTy::F32.is_float());
+        assert!(!PrimTy::I64.is_float());
+
+        assert!(PrimTy::I64.is_numeric());
+        assert!(PrimTy::F64.is_numeric());
+        assert!(!PrimTy::Char.is_numeric());
+        assert!(!PrimTy::Addr.is_numeric());
+    }
+
+    #[test]
+    fn test_prim_ty_names() {
+        assert_eq!(PrimTy::I64.name(), "Int#");
+        assert_eq!(PrimTy::F64.name(), "Double#");
+        assert_eq!(PrimTy::F32.name(), "Float#");
+        assert_eq!(PrimTy::Char.name(), "Char#");
+    }
+
+    #[test]
+    fn test_ty_prim_constructors() {
+        let int = Ty::int_prim();
+        assert!(int.is_prim());
+        assert_eq!(int.as_prim(), Some(PrimTy::I64));
+
+        let double = Ty::double_prim();
+        assert!(double.is_prim());
+        assert_eq!(double.as_prim(), Some(PrimTy::F64));
+
+        // Non-prim type
+        let unit = Ty::unit();
+        assert!(!unit.is_prim());
+        assert_eq!(unit.as_prim(), None);
+    }
+
+    #[test]
+    fn test_prim_ty_no_free_vars() {
+        // Primitive types have no free type variables
+        let prim = Ty::int_prim();
+        assert!(prim.free_vars().is_empty());
+    }
+
+    #[test]
+    fn test_subst_prim_unchanged() {
+        // Substitution should leave primitive types unchanged
+        let a = TyVar::new_star(0);
+        let mut subst = Subst::new();
+        subst.insert(&a, Ty::unit());
+
+        let prim = Ty::int_prim();
+        let result = subst.apply(&prim);
+        assert_eq!(result, prim);
     }
 }

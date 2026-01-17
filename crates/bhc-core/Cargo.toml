@@ -14,6 +14,7 @@ bhc-index = { workspace = true }
 bhc-arena = { workspace = true }
 bhc-data-structures = { workspace = true }
 bhc-types = { workspace = true }
+bhc-session = { workspace = true }
 
 # External dependencies
 serde = { workspace = true }

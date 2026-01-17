@@ -8,7 +8,13 @@
 //!
 //! ```ignore
 //! use bhc_core::eval::{Evaluator, EvalMode};
+//! use bhc_session::Profile;
 //!
+//! // Create evaluator from profile
+//! let evaluator = Evaluator::with_profile(Profile::Numeric);
+//! let result = evaluator.eval(&expr)?;
+//!
+//! // Or create with explicit mode
 //! let evaluator = Evaluator::new(EvalMode::Lazy);
 //! let result = evaluator.eval(&expr)?;
 //! ```
@@ -23,6 +29,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use bhc_intern::Symbol;
+use bhc_session::Profile;
 use thiserror::Error;
 
 use crate::{AltCon, Bind, Expr, Literal, Var, VarId};
@@ -76,6 +83,16 @@ pub enum EvalMode {
     Strict,
 }
 
+impl From<Profile> for EvalMode {
+    fn from(profile: Profile) -> Self {
+        if profile.is_strict_by_default() {
+            Self::Strict
+        } else {
+            Self::Lazy
+        }
+    }
+}
+
 /// The Core IR evaluator.
 pub struct Evaluator {
     /// Evaluation mode (lazy or strict).
@@ -101,6 +118,41 @@ impl Evaluator {
             max_depth: 10000,
             depth: RefCell::new(0),
         }
+    }
+
+    /// Creates a new evaluator from a compilation profile.
+    ///
+    /// This is the preferred way to create an evaluator when working with
+    /// the BHC compilation pipeline. The profile determines the evaluation
+    /// semantics:
+    ///
+    /// - `Profile::Default` / `Profile::Server` → Lazy evaluation
+    /// - `Profile::Numeric` / `Profile::Edge` → Strict evaluation
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use bhc_core::eval::Evaluator;
+    /// use bhc_session::Profile;
+    ///
+    /// let eval = Evaluator::with_profile(Profile::Numeric);
+    /// // Expressions are now evaluated strictly
+    /// ```
+    #[must_use]
+    pub fn with_profile(profile: Profile) -> Self {
+        Self::new(EvalMode::from(profile))
+    }
+
+    /// Returns the evaluation mode of this evaluator.
+    #[must_use]
+    pub fn mode(&self) -> EvalMode {
+        self.mode
+    }
+
+    /// Returns true if this evaluator uses strict evaluation.
+    #[must_use]
+    pub fn is_strict(&self) -> bool {
+        self.mode == EvalMode::Strict
     }
 
     /// Sets the maximum recursion depth.
@@ -210,6 +262,16 @@ impl Evaluator {
             Expr::Let(bind, body, _) => self.eval_let(bind, body, env),
 
             Expr::Case(scrut, alts, _, _) => self.eval_case(scrut, alts, env),
+
+            Expr::Lazy(inner, _) => {
+                // The lazy escape hatch: always create a thunk, even in strict mode.
+                // This allows code that genuinely needs lazy evaluation to work
+                // correctly in Numeric Profile.
+                Ok(Value::Thunk(Thunk {
+                    expr: inner.clone(),
+                    env: env.clone(),
+                }))
+            }
 
             Expr::Cast(e, _, _) => {
                 // Coercions are erased at runtime
@@ -1264,5 +1326,192 @@ mod tests {
         }
 
         expr
+    }
+
+    // =========================================================================
+    // M1 Tests - Numeric Profile Strict-by-Default
+    // =========================================================================
+
+    #[test]
+    fn test_eval_mode_from_profile() {
+        // Default and Server profiles use lazy evaluation
+        assert_eq!(EvalMode::from(Profile::Default), EvalMode::Lazy);
+        assert_eq!(EvalMode::from(Profile::Server), EvalMode::Lazy);
+
+        // Numeric and Edge profiles use strict evaluation
+        assert_eq!(EvalMode::from(Profile::Numeric), EvalMode::Strict);
+        assert_eq!(EvalMode::from(Profile::Edge), EvalMode::Strict);
+    }
+
+    #[test]
+    fn test_evaluator_with_profile() {
+        let lazy_eval = Evaluator::with_profile(Profile::Default);
+        assert!(!lazy_eval.is_strict());
+        assert_eq!(lazy_eval.mode(), EvalMode::Lazy);
+
+        let strict_eval = Evaluator::with_profile(Profile::Numeric);
+        assert!(strict_eval.is_strict());
+        assert_eq!(strict_eval.mode(), EvalMode::Strict);
+    }
+
+    #[test]
+    fn test_strict_evaluation_forces_let_bindings() {
+        // In strict mode, let bindings are eagerly evaluated
+        // let x = 1 + 2 in x * 3
+        // This is a key M1 exit criterion: strict evaluation of let-bindings
+
+        let eval = Evaluator::with_profile(Profile::Numeric);
+
+        let x = make_var("x", 0);
+        let add = Expr::Var(make_var("+", 100), Span::default());
+        let mul = Expr::Var(make_var("*", 101), Span::default());
+
+        // 1 + 2
+        let add_expr = Expr::App(
+            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // x * 3
+        let mul_expr = Expr::App(
+            Box::new(Expr::App(
+                Box::new(mul),
+                Box::new(Expr::Var(x.clone(), Span::default())),
+                Span::default(),
+            )),
+            Box::new(make_int(3)),
+            Span::default(),
+        );
+
+        // let x = 1 + 2 in x * 3
+        let expr = Expr::Let(
+            Box::new(Bind::NonRec(x, Box::new(add_expr))),
+            Box::new(mul_expr),
+            Span::default(),
+        );
+
+        let result = eval.eval(&expr, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(9))); // (1 + 2) * 3 = 9
+    }
+
+    #[test]
+    fn test_strict_mode_evaluates_unused_bindings() {
+        // In strict mode, error in binding is raised even if binding is unused
+        // let x = error "boom" in 42 -> error in strict mode
+        let eval = Evaluator::with_profile(Profile::Numeric);
+
+        let x = make_var("x", 0);
+        let error_call = Expr::App(
+            Box::new(Expr::Var(make_var("error", 100), Span::default())),
+            Box::new(Expr::Lit(
+                Literal::String(Symbol::intern("boom")),
+                Ty::Error,
+                Span::default(),
+            )),
+            Span::default(),
+        );
+
+        let expr = Expr::Let(
+            Box::new(Bind::NonRec(x, Box::new(error_call))),
+            Box::new(make_int(42)),
+            Span::default(),
+        );
+
+        // In strict mode, the error binding is evaluated even though unused
+        let result = eval.eval(&expr, &Env::new());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lazy_escape_hatch_in_strict_mode() {
+        // The lazy { } escape hatch should make evaluation lazy even in strict mode
+        // let x = lazy { error "boom" } in 42 -> 42 (thunk not forced)
+        let eval = Evaluator::with_profile(Profile::Numeric);
+        assert!(eval.is_strict());
+
+        let x = make_var("x", 0);
+        let error_call = Expr::App(
+            Box::new(Expr::Var(make_var("error", 100), Span::default())),
+            Box::new(Expr::Lit(
+                Literal::String(Symbol::intern("boom")),
+                Ty::Error,
+                Span::default(),
+            )),
+            Span::default(),
+        );
+
+        // Wrap the error in lazy { }
+        let lazy_error = Expr::Lazy(Box::new(error_call), Span::default());
+
+        let expr = Expr::Let(
+            Box::new(Bind::NonRec(x, Box::new(lazy_error))),
+            Box::new(make_int(42)),
+            Span::default(),
+        );
+
+        // With lazy escape hatch, the error is not evaluated
+        let result = eval.eval(&expr, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(42)));
+    }
+
+    #[test]
+    fn test_lazy_escape_hatch_creates_thunk() {
+        // lazy { expr } should create a thunk
+        let eval = Evaluator::with_profile(Profile::Numeric);
+
+        let lazy_expr = Expr::Lazy(Box::new(make_int(42)), Span::default());
+        let result = eval.eval(&lazy_expr, &Env::new()).unwrap();
+
+        // The result should be a thunk
+        assert!(result.is_thunk());
+
+        // When forced, it should give 42
+        let forced = eval.force(result).unwrap();
+        assert!(matches!(forced, Value::Int(42)));
+    }
+
+    #[test]
+    fn test_m1_exit_criteria_strict_let_binding() {
+        // M1 Exit Criterion: strict evaluation of `let x = 1 + 2 in x * 3`
+        // evaluates to 9 with no thunks in Numeric Profile
+        let eval = Evaluator::with_profile(Profile::Numeric);
+
+        let x = make_var("x", 0);
+        let add = Expr::Var(make_var("+", 100), Span::default());
+        let mul = Expr::Var(make_var("*", 101), Span::default());
+
+        // 1 + 2
+        let add_expr = Expr::App(
+            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // x * 3
+        let mul_expr = Expr::App(
+            Box::new(Expr::App(
+                Box::new(mul),
+                Box::new(Expr::Var(x.clone(), Span::default())),
+                Span::default(),
+            )),
+            Box::new(make_int(3)),
+            Span::default(),
+        );
+
+        // let x = 1 + 2 in x * 3
+        let expr = Expr::Let(
+            Box::new(Bind::NonRec(x, Box::new(add_expr))),
+            Box::new(mul_expr),
+            Span::default(),
+        );
+
+        let result = eval.eval(&expr, &Env::new()).unwrap();
+
+        // Result should be 9
+        assert!(matches!(result, Value::Int(9)));
+
+        // Result should not be a thunk (no thunks in strict mode result)
+        assert!(!result.is_thunk());
     }
 }

@@ -58,6 +58,13 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
             }
         }
 
+        // Primitive types: must be the same
+        (Ty::Prim(p1), Ty::Prim(p2)) => {
+            if p1 != p2 {
+                diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+            }
+        }
+
         // Type applications: unify both components
         (Ty::App(f1, a1), Ty::App(f2, a2)) => {
             unify_inner(ctx, f1, f2, span);
@@ -135,7 +142,7 @@ fn bind_var(ctx: &mut TyCtxt, var: &TyVar, ty: &Ty, span: Span) {
 fn occurs_check(var: &TyVar, ty: &Ty) -> bool {
     match ty {
         Ty::Var(v) => v.id == var.id,
-        Ty::Con(_) | Ty::Error => false,
+        Ty::Con(_) | Ty::Prim(_) | Ty::Error => false,
         Ty::App(f, a) => occurs_check(var, f) || occurs_check(var, a),
         Ty::Fun(from, to) => occurs_check(var, from) || occurs_check(var, to),
         Ty::Tuple(tys) => tys.iter().any(|t| occurs_check(var, t)),

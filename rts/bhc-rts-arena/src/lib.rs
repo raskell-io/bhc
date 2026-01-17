@@ -370,7 +370,7 @@ mod tests {
         assert_eq!(*x, 42);
 
         let y = arena.alloc(3.14f64).unwrap();
-        assert!((y - 3.14).abs() < f64::EPSILON);
+        assert!((*y - 3.14).abs() < f64::EPSILON);
 
         assert!(arena.used() > 0);
     }

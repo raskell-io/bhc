@@ -112,6 +112,7 @@ fn pretty_ty(ty: &Ty) -> String {
     match ty {
         Ty::Var(v) => pretty_tyvar(v),
         Ty::Con(c) => c.name.as_str().to_string(),
+        Ty::Prim(p) => p.name().to_string(),
         Ty::App(f, a) => format!("({} {})", pretty_ty(f), pretty_ty(a)),
         Ty::Fun(from, to) => format!("({} -> {})", pretty_ty(from), pretty_ty(to)),
         Ty::Tuple(tys) if tys.is_empty() => "()".to_string(),

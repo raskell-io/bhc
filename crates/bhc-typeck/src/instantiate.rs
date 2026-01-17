@@ -49,7 +49,7 @@ pub fn instantiate(ctx: &mut TyCtxt, scheme: &Scheme) -> Ty {
 fn substitute(ty: &Ty, subst: &FxHashMap<u32, Ty>) -> Ty {
     match ty {
         Ty::Var(v) => subst.get(&v.id).cloned().unwrap_or_else(|| ty.clone()),
-        Ty::Con(_) => ty.clone(),
+        Ty::Con(_) | Ty::Prim(_) => ty.clone(),
         Ty::App(f, a) => Ty::App(
             Box::new(substitute(f, subst)),
             Box::new(substitute(a, subst)),
