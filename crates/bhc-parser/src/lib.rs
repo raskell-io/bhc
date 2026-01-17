@@ -517,7 +517,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // forall parsing needs work on `.` handling
     fn test_forall_type() {
         let module = parse_module_ok("f :: forall a. a -> a");
         assert!(!module.decls.is_empty());

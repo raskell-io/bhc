@@ -315,7 +315,8 @@ impl<'src> Parser<'src> {
                     self.advance();
                     vars.push(TyVar { name, span });
                 }
-                TokenKind::Operator(s) if s.as_str() == "." => {
+                // The `.` is lexed as TokenKind::Dot, not Operator(".")
+                TokenKind::Dot => {
                     self.advance();
                     break;
                 }
