@@ -1,0 +1,31 @@
+[package]
+name = "bhc-typeck"
+description = "Hindley-Milner type checker for the Basel Haskell Compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Internal crates
+bhc-hir.workspace = true
+bhc-types.workspace = true
+bhc-diagnostics.workspace = true
+bhc-span.workspace = true
+bhc-intern.workspace = true
+bhc-index.workspace = true
+
+# External dependencies
+rustc-hash.workspace = true
+thiserror.workspace = true
+im.workspace = true           # Persistent hash maps for scoping
+petgraph.workspace = true     # SCC computation for binding groups
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

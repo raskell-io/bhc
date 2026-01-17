@@ -21,6 +21,7 @@ members = [
 
     # Type system
     "crates/bhc-types",
+    "crates/bhc-typeck",
 
     # Intermediate representations
     "crates/bhc-hir",
@@ -78,6 +79,7 @@ bhc-lexer = { path = "crates/bhc-lexer" }
 bhc-ast = { path = "crates/bhc-ast" }
 bhc-parser = { path = "crates/bhc-parser" }
 bhc-types = { path = "crates/bhc-types" }
+bhc-typeck = { path = "crates/bhc-typeck" }
 bhc-hir = { path = "crates/bhc-hir" }
 bhc-core = { path = "crates/bhc-core" }
 bhc-tensor-ir = { path = "crates/bhc-tensor-ir" }
@@ -109,6 +111,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12"
+petgraph = "0.6"
 dashmap = "5.5"
 rustc-hash = "1.1"
 indexmap = "2.1"
@@ -123,6 +126,7 @@ num-traits = "0.2"
 num-derive = "0.4"
 bitflags = { version = "2.4", features = ["serde"] }
 either = "1.9"
+im = "15.1"
 itertools = "0.12"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
