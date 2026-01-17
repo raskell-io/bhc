@@ -1098,6 +1098,11 @@ impl<'src> Lexer<'src> {
             }
         }
 
+        // Handle explicit open brace - push explicit context
+        if token.kind == TokenKind::LBrace {
+            self.layout_stack.push((0, true)); // Explicit context
+        }
+
         // Handle explicit close brace
         if token.kind == TokenKind::RBrace {
             // Close any implicit contexts until we find explicit one
@@ -1222,11 +1227,19 @@ impl<'src> Lexer<'src> {
         };
 
         let span = Span::from_raw(start as u32, self.pos as u32);
+        let current_tok = Spanned::new(token, span);
 
         // Handle layout rule
-        self.handle_layout(&token, start_col);
+        self.handle_layout(&current_tok.node, start_col);
 
-        Some(Spanned::new(token, span))
+        // If layout rule generated pending tokens, they should come BEFORE current token
+        if !self.pending.is_empty() {
+            // Add current token to end of pending, return first pending
+            self.pending.insert(0, current_tok);
+            Some(self.pending.pop().unwrap())
+        } else {
+            Some(current_tok)
+        }
     }
 }
 
@@ -1542,6 +1555,34 @@ mod tests {
         assert!(matches!(kinds[0], TokenKind::ConOperator(_)));
         assert!(matches!(kinds[1], TokenKind::ConOperator(_)));
         assert!(matches!(kinds[2], TokenKind::ConOperator(_)));
+    }
+
+    #[test]
+    fn test_layout_module_exports() {
+        // Test module with export list
+        let src = "module Foo (bar, baz) where\nbar = 1\nbaz = 2";
+        let kinds = lex_kinds(src);
+
+        // Token sequence should be:
+        // Module, ConId(Foo), LParen, Ident(bar), Comma, Ident(baz), RParen, Where,
+        // VirtualLBrace, Ident(bar), Eq, IntLit, VirtualSemi, Ident(baz), Eq, IntLit, VirtualRBrace, Eof
+
+        assert_eq!(kinds[0], TokenKind::Module);
+        assert!(matches!(kinds[1], TokenKind::ConId(_))); // Foo
+        assert_eq!(kinds[2], TokenKind::LParen);
+        assert!(matches!(kinds[3], TokenKind::Ident(_))); // bar
+        assert_eq!(kinds[4], TokenKind::Comma);
+        assert!(matches!(kinds[5], TokenKind::Ident(_))); // baz
+        assert_eq!(kinds[6], TokenKind::RParen);
+        assert_eq!(kinds[7], TokenKind::Where);
+        assert_eq!(kinds[8], TokenKind::VirtualLBrace);
+        assert!(matches!(kinds[9], TokenKind::Ident(_))); // bar
+        assert_eq!(kinds[10], TokenKind::Eq);
+        assert!(matches!(kinds[11], TokenKind::IntLit(_))); // 1
+        assert_eq!(kinds[12], TokenKind::VirtualSemi);
+        assert!(matches!(kinds[13], TokenKind::Ident(_))); // baz
+        assert_eq!(kinds[14], TokenKind::Eq);
+        assert!(matches!(kinds[15], TokenKind::IntLit(_))); // 2
     }
 
     #[test]

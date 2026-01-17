@@ -531,28 +531,24 @@ mod tests {
     // Module structure tests
 
     #[test]
-    #[ignore] // Layout rule interference with module parsing
     fn test_module_header() {
         let module = parse_module_ok("module Foo where\nx = 1");
         assert!(module.name.is_some());
     }
 
     #[test]
-    #[ignore] // Layout rule interference with module parsing
     fn test_module_exports() {
         let module = parse_module_ok("module Foo (bar, baz) where\nbar = 1\nbaz = 2");
         assert!(module.exports.is_some());
     }
 
     #[test]
-    #[ignore] // Qualified module names need lexer/parser coordination
     fn test_imports() {
         let module = parse_module_ok("import Data.List\nx = 1");
         assert!(!module.imports.is_empty());
     }
 
     #[test]
-    #[ignore] // Qualified module names need lexer/parser coordination
     fn test_qualified_import() {
         let module = parse_module_ok("import qualified Data.Map as M\nx = 1");
         assert!(!module.imports.is_empty());

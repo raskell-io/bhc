@@ -176,37 +176,51 @@ impl<'src> Parser<'src> {
         let start = self.current_span();
         let mut parts = Vec::new();
 
-        loop {
-            let tok = self.current().ok_or(ParseError::UnexpectedEof {
-                expected: "module name".to_string(),
-            })?;
+        let tok = self.current().ok_or(ParseError::UnexpectedEof {
+            expected: "module name".to_string(),
+        })?;
 
-            match &tok.node.kind {
-                TokenKind::ConId(sym) => {
-                    parts.push(*sym);
-                    self.advance();
-                }
-                _ => {
-                    if parts.is_empty() {
-                        return Err(ParseError::Unexpected {
-                            found: tok.node.kind.description().to_string(),
-                            expected: "module name".to_string(),
-                            span: tok.span,
-                        });
+        match &tok.node.kind {
+            // Simple module name: Foo
+            TokenKind::ConId(sym) => {
+                parts.push(*sym);
+                self.advance();
+
+                // Check for dot continuation (for manual A.B.C parsing)
+                while let Some(next) = self.current() {
+                    if matches!(&next.node.kind, TokenKind::Operator(s) if s.as_str() == ".") {
+                        self.advance();
+                        // Expect another ConId
+                        if let Some(tok) = self.current() {
+                            if let TokenKind::ConId(sym) = &tok.node.kind {
+                                parts.push(*sym);
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
                     }
-                    break;
                 }
             }
-
-            // Check for dot continuation
-            if let Some(next) = self.current() {
-                if matches!(&next.node.kind, TokenKind::Operator(s) if s.as_str() == ".") {
-                    self.advance();
-                } else {
-                    break;
+            // Qualified module name: Data.List (lexer produces this as single token)
+            TokenKind::QualConId(qualifier, name) => {
+                // Split qualifier on dots and add parts
+                for part in qualifier.as_str().split('.') {
+                    parts.push(Symbol::intern(part));
                 }
-            } else {
-                break;
+                parts.push(*name);
+                self.advance();
+            }
+            _ => {
+                return Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "module name".to_string(),
+                    span: tok.span,
+                });
             }
         }
 
@@ -328,17 +342,8 @@ impl<'src> Parser<'src> {
         let module = self.parse_module_name()?;
 
         // Check for "as Alias"
-        let alias = if let Some(tok) = self.current() {
-            if let TokenKind::Ident(s) = &tok.node.kind {
-                if s.as_str() == "as" {
-                    self.advance();
-                    Some(self.parse_module_name()?)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+        let alias = if self.eat(&TokenKind::As) {
+            Some(self.parse_module_name()?)
         } else {
             None
         };
@@ -358,14 +363,9 @@ impl<'src> Parser<'src> {
     /// Parse an import specification.
     fn parse_import_spec(&mut self) -> ParseResult<Option<ImportSpec>> {
         // Check for "hiding"
-        if let Some(tok) = self.current() {
-            if let TokenKind::Ident(s) = &tok.node.kind {
-                if s.as_str() == "hiding" {
-                    self.advance();
-                    let imports = self.parse_import_list()?;
-                    return Ok(Some(ImportSpec::Hiding(imports)));
-                }
-            }
+        if self.eat(&TokenKind::Hiding) {
+            let imports = self.parse_import_list()?;
+            return Ok(Some(ImportSpec::Hiding(imports)));
         }
 
         if self.check(&TokenKind::LParen) {
