@@ -54,6 +54,14 @@ impl<'src> Parser<'src> {
                     }
                     (Ident::from_str("-"), prec, assoc)
                 }
+                // Handle % (Percent token is lexed separately)
+                TokenKind::Percent => {
+                    let (prec, assoc) = self.get_operator_info("%");
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::from_str("%"), prec, assoc)
+                }
                 TokenKind::Backtick => {
                     // Infix function application: `x `mod` y` or `x `E.catch` y`
                     let _start = tok.span;
@@ -369,7 +377,7 @@ impl<'src> Parser<'src> {
         }
 
         // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)` or `(:)`
-        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
+        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Percent) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
             return self.parse_operator_section(start);
         }
 
@@ -422,6 +430,7 @@ impl<'src> Parser<'src> {
             Some(TokenKind::Operator(sym)) => Some(Ident::new(sym)),
             Some(TokenKind::Star) => Some(Ident::from_str("*")),
             Some(TokenKind::Minus) => Some(Ident::from_str("-")),
+            Some(TokenKind::Percent) => Some(Ident::from_str("%")),
             Some(TokenKind::Dot) => Some(Ident::from_str(".")),
             Some(TokenKind::ConOperator(sym)) => Some(Ident::new(sym)),
             _ => None,
@@ -1157,6 +1166,7 @@ impl<'src> Parser<'src> {
             TokenKind::Operator(sym) => Ident::new(*sym),
             TokenKind::Star => Ident::from_str("*"),
             TokenKind::Minus => Ident::from_str("-"),
+            TokenKind::Percent => Ident::from_str("%"),
             TokenKind::Dot => Ident::from_str("."),
             TokenKind::ConOperator(sym) => Ident::new(*sym),
             _ => {
