@@ -76,6 +76,14 @@ impl<'src> Parser<'src> {
                     }
                     (Ident::from_str("."), prec, assoc)
                 }
+                // Handle constructor operators like : and :|
+                TokenKind::ConOperator(sym) => {
+                    let (prec, assoc) = self.get_operator_info(sym.as_str());
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::new(*sym), prec, assoc)
+                }
                 _ => break,
             };
 
@@ -334,8 +342,8 @@ impl<'src> Parser<'src> {
             return Ok(Expr::Con(Ident::from_str("()"), span));
         }
 
-        // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)`
-        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Dot)) {
+        // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)` or `(:)`
+        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
             return self.parse_operator_section(start);
         }
 
@@ -349,6 +357,7 @@ impl<'src> Parser<'src> {
             Some(TokenKind::Star) => Some(Ident::from_str("*")),
             Some(TokenKind::Minus) => Some(Ident::from_str("-")),
             Some(TokenKind::Dot) => Some(Ident::from_str(".")),
+            Some(TokenKind::ConOperator(sym)) => Some(Ident::new(sym)),
             _ => None,
         };
 
@@ -852,6 +861,7 @@ impl<'src> Parser<'src> {
             TokenKind::Star => Ident::from_str("*"),
             TokenKind::Minus => Ident::from_str("-"),
             TokenKind::Dot => Ident::from_str("."),
+            TokenKind::ConOperator(sym) => Ident::new(*sym),
             _ => {
                 return Err(ParseError::Unexpected {
                     found: tok.node.kind.description().to_string(),
