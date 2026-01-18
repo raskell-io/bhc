@@ -247,6 +247,54 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// Skip a CPP directive (line starting with #).
+    /// Handles multi-line directives with backslash continuation.
+    fn skip_cpp_directive(&mut self) {
+        // Skip the # character
+        self.advance();
+
+        // Skip to end of line, handling backslash continuation
+        loop {
+            match self.peek() {
+                Some('\\') => {
+                    self.advance();
+                    // Check for newline after backslash (line continuation)
+                    if self.peek() == Some('\n') {
+                        self.advance();
+                        // Continue to next line
+                    } else if self.peek() == Some('\r') {
+                        self.advance();
+                        if self.peek() == Some('\n') {
+                            self.advance();
+                        }
+                        // Continue to next line
+                    }
+                    // Otherwise, just continue on same line
+                }
+                Some('\n') | Some('\r') | None => {
+                    // End of directive
+                    break;
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+
+        // Skip the newline if present (but don't call skip_newline
+        // because we want to set at_line_start properly)
+        if self.peek() == Some('\n') {
+            self.advance();
+            self.at_line_start = true;
+        } else if self.peek() == Some('\r') {
+            self.advance();
+            if self.peek() == Some('\n') {
+                self.advance();
+            }
+            self.at_line_start = true;
+        }
+    }
+
     /// Skip whitespace and comments, handling layout.
     fn skip_trivia(&mut self) {
         loop {
@@ -1177,6 +1225,13 @@ impl<'src> Lexer<'src> {
             }
             '{' if self.starts_with("{-#") => self.lex_pragma(start),
 
+            // CPP directives at start of line - skip the entire line
+            '#' if start_col == 1 => {
+                self.skip_cpp_directive();
+                // After skipping CPP, try to lex the next token
+                return self.lex_raw_token();
+            }
+
             // Identifiers and keywords
             c if Self::is_ident_start(c) => self.lex_ident_or_qualified(start),
 
@@ -1305,8 +1360,11 @@ impl<'src> Iterator for Lexer<'src> {
             // Skip trivia to find the column of the next token
             self.skip_trivia();
 
-            // Check if next char is explicit brace
-            if self.peek() == Some('{') {
+            // Check if next char is explicit brace (but NOT a pragma like {-#)
+            let is_explicit_brace = self.peek() == Some('{')
+                && !(self.peek2() == Some('-') && self.peek3() == Some('#'));
+
+            if is_explicit_brace {
                 // Explicit brace - handle_layout will push the explicit context
                 // when it sees the LBrace token, so we don't need to do anything here
             } else if self.peek().is_some() {
@@ -1777,6 +1835,35 @@ class Show a => Foo a b where
         // Find runMethod's position
         let idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "runMethod")).unwrap();
         println!("runMethod at index {}, context: {:?}", idx, &kinds[idx..idx.min(kinds.len()-1)+10]);
+    }
+
+    #[test]
+    fn test_class_with_minimal_pragma() {
+        // Test token stream for class with MINIMAL pragma
+        let src = r#"module Foo where
+class ExtensionClass a where
+    {-# MINIMAL initialValue #-}
+    initialValue :: a
+    extensionType :: a -> String
+    extensionType = show"#;
+        let kinds = lex_kinds(src);
+
+        println!("Tokens for class with MINIMAL pragma:");
+        for (i, k) in kinds.iter().enumerate() {
+            println!("  {}: {:?}", i, k);
+        }
+
+        // Check that we have the pragma
+        assert!(kinds.iter().any(|k| matches!(k, TokenKind::Pragma(_))), "Should have Pragma token");
+
+        // Check that initialValue appears AFTER the pragma
+        let pragma_idx = kinds.iter().position(|k| matches!(k, TokenKind::Pragma(_))).unwrap();
+        let initial_value_idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "initialValue")).unwrap();
+        assert!(initial_value_idx > pragma_idx, "initialValue should come after pragma");
+
+        // Check for VirtualSemi after pragma
+        let tokens_after_pragma = &kinds[pragma_idx..];
+        println!("Tokens after pragma: {:?}", tokens_after_pragma);
     }
 }
 

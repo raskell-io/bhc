@@ -381,6 +381,8 @@ pub enum Decl {
     Foreign(ForeignDecl),
     /// Fixity declaration: `infixl 6 +`
     Fixity(FixityDecl),
+    /// Pragma declaration: `{-# MINIMAL ... #-}`
+    PragmaDecl(Pragma),
 }
 
 /// A type signature.

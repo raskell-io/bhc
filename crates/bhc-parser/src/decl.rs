@@ -649,6 +649,21 @@ impl<'src> Parser<'src> {
         // is at the same indentation level. Skip it.
         self.eat(&TokenKind::VirtualSemi);
 
+        // Handle pragmas in class/instance bodies (like {-# MINIMAL initialValue #-})
+        if let Some(TokenKind::Pragma(content)) = self.current_kind() {
+            let content = content.clone();
+            let span = self.current_span();
+            self.advance();
+            if let Some(pragma) = self.parse_pragma_content(&content, span) {
+                return Ok(Decl::PragmaDecl(pragma));
+            }
+            // If we couldn't parse the pragma content, return an empty pragma
+            return Ok(Decl::PragmaDecl(Pragma {
+                kind: PragmaKind::Other(content),
+                span,
+            }));
+        }
+
         let start = self.current_span();
 
         // Check for pattern binding: `(a, b) = expr` or `!pat = expr` or `~pat = expr`

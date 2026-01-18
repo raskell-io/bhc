@@ -1271,6 +1271,79 @@ class Show a => Foo a b where
     }
 
     #[test]
+    fn test_class_default_method() {
+        // Test class with type signature followed by default method implementation
+        let src = r#"
+class ExtensionClass a where
+    initialValue :: a
+    extensionType :: a -> String
+    extensionType = show
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Class with default method should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_class_default_method_with_docs() {
+        // Test class with doc comments before type signature and default implementation
+        let src = r#"
+class ExtensionClass a where
+    -- | Initial value
+    initialValue :: a
+    -- | The extension type.
+    -- Multi-line doc.
+    extensionType :: a -> String
+    extensionType = show
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Class with doc comments should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_class_xmonad_style() {
+        // Test without MINIMAL pragma first
+        let src = r#"
+class ExtensionClass a where
+    initialValue :: a
+    extensionType :: a -> String
+    extensionType = show
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error (no pragma): {:?}", d);
+        }
+        assert!(diags.is_empty(), "Class without pragma should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+
+        // Now test with MINIMAL pragma
+        let src_with_pragma = r#"
+class ExtensionClass a where
+    {-# MINIMAL initialValue #-}
+    initialValue :: a
+    extensionType :: a -> String
+    extensionType = show
+"#;
+        let (module2, diags2) = parse_module(src_with_pragma, FileId::new(0));
+        for d in &diags2 {
+            eprintln!("Error (with pragma): {:?}", d);
+        }
+        assert!(diags2.is_empty(), "Class with MINIMAL pragma should parse");
+        let module2 = module2.expect("Should parse");
+        assert_eq!(module2.decls.len(), 1);
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;
