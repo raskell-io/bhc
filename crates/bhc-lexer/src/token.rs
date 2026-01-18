@@ -68,8 +68,6 @@ pub enum TokenKind {
     Newtype,
     /// `of`
     Of,
-    /// `proc` (arrow notation)
-    Proc,
     /// `qualified`
     Qualified,
     /// `rec` (recursive bindings)
@@ -389,7 +387,6 @@ impl TokenKind {
                 | Self::Module
                 | Self::Newtype
                 | Self::Of
-                | Self::Proc
                 | Self::Qualified
                 | Self::Rec
                 | Self::Then
@@ -506,7 +503,6 @@ impl TokenKind {
             Self::Module => "`module`",
             Self::Newtype => "`newtype`",
             Self::Of => "`of`",
-            Self::Proc => "`proc`",
             Self::Qualified => "`qualified`",
             Self::Rec => "`rec`",
             Self::Then => "`then`",
@@ -619,7 +615,7 @@ impl TokenKind {
             "module" => Self::Module,
             "newtype" => Self::Newtype,
             "of" => Self::Of,
-            "proc" => Self::Proc,
+            // "proc" is reserved for Arrows extension - treat as identifier for now
             "qualified" => Self::Qualified,
             "rec" => Self::Rec,
             "then" => Self::Then,

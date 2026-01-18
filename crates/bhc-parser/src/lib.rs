@@ -1383,8 +1383,8 @@ class ExtensionClass a where
                         path.file_name().unwrap().to_str().unwrap(),
                         error_count
                     );
-                    // Print first 5 errors for debugging
-                    for (i, d) in diagnostics.iter().filter(|d| d.is_error()).take(5).enumerate() {
+                    // Print first 25 errors for debugging
+                    for (i, d) in diagnostics.iter().filter(|d| d.is_error()).take(25).enumerate() {
                         println!("  {}: {:?}", i + 1, d);
                     }
                 }
@@ -1393,5 +1393,57 @@ class ExtensionClass a where
         println!("Total XMonad parse errors: {}", total_errors);
         // We're tracking progress, so allow errors but report them
         // assert_eq!(total_errors, 0, "XMonad files should parse without errors");
+    }
+
+    #[test]
+    fn test_cpp_if_else() {
+        let src = r#"module Test where
+
+test = do
+    x <- action
+#if COND
+    y <- branch1
+#else
+    y <- branch2
+#endif
+    return x
+
+-- | A doc comment
+other = 42
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            println!("Diagnostic: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Parse errors: {:?}", diags);
+        assert!(module.is_some(), "Failed to parse CPP if/else");
+    }
+
+    #[test]
+    fn test_cpp_in_where_clause() {
+        // This mirrors the XMonad Core.hs structure more closely
+        let src = r#"module Test where
+
+xfork x = io x
+ where
+    nullStdin = do
+#if COND
+        fd <- action1
+#else
+        fd <- action2
+#endif
+        dupTo fd
+        closeFd fd
+
+-- | Doc comment for next function.
+xmessage :: String -> IO ()
+xmessage msg = print msg
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            println!("Diagnostic: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Parse errors: {:?}", diags);
+        assert!(module.is_some(), "Failed to parse CPP in where clause");
     }
 }

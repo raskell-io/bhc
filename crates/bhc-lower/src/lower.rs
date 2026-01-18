@@ -121,6 +121,9 @@ fn lower_decl(ctx: &mut LowerContext, decl: &ast::Decl) -> LowerResult<Option<hi
 
         // Type signatures are associated with their definitions
         ast::Decl::TypeSig(_) => Ok(None),
+
+        // Pragmas in declarations are handled at parse time or ignored
+        ast::Decl::PragmaDecl(_) => Ok(None),
     }
 }
 
@@ -508,6 +511,11 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
             // TODO: Handle lazy block semantics
             lower_expr(ctx, inner)
         }
+
+        // Wildcard in expression context is a typed hole
+        ast::Expr::Wildcard(span) => {
+            hir::Expr::Error(*span)
+        }
     }
 }
 
@@ -630,6 +638,13 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
             let p = lower_pat(ctx, inner);
             let t = lower_type(ctx, ty);
             hir::Pat::Ann(Box::new(p), t, *span)
+        }
+
+        // View patterns: (expr -> pat)
+        // For now, just treat the result pattern as the pattern
+        // TODO: Proper view pattern desugaring
+        ast::Pat::View(_view_expr, result_pat, _span) => {
+            lower_pat(ctx, result_pat)
         }
     }
 }
@@ -971,9 +986,9 @@ fn lower_class_decl(ctx: &mut LowerContext, class: &ast::ClassDecl) -> LowerResu
         .lookup_type(class.name.name)
         .expect("class should be pre-bound");
 
-    let params: Vec<bhc_types::TyVar> = vec![
-        bhc_types::TyVar::new_star(class.param.name.name.as_u32())
-    ];
+    let params: Vec<bhc_types::TyVar> = class.params.iter()
+        .map(|p| bhc_types::TyVar::new_star(p.name.name.as_u32()))
+        .collect();
 
     let supers: Vec<Symbol> = class
         .context

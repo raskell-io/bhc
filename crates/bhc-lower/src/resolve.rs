@@ -162,6 +162,11 @@ fn collect_pattern_bindings(
         ast::Pat::Wildcard(_) | ast::Pat::Lit(_, _) => {
             // No bindings
         }
+
+        ast::Pat::View(_view_expr, result_pat, _) => {
+            // View pattern binds the result pattern
+            collect_pattern_bindings(ctx, result_pat, bindings);
+        }
     }
 }
 
@@ -249,7 +254,7 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                 ctx.bind_value(name, def_id);
             }
 
-            ast::Decl::Fixity(_) | ast::Decl::TypeSig(_) | ast::Decl::InstanceDecl(_) => {
+            ast::Decl::Fixity(_) | ast::Decl::TypeSig(_) | ast::Decl::InstanceDecl(_) | ast::Decl::PragmaDecl(_) => {
                 // These don't introduce new names
             }
         }

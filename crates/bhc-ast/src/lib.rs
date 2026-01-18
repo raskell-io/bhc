@@ -801,6 +801,8 @@ pub enum Pat {
     Paren(Box<Pat>, Span),
     /// Type annotation: `x :: Int`
     Ann(Box<Pat>, Type, Span),
+    /// View pattern: `(expr -> pat)` (ViewPatterns extension)
+    View(Box<Expr>, Box<Pat>, Span),
 }
 
 impl Pat {
@@ -820,7 +822,8 @@ impl Pat {
             | Self::Lazy(_, s)
             | Self::Bang(_, s)
             | Self::Paren(_, s)
-            | Self::Ann(_, _, s) => *s,
+            | Self::Ann(_, _, s)
+            | Self::View(_, _, s) => *s,
         }
     }
 }

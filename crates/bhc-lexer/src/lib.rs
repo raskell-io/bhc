@@ -249,9 +249,22 @@ impl<'src> Lexer<'src> {
 
     /// Skip a CPP directive (line starting with #).
     /// Handles multi-line directives with backslash continuation.
+    /// For #if/#else/#endif, takes the #if branch and skips the #else branch.
     fn skip_cpp_directive(&mut self) {
         // Skip the # character
         self.advance();
+
+        // Check what kind of directive this is
+        let directive_start = self.pos;
+        self.advance_while(|c| c.is_ascii_alphabetic() || c == '_');
+        let directive = &self.src[directive_start..self.pos];
+
+        // If this is #else or #elif, skip until matching #endif
+        // (we always take the #if branch)
+        if directive == "else" || directive == "elif" {
+            self.skip_until_endif(1);
+            return;
+        }
 
         // Skip to end of line, handling backslash continuation
         loop {
@@ -294,6 +307,56 @@ impl<'src> Lexer<'src> {
             self.at_line_start = true;
             self.column = 1; // Reset column for new line
         }
+    }
+
+    /// Skip content until we find a matching #endif.
+    /// `depth` tracks nested #if blocks.
+    fn skip_until_endif(&mut self, mut depth: i32) {
+        while depth > 0 {
+            // Skip to next line
+            self.advance_while(|c| c != '\n' && c != '\r');
+            if self.peek() == Some('\r') {
+                self.advance();
+            }
+            if self.peek() == Some('\n') {
+                self.advance();
+            }
+
+            // Check if we're at EOF
+            if self.peek().is_none() {
+                break;
+            }
+
+            // Skip leading whitespace on the new line
+            self.advance_while(|c| c == ' ' || c == '\t');
+
+            // Check for # at start of line
+            if self.peek() == Some('#') {
+                self.advance();
+                let directive_start = self.pos;
+                self.advance_while(|c| c.is_ascii_alphabetic() || c == '_');
+                let directive = &self.src[directive_start..self.pos];
+
+                if directive == "if" || directive == "ifdef" || directive == "ifndef" {
+                    depth += 1;
+                } else if directive == "endif" {
+                    depth -= 1;
+                }
+                // #else and #elif at the same depth don't change depth
+            }
+        }
+
+        // Skip past the #endif line
+        self.advance_while(|c| c != '\n' && c != '\r');
+        if self.peek() == Some('\r') {
+            self.advance();
+        }
+        if self.peek() == Some('\n') {
+            self.advance();
+        }
+
+        self.at_line_start = true;
+        self.column = 1;
     }
 
     /// Skip whitespace and comments, handling layout.
@@ -1358,8 +1421,17 @@ impl<'src> Iterator for Lexer<'src> {
         if self.expect_layout_block {
             self.expect_layout_block = false;
 
-            // Skip trivia to find the column of the next token
-            self.skip_trivia();
+            // Skip trivia and CPP directives to find the column of the next actual token
+            loop {
+                self.skip_trivia();
+
+                // Skip CPP directives at start of line when looking for layout column
+                if self.peek() == Some('#') && self.column == 1 {
+                    self.skip_cpp_directive();
+                    continue;
+                }
+                break;
+            }
 
             // Check if next char is explicit brace (but NOT a pragma like {-#)
             let is_explicit_brace = self.peek() == Some('{')

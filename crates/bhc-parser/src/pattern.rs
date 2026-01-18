@@ -1,6 +1,6 @@
 //! Pattern parsing.
 
-use bhc_ast::{FieldPat, Lit, ModuleName, Pat};
+use bhc_ast::{Expr, FieldPat, Lit, ModuleName, Pat};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
@@ -221,7 +221,7 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a parenthesized pattern or tuple pattern.
+    /// Parse a parenthesized pattern, tuple pattern, or view pattern.
     fn parse_paren_pattern(&mut self) -> ParseResult<Pat> {
         let start = self.current_span();
         self.expect(&TokenKind::LParen)?;
@@ -233,6 +233,17 @@ impl<'src> Parser<'src> {
         }
 
         let first = self.parse_pattern()?;
+
+        // Check for view pattern: (expr -> pat)
+        // ViewPatterns extension syntax
+        if self.eat(&TokenKind::Arrow) {
+            // Convert the pattern to an expression for the view function
+            let view_expr = self.pat_to_expr(&first)?;
+            let result_pat = self.parse_pattern()?;
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+            return Ok(Pat::View(Box::new(view_expr), Box::new(result_pat), span));
+        }
 
         // Check for pattern type signature: (pat :: Type)
         if self.eat(&TokenKind::DoubleColon) {
@@ -259,6 +270,38 @@ impl<'src> Parser<'src> {
             let end = self.expect(&TokenKind::RParen)?;
             let span = start.to(end.span);
             Ok(Pat::Paren(Box::new(first), span))
+        }
+    }
+
+    /// Convert a pattern to an expression (for view patterns).
+    /// This handles the common case where the "pattern" before -> is actually a function.
+    fn pat_to_expr(&self, pat: &Pat) -> ParseResult<Expr> {
+        use bhc_ast::Expr;
+        match pat {
+            Pat::Var(name, span) => Ok(Expr::Var(*name, *span)),
+            Pat::Con(name, args, span) => {
+                if args.is_empty() {
+                    Ok(Expr::Con(*name, *span))
+                } else {
+                    // Constructor application: Con a b -> App (App Con a) b
+                    let mut result = Expr::Con(*name, *span);
+                    for arg in args {
+                        let arg_expr = self.pat_to_expr(arg)?;
+                        let new_span = result.span().to(arg_expr.span());
+                        result = Expr::App(Box::new(result), Box::new(arg_expr), new_span);
+                    }
+                    Ok(result)
+                }
+            }
+            Pat::Paren(inner, span) => {
+                let inner_expr = self.pat_to_expr(inner)?;
+                Ok(Expr::Paren(Box::new(inner_expr), *span))
+            }
+            _ => Err(ParseError::Unexpected {
+                found: "complex pattern".to_string(),
+                expected: "simple expression for view pattern".to_string(),
+                span: pat.span(),
+            }),
         }
     }
 
