@@ -630,6 +630,38 @@ impl<'src> Parser<'src> {
         self.skip_doc_comments();
 
         let start = self.current_span();
+
+        // Check for pattern binding: `(a, b) = expr` or `!pat = expr` or `~pat = expr`
+        // These start with a pattern, not a function name.
+        // A pattern binding is `(pat, ...) = expr` where the paren contains patterns, not an operator.
+        // To distinguish from `(<+>) = ...`, check if the token after `(` is NOT an operator.
+        if self.check(&TokenKind::LParen) {
+            // Peek ahead: is this (operator) or (pattern)?
+            if let Some(next) = self.peek_nth(1) {
+                let is_pattern_start = matches!(
+                    next.node.kind,
+                    TokenKind::Ident(_)
+                        | TokenKind::ConId(_)
+                        | TokenKind::Underscore
+                        | TokenKind::IntLit(_)
+                        | TokenKind::CharLit(_)
+                        | TokenKind::StringLit(_)
+                        | TokenKind::LParen
+                        | TokenKind::LBracket
+                        | TokenKind::Bang
+                        | TokenKind::Tilde
+                );
+                if is_pattern_start {
+                    // This is a pattern binding like (a, b) = expr
+                    return self.parse_pattern_binding(start);
+                }
+            }
+        }
+        // Also handle bang patterns and lazy patterns at top level: !pat = ... or ~pat = ...
+        if self.check(&TokenKind::Bang) || self.check(&TokenKind::Tilde) {
+            return self.parse_pattern_binding(start);
+        }
+
         // Parse either a regular identifier or a parenthesized operator like (<+>)
         let name = self.parse_var_or_op()?;
 
@@ -705,6 +737,47 @@ impl<'src> Parser<'src> {
                 span,
             }))
         }
+    }
+
+    /// Parse a pattern binding: `(a, b) = expr` or `!pat = expr`
+    /// These are bindings where the LHS is a pattern, not a function name.
+    fn parse_pattern_binding(&mut self, start: Span) -> ParseResult<Decl> {
+        // Parse the pattern
+        let pat = self.parse_pattern()?;
+
+        // Expect `=`
+        self.expect(&TokenKind::Eq)?;
+
+        // Parse the expression
+        let expr = self.parse_expr()?;
+
+        // Parse optional where clause
+        let wheres = if self.eat(&TokenKind::Where) {
+            self.parse_local_decls()?
+        } else {
+            vec![]
+        };
+
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+
+        // Represent pattern binding as FunBind with a generated name
+        // and the pattern as the first clause's single pattern.
+        // This is a common representation that allows uniform handling.
+        let clause = Clause {
+            pats: vec![pat],
+            rhs: Rhs::Simple(expr, span),
+            wheres,
+            span,
+        };
+
+        // Use a special name to indicate this is a pattern binding
+        // The generated name `$patbind` is not a valid Haskell identifier
+        // so it won't conflict with user-defined names.
+        Ok(Decl::FunBind(FunBind {
+            name: Ident::from_str("$patbind"),
+            clauses: vec![clause],
+            span,
+        }))
     }
 
     /// Parse the right-hand side of a binding: either `= expr` or guarded `| guard = expr`.

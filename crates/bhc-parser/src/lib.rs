@@ -106,6 +106,11 @@ impl<'src> Parser<'src> {
         self.tokens.get(self.pos)
     }
 
+    /// Peek at the nth token from current position (0 = current).
+    fn peek_nth(&self, n: usize) -> Option<&Spanned<Token>> {
+        self.tokens.get(self.pos + n)
+    }
+
     /// Get the current token kind.
     fn current_kind(&self) -> Option<&TokenKind> {
         self.current().map(|t| &t.node.kind)
