@@ -633,16 +633,33 @@ impl<'src> Parser<'src> {
         // Parse either a regular identifier or a parenthesized operator like (<+>)
         let name = self.parse_var_or_op()?;
 
-        if self.eat(&TokenKind::DoubleColon) {
-            // Type signature
-            let ty = self.parse_type()?;
-            let span = start.to(ty.span());
-            Ok(Decl::TypeSig(TypeSig {
-                names: vec![name],
-                ty,
-                span,
-            }))
-        } else {
+        // Check for multi-name type signature: `a, b, c :: Type`
+        if self.check(&TokenKind::Comma) || self.check(&TokenKind::DoubleColon) {
+            // Collect all names for a potential type signature
+            let mut names = vec![name.clone()];
+            while self.eat(&TokenKind::Comma) {
+                names.push(self.parse_var_or_op()?);
+            }
+
+            if self.eat(&TokenKind::DoubleColon) {
+                // Type signature
+                let ty = self.parse_type()?;
+                let span = start.to(ty.span());
+                return Ok(Decl::TypeSig(TypeSig { names, ty, span }));
+            } else if names.len() > 1 {
+                // We parsed multiple names but no ::, this is an error
+                let tok = self.current().unwrap();
+                return Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "`::`".to_string(),
+                    span: tok.span,
+                });
+            }
+            // Single name, no ::, fall through to function binding
+        }
+
+        // Function binding - if we get here, we have a single name (stored in `name`)
+        {
             // Function binding - could be prefix or infix
             let mut pats = Vec::new();
 
