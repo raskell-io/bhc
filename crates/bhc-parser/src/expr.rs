@@ -192,6 +192,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Case
                 | TokenKind::Do
                 | TokenKind::Lazy
+                | TokenKind::Underscore  // For holes/wildcards in patterns that are parsed as expressions first
         )
     }
 
@@ -294,6 +295,13 @@ impl<'src> Parser<'src> {
             TokenKind::Do => self.parse_do_expr(),
 
             TokenKind::Lazy => self.parse_lazy_expr(),
+
+            TokenKind::Underscore => {
+                // Wildcard/hole - used in patterns that are parsed as expressions first
+                let span = tok.span;
+                self.advance();
+                Ok(Expr::Wildcard(span))
+            }
 
             _ => Err(ParseError::Unexpected {
                 found: tok.node.kind.description().to_string(),
@@ -516,20 +524,28 @@ impl<'src> Parser<'src> {
             return Ok(Stmt::LetStmt(decls, span));
         }
 
-        // Try to parse as pattern <- expr
-        let pat_or_expr = self.parse_expr()?;
+        // First try to parse as a pattern directly if we might have one
+        // This is needed because patterns can contain `@` which isn't valid in expressions
+        // We try parsing as a pattern and check for `<-`
+        let saved_pos = self.pos;
 
-        if self.eat(&TokenKind::LeftArrow) {
-            // Generator
-            let pat = self.expr_to_pat(pat_or_expr)?;
-            let expr = self.parse_expr()?;
-            let span = start.to(expr.span());
-            Ok(Stmt::Generator(pat, expr, span))
-        } else {
-            // Qualifier
-            let span = pat_or_expr.span();
-            Ok(Stmt::Qualifier(pat_or_expr, span))
+        // Try pattern first - if it fails or isn't followed by `<-`, backtrack
+        if self.is_pattern_start() {
+            if let Ok(pat) = self.parse_pattern() {
+                if self.eat(&TokenKind::LeftArrow) {
+                    let expr = self.parse_expr()?;
+                    let span = start.to(expr.span());
+                    return Ok(Stmt::Generator(pat, expr, span));
+                }
+            }
+            // Backtrack - not a generator
+            self.pos = saved_pos;
         }
+
+        // Parse as expression
+        let expr = self.parse_expr()?;
+        let span = expr.span();
+        Ok(Stmt::Qualifier(expr, span))
     }
 
     /// Convert an expression to a pattern (for generators).
@@ -550,18 +566,58 @@ impl<'src> Parser<'src> {
                 let p = self.expr_to_pat(*e)?;
                 Ok(Pat::Paren(Box::new(p), span))
             }
+            Expr::QualCon(module, id, span) => {
+                // Qualified constructor - create qualified name for pattern
+                let qual_name = format!("{}.{}", module.parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("."), id.as_str());
+                Ok(Pat::Con(Ident::from_str(&qual_name), vec![], span))
+            }
             Expr::App(f, x, span) => {
-                // Could be constructor application
-                if let Expr::Con(id, _) = *f {
-                    let pat = self.expr_to_pat(*x)?;
-                    Ok(Pat::Con(id, vec![pat], span))
-                } else {
-                    Err(ParseError::Unexpected {
-                        found: "expression".to_string(),
-                        expected: "pattern".to_string(),
-                        span,
-                    })
+                // Could be constructor application (Con arg1 arg2 ...)
+                // Flatten nested applications
+                let mut args = vec![*x];
+                let mut cur = *f;
+                while let Expr::App(inner_f, inner_x, _) = cur {
+                    args.push(*inner_x);
+                    cur = *inner_f;
                 }
+                args.reverse();
+
+                let con_id = match cur {
+                    Expr::Con(id, _) => id,
+                    Expr::QualCon(module, id, _) => {
+                        let qual_name = format!("{}.{}", module.parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("."), id.as_str());
+                        Ident::from_str(&qual_name)
+                    }
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: "expression".to_string(),
+                            expected: "pattern".to_string(),
+                            span,
+                        });
+                    }
+                };
+
+                let pats: ParseResult<Vec<_>> = args.into_iter().map(|e| self.expr_to_pat(e)).collect();
+                Ok(Pat::Con(con_id, pats?, span))
+            }
+            Expr::Wildcard(span) => Ok(Pat::Wildcard(span)),
+            Expr::RecordCon(con, field_binds, span) => {
+                // Record pattern: Con { field = pat, ... }
+                use bhc_ast::FieldPat;
+                let mut field_pats = Vec::new();
+                for fb in field_binds {
+                    let pat = match fb.value {
+                        Some(expr) => Some(self.expr_to_pat(expr)?),
+                        None => None, // Punning: { x } means { x = x }
+                    };
+                    field_pats.push(FieldPat {
+                        qualifier: fb.qualifier,
+                        name: fb.name,
+                        pat,
+                        span: fb.span,
+                    });
+                }
+                Ok(Pat::Record(con, field_pats, span))
             }
             _ => Err(ParseError::Unexpected {
                 found: "expression".to_string(),
@@ -642,22 +698,45 @@ impl<'src> Parser<'src> {
 
     /// Parse case alternatives.
     fn parse_case_alts(&mut self) -> ParseResult<Vec<Alt>> {
-        // Simplified: expect braces or use layout
         let mut alts = Vec::new();
 
-        if self.eat(&TokenKind::LBrace) {
-            if !self.check(&TokenKind::RBrace) {
+        // Check for explicit or virtual opening brace
+        let explicit_braces = self.eat(&TokenKind::LBrace);
+        let virtual_braces = !explicit_braces && self.eat(&TokenKind::VirtualLBrace);
+        let has_braces = explicit_braces || virtual_braces;
+
+        if has_braces {
+            // Parse alternatives separated by semicolons (real or virtual)
+            let rbrace = if explicit_braces {
+                TokenKind::RBrace
+            } else {
+                TokenKind::VirtualRBrace
+            };
+
+            if !self.check(&rbrace) {
                 alts.push(self.parse_alt()?);
-                while self.eat(&TokenKind::Semi) {
-                    if self.check(&TokenKind::RBrace) {
+                // Accept either real or virtual semicolons
+                while self.eat(&TokenKind::Semi) || self.eat(&TokenKind::VirtualSemi) {
+                    if self.check(&rbrace) || self.check(&TokenKind::VirtualRBrace) {
+                        break;
+                    }
+                    // Skip any extra semicolons
+                    while self.eat(&TokenKind::Semi) || self.eat(&TokenKind::VirtualSemi) {}
+                    if self.check(&rbrace) || self.check(&TokenKind::VirtualRBrace) {
                         break;
                     }
                     alts.push(self.parse_alt()?);
                 }
             }
-            self.expect(&TokenKind::RBrace)?;
+
+            if explicit_braces {
+                self.expect(&TokenKind::RBrace)?;
+            } else {
+                // Virtual braces: consume if present, but don't require
+                self.eat(&TokenKind::VirtualRBrace);
+            }
         } else {
-            // Layout: simplified version
+            // No braces at all - single alternative
             alts.push(self.parse_alt()?);
         }
 

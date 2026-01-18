@@ -1003,6 +1003,42 @@ x <&&> y = x && y
     }
 
     #[test]
+    fn test_primed_identifier_case_pattern() {
+        // Test primed identifiers (f', xs') in case patterns
+        let src = r#"module Test where
+
+test xs = case xs of
+    f':rs' -> Just (f', rs')
+    [] -> Nothing
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Primed identifier case patterns should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_as_pattern_with_record() {
+        // Test as-patterns with record patterns like `conf'@XConfig { field = val }`
+        let src = r#"module Test where
+
+test = do
+    conf@Config { field = x } <- getConfig
+    return x
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "As-pattern with record should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;

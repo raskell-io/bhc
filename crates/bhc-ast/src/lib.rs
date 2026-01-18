@@ -658,6 +658,8 @@ pub enum Expr {
     Ann(Box<Expr>, Type, Span),
     /// Lazy block (H26): `lazy { ... }`
     Lazy(Box<Expr>, Span),
+    /// Wildcard/hole: `_` (used in patterns parsed as expressions)
+    Wildcard(Span),
 }
 
 impl Expr {
@@ -686,7 +688,8 @@ impl Expr {
             | Self::Neg(_, s)
             | Self::Paren(_, s)
             | Self::Ann(_, _, s)
-            | Self::Lazy(_, s) => *s,
+            | Self::Lazy(_, s)
+            | Self::Wildcard(s) => *s,
         }
     }
 }
