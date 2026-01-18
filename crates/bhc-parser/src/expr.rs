@@ -525,6 +525,27 @@ impl<'src> Parser<'src> {
             return Ok(Expr::Paren(Box::new(infix_expr), span));
         }
 
+        // Check for type annotation: (expr :: Type)
+        if self.check(&TokenKind::DoubleColon) {
+            let annotated = self.parse_type_annotation(first)?;
+            // Check for tuple with type annotation: (expr :: Type, ...)
+            if self.eat(&TokenKind::Comma) {
+                let mut exprs = vec![annotated];
+                loop {
+                    exprs.push(self.parse_expr()?);
+                    if !self.eat(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let end = self.expect(&TokenKind::RParen)?;
+                let span = start.to(end.span);
+                return Ok(Expr::Tuple(exprs, span));
+            }
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+            return Ok(Expr::Paren(Box::new(annotated), span));
+        }
+
         if self.eat(&TokenKind::Comma) {
             // Tuple
             let mut exprs = vec![first];
