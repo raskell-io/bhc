@@ -825,6 +825,76 @@ mod tests {
     }
 
     #[test]
+    fn test_multi_clause_with_layout() {
+        // Multi-clause with layout-based syntax (no explicit semicolons)
+        // Uses a module declaration to trigger proper layout handling
+        let src = r#"module Test where
+
+f :: Int -> Int
+f 0 = 1
+f n = n
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        if !diags.is_empty() {
+            // Print errors for debugging
+            for d in &diags {
+                eprintln!("Error: {:?}", d);
+            }
+        }
+        let module = module.expect("Should parse");
+        // Should have TypeSig and FunBind
+        assert_eq!(module.decls.len(), 2, "Expected 2 decls (TypeSig + FunBind)");
+        if let bhc_ast::Decl::FunBind(fun) = &module.decls[1] {
+            assert_eq!(fun.clauses.len(), 2, "Expected 2 clauses, got: {}", fun.clauses.len());
+        } else {
+            panic!("Expected FunBind, got: {:?}", module.decls[1]);
+        }
+    }
+
+    #[test]
+    fn test_record_with_layout_style() {
+        // Record definition with XMonad-style layout (leading commas)
+        let src = r#"module Test where
+
+data Foo = Foo { field1 :: Int
+               , field2 :: String
+               } deriving (Show)
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Should parse without errors");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_xmonad_stackset_style() {
+        // XMonad StackSet-style records with type variables and strict fields
+        let src = r#"module Test where
+
+data StackSet i l a sid sd =
+    StackSet { current  :: !(Screen i l a sid sd)
+             , visible  :: [Screen i l a sid sd]
+             } deriving (Show, Read, Eq)
+
+data Screen i l a sid sd = Screen { workspace :: !(Workspace i l a) }
+    deriving (Show, Read, Eq)
+
+data Workspace i l a = Workspace { tag :: !i }
+    deriving (Show, Read, Eq)
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Should parse without errors");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 3, "Expected 3 data declarations");
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;
