@@ -1,7 +1,7 @@
 //! Expression parsing.
 
 use bhc_ast::{
-    Alt, ArithSeq, Expr, FieldBind, GuardedRhs, Lit, Pat, Rhs, Stmt,
+    Alt, ArithSeq, Expr, FieldBind, GuardedRhs, Lit, ModuleName, Pat, Rhs, Stmt,
 };
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
@@ -143,7 +143,9 @@ impl<'src> Parser<'src> {
         matches!(
             kind,
             TokenKind::Ident(_)
+                | TokenKind::QualIdent(_, _)
                 | TokenKind::ConId(_)
+                | TokenKind::QualConId(_, _)
                 | TokenKind::IntLit(_)
                 | TokenKind::FloatLit(_)
                 | TokenKind::CharLit(_)
@@ -173,6 +175,17 @@ impl<'src> Parser<'src> {
                 Ok(Expr::Var(ident, span))
             }
 
+            TokenKind::QualIdent(qualifier, name) => {
+                let module_name = ModuleName {
+                    parts: vec![*qualifier],
+                    span: tok.span,
+                };
+                let ident = Ident::new(*name);
+                let span = tok.span;
+                self.advance();
+                Ok(Expr::QualVar(module_name, ident, span))
+            }
+
             TokenKind::ConId(sym) => {
                 let ident = Ident::new(*sym);
                 let span = tok.span;
@@ -184,6 +197,24 @@ impl<'src> Parser<'src> {
                 }
 
                 Ok(Expr::Con(ident, span))
+            }
+
+            TokenKind::QualConId(qualifier, name) => {
+                let module_name = ModuleName {
+                    parts: vec![*qualifier],
+                    span: tok.span,
+                };
+                let ident = Ident::new(*name);
+                let span = tok.span;
+                self.advance();
+
+                // Check for record construction: M.Con { field = value }
+                if self.check(&TokenKind::LBrace) {
+                    // TODO: handle qualified record construction
+                    // For now, just return as QualCon
+                }
+
+                Ok(Expr::QualCon(module_name, ident, span))
             }
 
             TokenKind::IntLit(ref lit) => {

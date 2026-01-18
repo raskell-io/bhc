@@ -1,6 +1,6 @@
 //! Type parsing.
 
-use bhc_ast::{Constraint, TyVar, Type};
+use bhc_ast::{Constraint, ModuleName, TyVar, Type};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 
@@ -155,6 +155,7 @@ impl<'src> Parser<'src> {
                 kind,
                 TokenKind::Ident(_)
                     | TokenKind::ConId(_)
+                    | TokenKind::QualConId(_, _)
                     | TokenKind::LParen
                     | TokenKind::LBracket
                     // M9: Type-level naturals and promoted lists
@@ -187,6 +188,17 @@ impl<'src> Parser<'src> {
                 let span = tok.span;
                 self.advance();
                 Ok(Type::Con(ident, span))
+            }
+
+            TokenKind::QualConId(qualifier, name) => {
+                let module_name = ModuleName {
+                    parts: vec![*qualifier],
+                    span: tok.span,
+                };
+                let ident = Ident::new(*name);
+                let span = tok.span;
+                self.advance();
+                Ok(Type::QualCon(module_name, ident, span))
             }
 
             TokenKind::LParen => self.parse_paren_type(),

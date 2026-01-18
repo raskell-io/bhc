@@ -254,8 +254,34 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
             }
         }
 
+        ast::Expr::QualVar(module_name, ident, span) => {
+            // Qualified variable like M.foo
+            let qual_name = format!("{}.{}", module_name.to_string(), ident.name.as_str());
+            let name = Symbol::intern(&qual_name);
+            if let Some(def_id) = resolve_var(ctx, name, *span) {
+                hir::Expr::Var(ctx.def_ref(def_id, *span))
+            } else {
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, name, DefKind::Value, *span);
+                hir::Expr::Var(ctx.def_ref(def_id, *span))
+            }
+        }
+
         ast::Expr::Con(ident, span) => {
             let name = ident.name;
+            if let Some(def_id) = resolve_constructor(ctx, name, *span) {
+                hir::Expr::Con(ctx.def_ref(def_id, *span))
+            } else {
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, name, DefKind::Constructor, *span);
+                hir::Expr::Con(ctx.def_ref(def_id, *span))
+            }
+        }
+
+        ast::Expr::QualCon(module_name, ident, span) => {
+            // Qualified constructor like M.Just
+            let qual_name = format!("{}.{}", module_name.to_string(), ident.name.as_str());
+            let name = Symbol::intern(&qual_name);
             if let Some(def_id) = resolve_constructor(ctx, name, *span) {
                 hir::Expr::Con(ctx.def_ref(def_id, *span))
             } else {
@@ -683,6 +709,14 @@ fn lower_type(ctx: &mut LowerContext, ty: &ast::Type) -> bhc_types::Ty {
         ast::Type::Constrained(_, inner, _) => {
             // TODO: handle constraints properly
             lower_type(ctx, inner)
+        }
+
+        ast::Type::QualCon(module_name, ident, _) => {
+            // Qualified type constructor like M.Map
+            // Create a qualified name symbol by combining module and name
+            let qual_name = format!("{}.{}", module_name.to_string(), ident.name.as_str());
+            let symbol = Symbol::intern(&qual_name);
+            bhc_types::Ty::Con(bhc_types::TyCon::new(symbol, bhc_types::Kind::Star))
         }
 
         ast::Type::NatLit(n, _) => bhc_types::Ty::nat_lit(*n),

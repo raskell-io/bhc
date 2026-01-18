@@ -575,6 +575,10 @@ impl<'src> Parser<'src> {
                 // Could be type signature or binding
                 self.parse_value_decl()
             }
+            TokenKind::LParen => {
+                // Operator type signature or binding: (<+>) :: ... or (<+>) = ...
+                self.parse_value_decl()
+            }
             _ => Err(ParseError::Unexpected {
                 found: tok.node.kind.description().to_string(),
                 expected: "declaration".to_string(),
@@ -626,7 +630,8 @@ impl<'src> Parser<'src> {
         self.skip_doc_comments();
 
         let start = self.current_span();
-        let name = self.parse_ident()?;
+        // Parse either a regular identifier or a parenthesized operator like (<+>)
+        let name = self.parse_var_or_op()?;
 
         if self.eat(&TokenKind::DoubleColon) {
             // Type signature
@@ -638,11 +643,25 @@ impl<'src> Parser<'src> {
                 span,
             }))
         } else {
-            // Function binding
+            // Function binding - could be prefix or infix
             let mut pats = Vec::new();
-            while self.is_pattern_start() {
-                pats.push(self.parse_pattern()?);
-            }
+
+            // Check for infix binding: `x `op` y = ...` or `x --> y = ...`
+            let (actual_name, _is_infix) = if self.is_infix_op_start() {
+                // This is infix: the name we parsed is actually the first pattern
+                let first_pat = Pat::Var(name.clone(), start);
+                let op_name = self.parse_infix_op()?;
+                let second_pat = self.parse_pattern()?;
+                pats.push(first_pat);
+                pats.push(second_pat);
+                (op_name, true)
+            } else {
+                // Prefix: parse patterns normally
+                while self.is_pattern_start() {
+                    pats.push(self.parse_pattern()?);
+                }
+                (name, false)
+            };
 
             // Parse RHS: either `= expr` or guarded: `| guard = expr`
             let rhs = self.parse_binding_rhs()?;
@@ -664,7 +683,7 @@ impl<'src> Parser<'src> {
             };
 
             Ok(Decl::FunBind(FunBind {
-                name,
+                name: actual_name,
                 clauses: vec![clause],
                 span,
             }))
@@ -703,6 +722,45 @@ impl<'src> Parser<'src> {
         Ok(guards)
     }
 
+    /// Check if the current token starts an infix operator for bindings.
+    /// This includes operators like `-->` and backtick-quoted identifiers like `` `elem` ``.
+    fn is_infix_op_start(&self) -> bool {
+        match self.current_kind() {
+            Some(TokenKind::Operator(_)) | Some(TokenKind::ConOperator(_)) => true,
+            Some(TokenKind::Backtick) => true,
+            _ => false,
+        }
+    }
+
+    /// Parse an infix operator for bindings.
+    /// Handles `-->` style operators and `` `foo` `` backtick-quoted identifiers.
+    fn parse_infix_op(&mut self) -> ParseResult<Ident> {
+        if self.eat(&TokenKind::Backtick) {
+            // Backtick-quoted identifier: `foo`
+            let ident = self.parse_ident()?;
+            self.expect(&TokenKind::Backtick)?;
+            Ok(ident)
+        } else {
+            // Regular operator
+            let tok = self.current().ok_or(ParseError::UnexpectedEof {
+                expected: "operator".to_string(),
+            })?;
+
+            match &tok.node.kind {
+                TokenKind::Operator(sym) | TokenKind::ConOperator(sym) => {
+                    let ident = Ident::new(*sym);
+                    self.advance();
+                    Ok(ident)
+                }
+                _ => Err(ParseError::Unexpected {
+                    found: tok.node.kind.description().to_string(),
+                    expected: "operator".to_string(),
+                    span: tok.span,
+                }),
+            }
+        }
+    }
+
     /// Parse an identifier.
     fn parse_ident(&mut self) -> ParseResult<Ident> {
         let tok = self.current().ok_or(ParseError::UnexpectedEof {
@@ -720,6 +778,55 @@ impl<'src> Parser<'src> {
                 expected: "identifier".to_string(),
                 span: tok.span,
             }),
+        }
+    }
+
+    /// Parse a variable name or parenthesized operator.
+    /// Handles both `foo` and `(<+>)` style names.
+    fn parse_var_or_op(&mut self) -> ParseResult<Ident> {
+        if self.eat(&TokenKind::LParen) {
+            // Parenthesized operator: (<+>)
+            let tok = self.current().ok_or(ParseError::UnexpectedEof {
+                expected: "operator".to_string(),
+            })?;
+
+            let ident = match &tok.node.kind {
+                TokenKind::Operator(sym) | TokenKind::ConOperator(sym) => {
+                    let ident = Ident::new(*sym);
+                    self.advance();
+                    ident
+                }
+                // Handle special punctuation used as operators
+                TokenKind::Dot => {
+                    let ident = Ident::new(Symbol::intern("."));
+                    self.advance();
+                    ident
+                }
+                TokenKind::Minus => {
+                    let ident = Ident::new(Symbol::intern("-"));
+                    self.advance();
+                    ident
+                }
+                TokenKind::Backslash => {
+                    // List difference operator \\
+                    let ident = Ident::new(Symbol::intern("\\"));
+                    self.advance();
+                    ident
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: tok.node.kind.description().to_string(),
+                        expected: "operator".to_string(),
+                        span: tok.span,
+                    });
+                }
+            };
+
+            self.expect(&TokenKind::RParen)?;
+            Ok(ident)
+        } else {
+            // Regular identifier
+            self.parse_ident()
         }
     }
 

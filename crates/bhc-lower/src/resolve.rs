@@ -327,6 +327,7 @@ fn collect_type_vars(
         }
 
         ast::Type::Con(_, _)
+        | ast::Type::QualCon(_, _, _)
         | ast::Type::NatLit(_, _)
         | ast::Type::PromotedList(_, _)
         | ast::Type::Bang(_, _)

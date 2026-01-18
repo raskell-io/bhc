@@ -597,8 +597,12 @@ pub enum Fixity {
 pub enum Expr {
     /// Variable: `x`
     Var(Ident, Span),
+    /// Qualified variable: `M.foo`, `Data.List.sort`
+    QualVar(ModuleName, Ident, Span),
     /// Constructor: `Just`
     Con(Ident, Span),
+    /// Qualified constructor: `M.Just`, `Data.Maybe.Nothing`
+    QualCon(ModuleName, Ident, Span),
     /// Literal: `42`, `"hello"`
     Lit(Lit, Span),
     /// Application: `f x`
@@ -643,7 +647,9 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Self::Var(_, s)
+            | Self::QualVar(_, _, s)
             | Self::Con(_, s)
+            | Self::QualCon(_, _, s)
             | Self::Lit(_, s)
             | Self::App(_, _, s)
             | Self::Lam(_, _, s)
@@ -798,6 +804,8 @@ pub enum Type {
     Var(TyVar, Span),
     /// Type constructor: `Int`, `Maybe`
     Con(Ident, Span),
+    /// Qualified type constructor: `M.Map`, `Data.List.Sort`
+    QualCon(ModuleName, Ident, Span),
     /// Application: `Maybe Int`
     App(Box<Type>, Box<Type>, Span),
     /// Function type: `a -> b`
@@ -834,6 +842,7 @@ impl Type {
         match self {
             Self::Var(_, s)
             | Self::Con(_, s)
+            | Self::QualCon(_, _, s)
             | Self::App(_, _, s)
             | Self::Fun(_, _, s)
             | Self::Tuple(_, s)

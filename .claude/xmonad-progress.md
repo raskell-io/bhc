@@ -11,31 +11,30 @@ XMonad source files are located at `/tmp/xmonad/src/XMonad/` (cloned from github
 
 | File | Parsing Issues | Lowering | Type Check | Execution |
 |------|----------------|----------|------------|-----------|
-| ManageHook.hs | 152 | blocked | blocked | blocked |
-| Layout.hs | ~~262~~ 256 | blocked | blocked | blocked |
-| Config.hs | 350 | blocked | blocked | blocked |
-| StackSet.hs | ~~408~~ 402 | blocked | blocked | blocked |
-| Main.hs | 794 | blocked | blocked | blocked |
-| Core.hs | ~~960~~ 928 | blocked | blocked | blocked |
-| Operations.hs | 1,808 | blocked | blocked | blocked |
-| **TOTAL** | ~~4,734~~ **4,690** | - | - | - |
+| ManageHook.hs | ~~152~~ 134 | blocked | blocked | blocked |
+| Layout.hs | ~~256~~ 246 | blocked | blocked | blocked |
+| Config.hs | ~~350~~ 322 | blocked | blocked | blocked |
+| StackSet.hs | ~~402~~ 360 | blocked | blocked | blocked |
+| Main.hs | ~~794~~ 730 | blocked | blocked | blocked |
+| Core.hs | ~~928~~ 840 | blocked | blocked | blocked |
+| Operations.hs | ~~1,808~~ 1,572 | blocked | blocked | blocked |
+| **TOTAL** | ~~4,690~~ **4,204** | - | - | - |
 
 ## Parsing Issues by Category
 
 | Priority | Issue | Count | Description | Status |
 |----------|-------|-------|-------------|--------|
-| P0 | Layout rules | 499 | Semicolons, braces in layout | TODO |
-| P0 | Parentheses | 362 | Expression grouping in complex contexts | TODO |
-| P0 | Operators | 304 | Operator parsing in various contexts | TODO |
-| P1 | `<-` bindings | 175 | Do-notation, list comprehensions | TODO |
+| P0 | Layout rules | 466 | Semicolons, braces in layout | TODO |
+| P0 | Parentheses | 345 | Expression grouping in complex contexts | TODO |
+| P1 | `<-` bindings | 174 | Do-notation, list comprehensions | TODO |
 | P1 | Doc comments | ~~149~~ 8 | Haddock `-- \|` style comments | DONE (141 fixed) |
-| P1 | Qualified names | 91 | `Module.identifier` references | TODO |
+| P1 | Qualified names | ~~136~~ 46 | `Module.identifier` references | PARTIAL (90 fixed) |
 | P1 | `->` arrows | 85 | Function types, case branches | TODO |
-| P2 | Backtick operators | 38 | `` `elem` `` infix application | TODO |
-| P2 | `where` clauses | 15 | Where clause indentation/attachment | TODO |
-| P2 | `forall` in constructors | 8 | Existential types (remaining doc errors cascade from this) | TODO |
+| P2 | Backtick operators | ~38 | `` `elem` `` infix application | TODO |
+| P2 | `where` clauses | 14 | Where clause indentation/attachment | TODO |
+| P2 | Operators | 107 | Operator parsing in various contexts | TODO |
 
-## Specific Syntax Patterns Failing
+## Recent Fixes
 
 ### 1. Haddock Documentation Comments - FIXED
 ```haskell
@@ -43,13 +42,35 @@ XMonad source files are located at `/tmp/xmonad/src/XMonad/` (cloned from github
 foo :: Int -> Int
 foo x = x
 ```
-**Fixed in:** `crates/bhc-parser/src/decl.rs` - Added `skip_doc_comments()` calls in:
-- `parse_top_decl()` - before parsing declarations
-- `parse_value_decl()` - before value declarations
-- `parse_record_fields()` - around record fields
-- `parse_constructors()` - around data constructors
+**Fixed in:** `crates/bhc-parser/src/decl.rs` - Added `skip_doc_comments()` calls
 
-### 2. Where Clauses with Indentation
+### 2. Qualified Names in Types - FIXED
+```haskell
+foo :: M.Map Int String -> M.Map Int String  -- NOW WORKS
+```
+**Fixed in:** `crates/bhc-parser/src/types.rs` and `crates/bhc-ast/src/lib.rs`
+- Added `Type::QualCon(ModuleName, Ident, Span)` variant
+- Added `QualConId` token handling in type parser
+
+### 3. Qualified Names in Expressions - FIXED
+```haskell
+bar = M.size (M.empty)  -- NOW WORKS
+```
+**Fixed in:** `crates/bhc-parser/src/expr.rs` and `crates/bhc-ast/src/lib.rs`
+- Added `Expr::QualVar(ModuleName, Ident, Span)` and `Expr::QualCon(ModuleName, Ident, Span)` variants
+- Added `QualIdent` and `QualConId` token handling in expression parser
+
+### 4. Infix Operator Bindings - FIXED
+```haskell
+p --> f = p >>= \b -> if b then f else return mempty  -- NOW WORKS
+```
+**Fixed in:** `crates/bhc-parser/src/decl.rs`
+- Added `is_infix_op_start()` and `parse_infix_op()` helpers
+- Modified `parse_value_decl()` to detect infix bindings
+
+## Specific Syntax Patterns Still Failing
+
+### 1. Where Clauses with Indentation
 ```haskell
 shiftWin n w s = case findTag w s of
                     Just from | guard -> go from s
@@ -58,25 +79,25 @@ shiftWin n w s = case findTag w s of
 ```
 **Fix needed in:** `crates/bhc-parser/src/decl.rs`
 
-### 3. Qualified Names in Types
-```haskell
-foo :: W.StackSet i l a s sd -> ...  -- FAILS: "unexpected qualified constructor"
-```
-**Fix needed in:** `crates/bhc-parser/src/types.rs`
-
-### 4. Do-Notation
+### 2. Do-Notation
 ```haskell
 do x <- getLine  -- FAILS: "unexpected <-"
    print x
 ```
 **Fix needed in:** `crates/bhc-parser/src/expr.rs`
 
-### 5. Case with Guards
+### 3. Case with Guards
 ```haskell
 case x of
   Just y | y > 0 -> ...  -- May have issues with guard parsing
 ```
 **Fix needed in:** `crates/bhc-parser/src/expr.rs` or `pattern.rs`
+
+### 4. Multi-level Qualified Names
+```haskell
+foo = Data.List.sort xs  -- May fail with deep qualification
+```
+**Note:** Single-level qualification (M.foo) now works
 
 ## Dependencies Required
 
@@ -144,3 +165,4 @@ cargo run -p bhc -- build /tmp/xmonad/src/XMonad/*.hs 2>&1 | \
 - Basic pattern matching with multiple data types works
 - Recursive functions work (fib, factorial tested)
 - Import resolution is not implemented - all external refs fail at lowering
+- Progress: 4,690 -> 4,204 errors (486 fixed, ~10% reduction)
