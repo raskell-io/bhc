@@ -1039,6 +1039,39 @@ test = do
     }
 
     #[test]
+    fn test_deriving_with_type_applications() {
+        // Test deriving clauses with type applications like `MonadState XState`
+        let src = r#"module Test where
+
+newtype X a = X (ReaderT XConf (StateT XState IO) a)
+    deriving (Functor, Applicative, Monad, MonadState XState, MonadReader XConf)
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Deriving with type applications should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_deriving_via() {
+        // Test deriving via clause
+        let src = r#"module Test where
+
+newtype X a = X (IO a) deriving (Semigroup, Monoid) via Ap X a
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Deriving via should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;

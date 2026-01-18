@@ -400,10 +400,25 @@ impl<'src> Parser<'src> {
                 return Ok(Expr::Lam(vec![y_pat], Box::new(body), span));
             }
 
-            // Otherwise, this is just an infix expression in parens
+            // Otherwise, this is an infix expression - could be in parens or part of a tuple
             let rhs = self.parse_infix_expr(0)?;
             let infix_span = first.span().merge(rhs.span());
             let infix_expr = Expr::Infix(Box::new(first), op, Box::new(rhs), infix_span);
+
+            // Check if this is a tuple: (a .|. b, c, ...)
+            if self.eat(&TokenKind::Comma) {
+                let mut exprs = vec![infix_expr];
+                loop {
+                    exprs.push(self.parse_expr()?);
+                    if !self.eat(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let end = self.expect(&TokenKind::RParen)?;
+                let span = start.to(end.span);
+                return Ok(Expr::Tuple(exprs, span));
+            }
+
             let end = self.expect(&TokenKind::RParen)?;
             let span = start.to(end.span);
             return Ok(Expr::Paren(Box::new(infix_expr), span));

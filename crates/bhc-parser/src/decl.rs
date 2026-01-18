@@ -1109,28 +1109,88 @@ impl<'src> Parser<'src> {
         Ok(FieldDecl { name, ty, span })
     }
 
-    /// Parse deriving clause.
+    /// Parse all deriving clauses (there may be multiple in a row).
     fn parse_deriving(&mut self) -> ParseResult<Vec<Ident>> {
+        let mut all_classes = Vec::new();
+
+        // Parse all consecutive deriving clauses
+        loop {
+            // Skip any virtual layout tokens between deriving clauses
+            self.skip_virtual_tokens();
+
+            if self.check(&TokenKind::Deriving) {
+                let classes = self.parse_single_deriving()?;
+                all_classes.extend(classes);
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_classes)
+    }
+
+    /// Parse a single deriving clause.
+    fn parse_single_deriving(&mut self) -> ParseResult<Vec<Ident>> {
         if !self.eat(&TokenKind::Deriving) {
             return Ok(vec![]);
+        }
+
+        // Handle deriving strategies (stock, newtype, anyclass) and via
+        // For now just skip them if present
+        if self.eat_ident("stock") || self.eat_ident("newtype") || self.eat_ident("anyclass") {
+            // Strategy specified
         }
 
         if self.eat(&TokenKind::LParen) {
             let mut classes = Vec::new();
             if !self.check(&TokenKind::RParen) {
-                classes.push(self.parse_conid()?);
+                // Parse a type (which may be an application like `MonadState XState`)
+                let ty = self.parse_type()?;
+                // Extract the class name from the type
+                classes.push(self.type_to_class_name(&ty));
                 while self.eat(&TokenKind::Comma) {
                     if self.check(&TokenKind::RParen) {
                         break;
                     }
-                    classes.push(self.parse_conid()?);
+                    let ty = self.parse_type()?;
+                    classes.push(self.type_to_class_name(&ty));
                 }
             }
             self.expect(&TokenKind::RParen)?;
+
+            // Handle `via` clause (DerivingVia extension)
+            if self.eat(&TokenKind::Via) {
+                // Skip the via type
+                let _via_type = self.parse_type()?;
+            }
+
             Ok(classes)
         } else {
-            Ok(vec![self.parse_conid()?])
+            // Single class without parens
+            let ty = self.parse_type()?;
+            Ok(vec![self.type_to_class_name(&ty)])
         }
+    }
+
+    /// Extract the class name from a type (e.g., `MonadState XState` -> `MonadState`)
+    fn type_to_class_name(&self, ty: &Type) -> Ident {
+        match ty {
+            Type::Con(name, _) => name.clone(),
+            Type::App(f, _, _) => self.type_to_class_name(f),
+            Type::Paren(inner, _) => self.type_to_class_name(inner),
+            _ => Ident::from_str("<unknown>"),
+        }
+    }
+
+    /// Eat an identifier with a specific name
+    fn eat_ident(&mut self, name: &str) -> bool {
+        if let Some(&TokenKind::Ident(sym)) = self.current_kind() {
+            if sym.as_str() == name {
+                self.advance();
+                return true;
+            }
+        }
+        false
     }
 
     /// Parse a type alias.
