@@ -440,8 +440,8 @@ impl<'src> Parser<'src> {
         let qualified = self.eat(&TokenKind::Qualified);
         let module = self.parse_module_name()?;
 
-        // Check for "as Alias"
-        let alias = if self.eat(&TokenKind::As) {
+        // Check for "as Alias" - 'as' is a context-sensitive keyword
+        let alias = if self.eat_ident_str("as") {
             Some(self.parse_module_name()?)
         } else {
             None

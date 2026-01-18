@@ -617,7 +617,7 @@ impl TokenKind {
             "then" => Self::Then,
             "type" => Self::Type,
             "where" => Self::Where,
-            "as" => Self::As,
+            // "as" is context-sensitive - valid identifier outside imports
             "family" => Self::Family,
             "pattern" => Self::Pattern,
             "role" => Self::Role,

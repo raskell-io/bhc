@@ -373,6 +373,46 @@ impl<'src> Parser<'src> {
             return self.parse_operator_section(start);
         }
 
+        // Check for backtick right section: (`op` x) means \y -> y `op` x
+        if self.check(&TokenKind::Backtick) {
+            self.advance(); // consume opening backtick
+            let Some(func_tok) = self.current() else {
+                return Err(ParseError::UnexpectedEof {
+                    expected: "identifier".to_string(),
+                });
+            };
+            let func = match &func_tok.node.kind {
+                TokenKind::Ident(sym) => Ident::new(*sym),
+                TokenKind::ConId(sym) => Ident::new(*sym),
+                TokenKind::QualIdent(qual, name) => {
+                    let full_name = format!("{}.{}", qual.as_str(), name.as_str());
+                    Ident::from_str(&full_name)
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: func_tok.node.kind.description().to_string(),
+                        expected: "identifier".to_string(),
+                        span: func_tok.span,
+                    });
+                }
+            };
+            self.advance();
+            self.expect(&TokenKind::Backtick)?; // closing backtick
+
+            // Parse the RHS of the section
+            let rhs = self.parse_app_expr()?;
+
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+
+            // (`op` x) desugars to (\y -> y `op` x)
+            let y = Ident::from_str("$section_arg");
+            let y_pat = Pat::Var(y.clone(), Span::DUMMY);
+            let y_expr = Expr::Var(y, Span::DUMMY);
+            let body = Expr::Infix(Box::new(y_expr), func, Box::new(rhs), span);
+            return Ok(Expr::Lam(vec![y_pat], Box::new(body), span));
+        }
+
         // For left sections like `(1 +)`, we need to parse without consuming operators
         // Parse application expression first (no infix operators)
         let first = self.parse_app_expr()?;
@@ -406,6 +446,67 @@ impl<'src> Parser<'src> {
             let infix_expr = Expr::Infix(Box::new(first), op, Box::new(rhs), infix_span);
 
             // Check if this is a tuple: (a .|. b, c, ...)
+            if self.eat(&TokenKind::Comma) {
+                let mut exprs = vec![infix_expr];
+                loop {
+                    exprs.push(self.parse_expr()?);
+                    if !self.eat(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                let end = self.expect(&TokenKind::RParen)?;
+                let span = start.to(end.span);
+                return Ok(Expr::Tuple(exprs, span));
+            }
+
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+            return Ok(Expr::Paren(Box::new(infix_expr), span));
+        }
+
+        // Check for backtick infix: (x `elem` xs) or left section: (x `op`)
+        if self.check(&TokenKind::Backtick) {
+            // Parse the backtick infix expression
+            self.advance(); // consume first backtick
+            let Some(func_tok) = self.current() else {
+                return Err(ParseError::UnexpectedEof {
+                    expected: "identifier".to_string(),
+                });
+            };
+            let func = match &func_tok.node.kind {
+                TokenKind::Ident(sym) => Ident::new(*sym),
+                TokenKind::ConId(sym) => Ident::new(*sym),
+                TokenKind::QualIdent(qual, name) => {
+                    let full_name = format!("{}.{}", qual.as_str(), name.as_str());
+                    Ident::from_str(&full_name)
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: func_tok.node.kind.description().to_string(),
+                        expected: "identifier".to_string(),
+                        span: func_tok.span,
+                    });
+                }
+            };
+            self.advance();
+            self.expect(&TokenKind::Backtick)?; // closing backtick
+
+            // Check for left section: (x `op`) means \y -> x `op` y
+            if self.eat(&TokenKind::RParen) {
+                let span = start.to(self.tokens[self.pos - 1].span);
+                let y = Ident::from_str("$section_arg");
+                let y_pat = Pat::Var(y.clone(), Span::DUMMY);
+                let y_expr = Expr::Var(y, Span::DUMMY);
+                let body = Expr::Infix(Box::new(first), func, Box::new(y_expr), span);
+                return Ok(Expr::Lam(vec![y_pat], Box::new(body), span));
+            }
+
+            // Parse RHS for full infix expression
+            let rhs = self.parse_infix_expr(0)?;
+            let infix_span = first.span().merge(rhs.span());
+            let infix_expr = Expr::Infix(Box::new(first), func, Box::new(rhs), infix_span);
+
+            // Check for tuple
             if self.eat(&TokenKind::Comma) {
                 let mut exprs = vec![infix_expr];
                 loop {
@@ -642,10 +743,23 @@ impl<'src> Parser<'src> {
         }
     }
 
-    /// Parse a lambda expression.
+    /// Parse a lambda expression or lambda-case.
     fn parse_lambda(&mut self) -> ParseResult<Expr> {
         let start = self.current_span();
         self.expect(&TokenKind::Backslash)?;
+
+        // Check for lambda-case: \case { ... }
+        if self.eat(&TokenKind::Case) {
+            let alts = self.parse_case_alts()?;
+            let span = start.to(alts.last().map(|a| a.span).unwrap_or(start));
+
+            // Lambda-case desugars to \x -> case x of { ... }
+            let x = Ident::from_str("$lambdacase_arg");
+            let x_pat = Pat::Var(x.clone(), Span::DUMMY);
+            let x_expr = Expr::Var(x, Span::DUMMY);
+            let case_expr = Expr::Case(Box::new(x_expr), alts, span);
+            return Ok(Expr::Lam(vec![x_pat], Box::new(case_expr), span));
+        }
 
         let mut pats = vec![self.parse_pattern()?];
         while !self.check(&TokenKind::Arrow) && !self.at_eof() {

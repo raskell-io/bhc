@@ -36,14 +36,14 @@ impl<'src> Parser<'src> {
         self.parse_infix_pattern()
     }
 
-    /// Parse an infix pattern like `x : xs`.
+    /// Parse an infix pattern like `x : xs` or `x :| xs`.
     fn parse_infix_pattern(&mut self) -> ParseResult<Pat> {
         let mut pat = self.parse_app_pattern()?;
 
         while let Some(tok) = self.current() {
             match &tok.node.kind {
-                // The `:` operator is lexed as ConOperator since it starts with `:`
-                TokenKind::ConOperator(sym) if sym.as_str() == ":" => {
+                // Constructor operators like `:`, `:|` are valid in infix patterns
+                TokenKind::ConOperator(sym) => {
                     let op = Ident::new(*sym);
                     self.advance();
                     let rhs = self.parse_infix_pattern()?;
@@ -231,6 +231,14 @@ impl<'src> Parser<'src> {
         }
 
         let first = self.parse_pattern()?;
+
+        // Check for pattern type signature: (pat :: Type)
+        if self.eat(&TokenKind::DoubleColon) {
+            let ty = self.parse_type()?;
+            let end = self.expect(&TokenKind::RParen)?;
+            let span = start.to(end.span);
+            return Ok(Pat::Ann(Box::new(first), ty, span));
+        }
 
         if self.eat(&TokenKind::Comma) {
             // Tuple pattern

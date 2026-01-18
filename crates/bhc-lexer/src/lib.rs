@@ -87,6 +87,8 @@ pub struct Lexer<'src> {
     column: u32,
     /// Whether we've returned EOF (iterator is exhausted).
     eof_returned: bool,
+    /// Previous token kind (for detecting \case).
+    prev_token_kind: Option<TokenKind>,
 }
 
 impl<'src> Lexer<'src> {
@@ -111,6 +113,7 @@ impl<'src> Lexer<'src> {
             line: 1,
             column: 1,
             eof_returned: false,
+            prev_token_kind: None,
         }
     }
 
@@ -1105,6 +1108,11 @@ impl<'src> Lexer<'src> {
             self.expect_layout_block = true;
         }
 
+        // Handle \case (LambdaCase) - case after backslash triggers layout
+        if token.kind == TokenKind::Case && self.prev_token_kind == Some(TokenKind::Backslash) {
+            self.expect_layout_block = true;
+        }
+
         // Handle explicit open brace - push explicit context
         if token.kind == TokenKind::LBrace {
             self.layout_stack.push((0, true)); // Explicit context
@@ -1262,7 +1270,9 @@ impl<'src> Iterator for Lexer<'src> {
         // Return pending tokens first (from layout rule)
         // Use remove(0) for FIFO order: VirtualRBrace should come before VirtualSemi
         if !self.pending.is_empty() {
-            return Some(self.pending.remove(0));
+            let tok = self.pending.remove(0);
+            // Don't update prev_token_kind for virtual tokens
+            return Some(tok);
         }
 
         // If we're expecting a layout block, we need to peek at the next
@@ -1298,6 +1308,8 @@ impl<'src> Iterator for Lexer<'src> {
 
         // Try to lex the next token
         if let Some(tok) = self.lex_raw_token() {
+            // Track the previous token kind for \case detection
+            self.prev_token_kind = Some(tok.node.kind.clone());
             return Some(tok);
         }
 

@@ -167,6 +167,18 @@ impl<'src> Parser<'src> {
         }
     }
 
+    /// Consume an identifier token if it has the given string value.
+    /// Used for context-sensitive keywords like 'as', 'qualified', 'hiding'.
+    fn eat_ident_str(&mut self, s: &str) -> bool {
+        if let Some(TokenKind::Ident(sym)) = self.current_kind() {
+            if sym.as_str() == s {
+                self.advance();
+                return true;
+            }
+        }
+        false
+    }
+
     /// Skip any virtual tokens (VirtualLBrace, VirtualRBrace, VirtualSemi).
     /// These are inserted by the layout rule and need to be skipped in some contexts.
     fn skip_virtual_tokens(&mut self) {
@@ -1067,6 +1079,72 @@ newtype X a = X (IO a) deriving (Semigroup, Monoid) via Ap X a
             eprintln!("Error: {:?}", d);
         }
         assert!(diags.is_empty(), "Deriving via should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_backtick_in_parentheses() {
+        // Test backtick infix in parenthesized expression
+        let src = r#"module Test where
+
+test x xs = guard (x `elem` xs)
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Backtick in parentheses should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_backtick_right_section() {
+        // Test backtick right section: (`op` x) means \y -> y `op` x
+        let src = r#"module Test where
+
+test = filter (`M.notMember` floatingMap)
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Backtick right section should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_backtick_left_section() {
+        // Test backtick left section: (x `op`) means \y -> x `op` y
+        let src = r#"module Test where
+
+test xs = filter (\x -> not $ any (x `containedIn`) xs) $ xs
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Backtick left section should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_case_multi_alt() {
+        // Test lambda-case with multiple alternatives
+        let src = r#"module Test where
+
+rescreen = getInfo >>= \case
+    [] -> trace "empty"
+    x:xs -> process x xs
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Lambda-case with multiple alternatives should parse");
         let module = module.expect("Should parse");
         assert_eq!(module.decls.len(), 1);
     }
