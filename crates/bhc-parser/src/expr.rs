@@ -68,6 +68,14 @@ impl<'src> Parser<'src> {
                     self.expect(&TokenKind::Backtick)?;
                     (func, 9, Assoc::Left) // Default infix precedence
                 }
+                // Handle . (Dot token for function composition)
+                TokenKind::Dot => {
+                    let (prec, assoc) = self.get_operator_info(".");
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::from_str("."), prec, assoc)
+                }
                 _ => break,
             };
 
@@ -326,8 +334,8 @@ impl<'src> Parser<'src> {
             return Ok(Expr::Con(Ident::from_str("()"), span));
         }
 
-        // Check for operator section starting with operator: `(+)` or `(+ x)`
-        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus)) {
+        // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)`
+        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Dot)) {
             return self.parse_operator_section(start);
         }
 
@@ -340,6 +348,7 @@ impl<'src> Parser<'src> {
             Some(TokenKind::Operator(sym)) => Some(Ident::new(sym)),
             Some(TokenKind::Star) => Some(Ident::from_str("*")),
             Some(TokenKind::Minus) => Some(Ident::from_str("-")),
+            Some(TokenKind::Dot) => Some(Ident::from_str(".")),
             _ => None,
         };
 
@@ -842,6 +851,7 @@ impl<'src> Parser<'src> {
             TokenKind::Operator(sym) => Ident::new(*sym),
             TokenKind::Star => Ident::from_str("*"),
             TokenKind::Minus => Ident::from_str("-"),
+            TokenKind::Dot => Ident::from_str("."),
             _ => {
                 return Err(ParseError::Unexpected {
                     found: tok.node.kind.description().to_string(),
