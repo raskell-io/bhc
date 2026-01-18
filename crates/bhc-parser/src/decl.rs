@@ -645,6 +645,10 @@ impl<'src> Parser<'src> {
         // Skip Haddock documentation comments before value declarations
         self.skip_doc_comments();
 
+        // After doc comments, there may be a VirtualSemi if the next token
+        // is at the same indentation level. Skip it.
+        self.eat(&TokenKind::VirtualSemi);
+
         let start = self.current_span();
 
         // Check for pattern binding: `(a, b) = expr` or `!pat = expr` or `~pat = expr`

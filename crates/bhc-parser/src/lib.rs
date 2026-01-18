@@ -1250,6 +1250,27 @@ tile n = n > 0
     }
 
     #[test]
+    fn test_class_multiline_method_signature() {
+        // Test Core.hs pattern: class with multi-line method signatures
+        let src = r#"module Foo where
+class Show a => Foo a b where
+    -- | Method doc
+    runMethod :: a
+              -> b
+              -> Int
+    runMethod x y = 42
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Class with multi-line method signature should parse");
+        let module = module.expect("Should parse");
+        // Should have one class declaration
+        assert_eq!(module.decls.len(), 1, "Should have 1 decl, got {:?}", module.decls);
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;

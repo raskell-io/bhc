@@ -1759,5 +1759,24 @@ tile
         println!("tile at index {}", tile_idx);
         println!("tokens around tile: {:?}", &kinds[tile_idx.saturating_sub(3)..=tile_idx.min(kinds.len()-1)+3]);
     }
+
+    #[test]
+    fn test_class_body_multiline_type_sig() {
+        // Test token stream for class body with multi-line type signature
+        let src = r#"module Foo where
+class Show a => Foo a b where
+    -- | Method doc
+    runMethod :: a
+              -> b
+              -> Int
+    runMethod x y = 42"#;
+        let kinds = lex_kinds(src);
+
+        println!("Class body tokens: {:?}", kinds);
+
+        // Find runMethod's position
+        let idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "runMethod")).unwrap();
+        println!("runMethod at index {}, context: {:?}", idx, &kinds[idx..idx.min(kinds.len()-1)+10]);
+    }
 }
 
