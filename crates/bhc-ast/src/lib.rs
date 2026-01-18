@@ -744,6 +744,8 @@ pub enum Stmt {
 /// A field binding in a record.
 #[derive(Clone, Debug)]
 pub struct FieldBind {
+    /// Optional module qualifier for disambiguated record fields (e.g., `XMonad.borderWidth`).
+    pub qualifier: Option<ModuleName>,
     /// Field name.
     pub name: Ident,
     /// Field value (None for punning: `Foo { bar }` means `Foo { bar = bar }`)
@@ -808,6 +810,8 @@ impl Pat {
 /// A field pattern in a record.
 #[derive(Clone, Debug)]
 pub struct FieldPat {
+    /// Optional module qualifier for disambiguated record fields (e.g., `XMonad.modMask`).
+    pub qualifier: Option<ModuleName>,
     /// Field name.
     pub name: Ident,
     /// Pattern (None for punning).

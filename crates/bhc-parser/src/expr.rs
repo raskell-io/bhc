@@ -790,14 +790,21 @@ impl<'src> Parser<'src> {
         Ok(Expr::RecordUpd(Box::new(expr), fields, span))
     }
 
-    /// Parse a field binding: `field = expr` or `field` (punning)
+    /// Parse a field binding: `field = expr`, `Mod.field = expr`, or `field` (punning)
     fn parse_field_bind(&mut self) -> ParseResult<FieldBind> {
         let tok = self.current().ok_or(ParseError::UnexpectedEof {
             expected: "field name".to_string(),
         })?;
 
-        let (name, span) = match &tok.node.kind {
-            TokenKind::Ident(sym) => (Ident::new(*sym), tok.span),
+        let (qualifier, name, span) = match &tok.node.kind {
+            TokenKind::Ident(sym) => (None, Ident::new(*sym), tok.span),
+            TokenKind::QualIdent(qual, sym) => {
+                let module_name = ModuleName {
+                    parts: vec![*qual],
+                    span: tok.span,
+                };
+                (Some(module_name), Ident::new(*sym), tok.span)
+            }
             _ => {
                 return Err(ParseError::Unexpected {
                     found: tok.node.kind.description().to_string(),
@@ -817,6 +824,7 @@ impl<'src> Parser<'src> {
         let end_span = value.as_ref().map(|e| e.span()).unwrap_or(span);
         let full_span = span.to(end_span);
         Ok(FieldBind {
+            qualifier,
             name,
             value,
             span: full_span,

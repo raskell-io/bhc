@@ -1,6 +1,6 @@
 //! Pattern parsing.
 
-use bhc_ast::{FieldPat, Lit, Pat};
+use bhc_ast::{FieldPat, Lit, ModuleName, Pat};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
@@ -270,14 +270,21 @@ impl<'src> Parser<'src> {
         Ok(Pat::Record(con, fields, span))
     }
 
-    /// Parse a field pattern: `field = pat` or `field` (punning)
+    /// Parse a field pattern: `field = pat`, `Mod.field = pat`, or `field` (punning)
     fn parse_field_pat(&mut self) -> ParseResult<FieldPat> {
         let tok = self.current().ok_or(ParseError::UnexpectedEof {
             expected: "field name".to_string(),
         })?;
 
-        let (name, span) = match &tok.node.kind {
-            TokenKind::Ident(sym) => (Ident::new(*sym), tok.span),
+        let (qualifier, name, span) = match &tok.node.kind {
+            TokenKind::Ident(sym) => (None, Ident::new(*sym), tok.span),
+            TokenKind::QualIdent(qual, sym) => {
+                let module_name = ModuleName {
+                    parts: vec![*qual],
+                    span: tok.span,
+                };
+                (Some(module_name), Ident::new(*sym), tok.span)
+            }
             _ => {
                 return Err(ParseError::Unexpected {
                     found: tok.node.kind.description().to_string(),
@@ -297,6 +304,7 @@ impl<'src> Parser<'src> {
         let end_span = pat.as_ref().map(|p| p.span()).unwrap_or(span);
         let full_span = span.to(end_span);
         Ok(FieldPat {
+            qualifier,
             name,
             pat,
             span: full_span,
