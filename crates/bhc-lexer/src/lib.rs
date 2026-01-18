@@ -1068,13 +1068,8 @@ impl<'src> Lexer<'src> {
 
     /// Handle layout rule: generate virtual tokens based on indentation.
     fn handle_layout(&mut self, token: &Token, column: u32) {
-        // Check for layout keywords that start a new block
-        if token.kind.starts_layout() {
-            self.expect_layout_block = true;
-            return;
-        }
-
-        // Handle indentation at line start
+        // Handle indentation at line start FIRST (before checking for layout keywords)
+        // This ensures we insert VirtualSemi/VirtualRBrace before layout keywords like 'let'
         if self.at_line_start {
             self.at_line_start = false;
 
@@ -1102,6 +1097,12 @@ impl<'src> Lexer<'src> {
                     break;
                 }
             }
+        }
+
+        // Check for layout keywords that start a new block
+        // This is done AFTER indentation handling so VirtualSemi is inserted before 'let' etc.
+        if token.kind.starts_layout() {
+            self.expect_layout_block = true;
         }
 
         // Handle explicit open brace - push explicit context

@@ -895,6 +895,78 @@ data Workspace i l a = Workspace { tag :: !i }
     }
 
     #[test]
+    fn test_instance_with_operator_method() {
+        // Instance declaration with operator method (XMonad Foldable style)
+        let src = r#"module Test where
+
+instance Foldable Stack where
+    toList = integrate
+    foldr f z = foldr f z . toList
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Should parse without errors");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
+    fn test_do_let_without_in() {
+        // In do-notation, 'let' doesn't need 'in'
+        let src = r#"module Test where
+
+test = do
+    let x = 1
+    y <- getY
+    pure (x + y)
+"#;
+        let (_module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Do-notation let should work without 'in'");
+    }
+
+    #[test]
+    fn test_do_let_simple_binding() {
+        // Simple case: let followed by another statement
+        let src = r#"module Test where
+
+test = do
+    sh <- io x
+    let isFixedSize = isJust sh
+    isTransient <- isJust sh
+    pure isTransient
+"#;
+        let (_module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Do-notation let followed by statement should parse");
+    }
+
+    #[test]
+    fn test_do_let_complex_binding() {
+        // XMonad Operations.hs style: let binding followed by more statements
+        // Note: Uses <$> operator which is fmap infix
+        let src = r#"module Test where
+
+isFixedSizeOrTransient d w = do
+    sh <- io (getWMNormalHints d w)
+    let isFixedSize = isJust (sh_min_size sh) && sh_min_size sh == sh_max_size sh
+    isTransient <- isJust <$> io (getTransientForHint d w)
+    pure (isFixedSize || isTransient)
+"#;
+        let (_module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Complex do-notation should parse");
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;
