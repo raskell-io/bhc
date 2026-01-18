@@ -46,12 +46,14 @@ impl<'src> Parser<'src> {
         // Declarations
         let mut decls = Vec::new();
         while !self.at_eof() {
-            // Skip any virtual tokens, doc comments, and explicit semicolons between declarations
+            // Skip any virtual tokens, doc comments, pragmas, and explicit semicolons between declarations
             self.skip_virtual_tokens();
             self.skip_doc_comments();
+            self.skip_standalone_pragmas();
             while self.eat(&TokenKind::Semi) || self.eat(&TokenKind::VirtualSemi) {
                 self.skip_virtual_tokens();
                 self.skip_doc_comments();
+                self.skip_standalone_pragmas();
             }
             if self.at_eof() {
                 break;
@@ -220,6 +222,14 @@ impl<'src> Parser<'src> {
         };
 
         Some(Pragma { kind, span })
+    }
+
+    /// Skip standalone pragmas that can appear between declarations.
+    /// This includes INLINE, NOINLINE, DEPRECATED, WARNING, SPECIALISE, etc.
+    fn skip_standalone_pragmas(&mut self) {
+        while let Some(TokenKind::Pragma(_)) = self.current_kind() {
+            self.advance();
+        }
     }
 
     /// Parse a module name.
@@ -1047,8 +1057,57 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse a single constructor.
+    /// Supports existential quantification: `forall l. (C l) => Con (l a)`
     fn parse_constructor(&mut self) -> ParseResult<ConDecl> {
         let start = self.current_span();
+
+        // Check for existential quantification: forall a b. (Context) =>
+        if self.eat(&TokenKind::Forall) {
+            // Parse type variables
+            while self.check_ident() || self.check(&TokenKind::LParen) {
+                if self.check(&TokenKind::LParen) {
+                    // Skip kind annotation like (a :: Type)
+                    self.advance();
+                    let mut depth = 1;
+                    while depth > 0 && !self.at_eof() {
+                        if self.check(&TokenKind::LParen) {
+                            depth += 1;
+                        } else if self.check(&TokenKind::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                } else {
+                    self.advance(); // Skip type variable
+                }
+            }
+            self.expect(&TokenKind::Dot)?;
+
+            // Check for context: (Constraint a, Constraint b) =>
+            if self.check(&TokenKind::LParen) {
+                // Parse and skip constraints
+                self.advance();
+                let mut depth = 1;
+                while depth > 0 && !self.at_eof() {
+                    if self.check(&TokenKind::LParen) {
+                        depth += 1;
+                    } else if self.check(&TokenKind::RParen) {
+                        depth -= 1;
+                    }
+                    self.advance();
+                }
+                self.expect(&TokenKind::FatArrow)?;
+            } else if self.check_ident() || matches!(self.current_kind(), Some(TokenKind::ConId(_))) {
+                // Single constraint without parens: C a =>
+                while !self.check(&TokenKind::FatArrow) && !self.at_eof() {
+                    self.advance();
+                }
+                if self.check(&TokenKind::FatArrow) {
+                    self.advance();
+                }
+            }
+        }
+
         let name = self.parse_conid()?;
 
         let fields = if self.check(&TokenKind::LBrace) {
@@ -1236,31 +1295,35 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse a class declaration.
+    /// Handles multi-parameter type classes and functional dependencies.
+    /// Examples:
+    ///   - `class Eq a where ...`
+    ///   - `class (Show a, Typeable a) => LayoutClass layout a where ...`
+    ///   - `class MonadState s m | m -> s where ...`
     fn parse_class_decl(&mut self) -> ParseResult<Decl> {
         let start = self.current_span();
         self.expect(&TokenKind::Class)?;
 
         let context = self.parse_optional_context()?;
         let name = self.parse_conid()?;
-        let param = {
-            let tok = self.current().ok_or(ParseError::UnexpectedEof {
-                expected: "type variable".to_string(),
-            })?;
-            match &tok.node.kind {
-                TokenKind::Ident(sym) => {
-                    let name = Ident::new(*sym);
-                    let span = tok.span;
-                    self.advance();
-                    TyVar { name, span }
-                }
-                _ => {
-                    return Err(ParseError::Unexpected {
-                        found: tok.node.kind.description().to_string(),
-                        expected: "type variable".to_string(),
-                        span: tok.span,
-                    });
-                }
+
+        // Parse one or more type parameters
+        let mut params = Vec::new();
+        while self.check_ident() {
+            let tok = self.current().unwrap();
+            if let TokenKind::Ident(sym) = &tok.node.kind {
+                let param_name = Ident::new(*sym);
+                let span = tok.span;
+                self.advance();
+                params.push(TyVar { name: param_name, span });
             }
+        }
+
+        // Parse optional functional dependencies: | a -> b, c -> d
+        let fundeps = if self.eat(&TokenKind::Pipe) {
+            self.parse_fundeps()?
+        } else {
+            vec![]
         };
 
         // The `where` clause is optional in Haskell
@@ -1275,54 +1338,85 @@ impl<'src> Parser<'src> {
         Ok(Decl::ClassDecl(ClassDecl {
             context,
             name,
-            param,
+            params,
+            fundeps,
             methods,
             span,
         }))
     }
 
+    /// Parse functional dependencies: `a -> b, c d -> e`
+    fn parse_fundeps(&mut self) -> ParseResult<Vec<FunDep>> {
+        let mut fundeps = Vec::new();
+
+        loop {
+            let start = self.current_span();
+
+            // Parse 'from' variables
+            let mut from = Vec::new();
+            while self.check_ident() {
+                if let Some(TokenKind::Ident(sym)) = self.current_kind() {
+                    from.push(Ident::new(*sym));
+                    self.advance();
+                }
+            }
+
+            self.expect(&TokenKind::Arrow)?;
+
+            // Parse 'to' variables
+            let mut to = Vec::new();
+            while self.check_ident() {
+                if let Some(TokenKind::Ident(sym)) = self.current_kind() {
+                    to.push(Ident::new(*sym));
+                    self.advance();
+                }
+            }
+
+            let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+            fundeps.push(FunDep { from, to, span });
+
+            if !self.eat(&TokenKind::Comma) {
+                break;
+            }
+        }
+
+        Ok(fundeps)
+    }
+
     /// Parse optional class/instance context.
-    /// Handles patterns like `(Eq a, Show a) =>` or `Eq a =>`
+    /// Handles patterns like:
+    ///   - `(Eq a, Show a) =>`
+    ///   - `Eq a =>`
+    ///   - `(a ~ Type) =>` (type equality constraint)
     fn parse_optional_context(&mut self) -> ParseResult<Vec<Constraint>> {
         // Save position in case we need to backtrack
         let saved_pos = self.pos;
 
-        // Try to parse constraint(s) followed by `=>`
-        // Context can be:
-        //   - Single: `Eq a =>`
-        //   - Multiple in parens: `(Eq a, Show a) =>`
-
         let start_span = self.current_span();
 
         let constraints = if self.check(&TokenKind::LParen) {
-            // Could be tuple context `(C1 a, C2 a) =>` or just a type in parens
+            // Could be tuple context `(C1 a, C2 a) =>` or type equality `(a ~ Type) =>`
+            // or just a type in parens
             self.advance();
 
             // Try parsing as constraints
             let mut constraints = Vec::new();
             if !self.check(&TokenKind::RParen) {
-                // Parse first constraint
-                let class = self.parse_conid().ok();
-                if let Some(class) = class {
-                    let arg = self.parse_type().ok();
-                    if let Some(arg) = arg {
-                        let span = start_span.to(self.tokens[self.pos.saturating_sub(1)].span);
-                        constraints.push(Constraint { class, args: vec![arg], span });
+                // Parse first constraint - could be:
+                // - ConId Type... (normal constraint like Eq a)
+                // - Type ~ Type (type equality)
+                // - Type (just a type, might be part of equality)
+                let constraint = self.parse_constraint_item(start_span)?;
+                if let Some(c) = constraint {
+                    constraints.push(c);
+                }
 
-                        // Parse more constraints
-                        while self.eat(&TokenKind::Comma) {
-                            let c_start = self.current_span();
-                            if let (Some(class), Some(arg)) =
-                                (self.parse_conid().ok(), self.parse_type().ok())
-                            {
-                                let span = c_start.to(self.tokens[self.pos.saturating_sub(1)].span);
-                                constraints.push(Constraint { class, args: vec![arg], span });
-                            } else {
-                                // Failed, backtrack
-                                self.pos = saved_pos;
-                                return Ok(vec![]);
-                            }
-                        }
+                // Parse more constraints
+                while self.eat(&TokenKind::Comma) {
+                    let c_start = self.current_span();
+                    let constraint = self.parse_constraint_item(c_start)?;
+                    if let Some(c) = constraint {
+                        constraints.push(c);
                     }
                 }
             }
@@ -1335,20 +1429,22 @@ impl<'src> Parser<'src> {
             constraints
         } else if let Some(TokenKind::ConId(_)) = self.current_kind() {
             // Could be single constraint `Eq a =>`
-            let class = self.parse_conid().ok();
-            if let Some(class) = class {
-                let arg = self.parse_type().ok();
-                if let Some(arg) = arg {
-                    let span = start_span.to(self.tokens[self.pos.saturating_sub(1)].span);
-                    vec![Constraint { class, args: vec![arg], span }]
-                } else {
-                    // Not a constraint, backtrack
-                    self.pos = saved_pos;
-                    return Ok(vec![]);
+            let class = self.parse_conid()?;
+            // Parse type arguments until we see `=>` or run out
+            let mut args = Vec::new();
+            while !self.check(&TokenKind::FatArrow) && !self.at_eof() {
+                // Don't parse operators as part of the constraint args
+                if let Some(TokenKind::Operator(_)) = self.current_kind() {
+                    break;
                 }
-            } else {
-                return Ok(vec![]);
+                if let Ok(arg) = self.parse_atype() {
+                    args.push(arg);
+                } else {
+                    break;
+                }
             }
+            let span = start_span.to(self.tokens[self.pos.saturating_sub(1)].span);
+            vec![Constraint { class, args, span }]
         } else {
             return Ok(vec![]);
         };
@@ -1361,6 +1457,62 @@ impl<'src> Parser<'src> {
             self.pos = saved_pos;
             Ok(vec![])
         }
+    }
+
+    /// Parse a single constraint item within a context.
+    /// Handles normal constraints (C a) and type equality (a ~ b).
+    fn parse_constraint_item(&mut self, start_span: Span) -> ParseResult<Option<Constraint>> {
+        // Try to parse as a normal constraint first: ConId Type...
+        if let Some(TokenKind::ConId(_)) = self.current_kind() {
+            let class = self.parse_conid()?;
+            // Parse type arguments
+            let mut args = Vec::new();
+            while !self.check(&TokenKind::Comma)
+                && !self.check(&TokenKind::RParen)
+                && !self.at_eof()
+            {
+                // Don't parse `~` as part of args (it's a type operator)
+                if let Some(TokenKind::Operator(sym)) = self.current_kind() {
+                    if sym.as_str() == "~" {
+                        break;
+                    }
+                }
+                if let Ok(arg) = self.parse_atype() {
+                    args.push(arg);
+                } else {
+                    break;
+                }
+            }
+            let span = start_span.to(self.tokens[self.pos.saturating_sub(1)].span);
+            return Ok(Some(Constraint { class, args, span }));
+        }
+
+        // Try type equality constraint: a ~ Type
+        // Skip the LHS type (use atype to not consume `~` as part of the type)
+        if self.check_ident() || self.check(&TokenKind::LParen) {
+            let saved = self.pos;
+            // Try to parse just the atomic type on the left of ~
+            if self.parse_atype().is_ok() {
+                // Check for `~` token (type equality operator)
+                if self.eat(&TokenKind::Tilde) {
+                    // Parse RHS type (full type since nothing follows)
+                    if self.parse_type().is_ok() {
+                        // Successfully parsed type equality, but we'll represent it
+                        // as an opaque constraint for now (class name (~))
+                        let span = start_span.to(self.tokens[self.pos.saturating_sub(1)].span);
+                        return Ok(Some(Constraint {
+                            class: Ident::from_str("~"),
+                            args: vec![], // We lose the actual types, but that's OK for now
+                            span,
+                        }));
+                    }
+                }
+            }
+            // Backtrack if it wasn't a type equality
+            self.pos = saved;
+        }
+
+        Ok(None)
     }
 
     /// Parse class methods.

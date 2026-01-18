@@ -538,10 +538,23 @@ pub struct ClassDecl {
     pub context: Vec<Constraint>,
     /// Class name.
     pub name: Ident,
-    /// Type parameter.
-    pub param: TyVar,
+    /// Type parameters (multi-param type classes).
+    pub params: Vec<TyVar>,
+    /// Functional dependencies.
+    pub fundeps: Vec<FunDep>,
     /// Method signatures and default implementations.
     pub methods: Vec<Decl>,
+    /// The span.
+    pub span: Span,
+}
+
+/// A functional dependency in a type class.
+#[derive(Clone, Debug)]
+pub struct FunDep {
+    /// Variables that determine others.
+    pub from: Vec<Ident>,
+    /// Variables that are determined.
+    pub to: Vec<Ident>,
     /// The span.
     pub span: Span,
 }

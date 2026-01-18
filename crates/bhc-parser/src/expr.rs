@@ -910,18 +910,60 @@ impl<'src> Parser<'src> {
         let mut guarded_rhss = Vec::new();
         while self.eat(&TokenKind::Pipe) {
             let start = self.current_span();
-            let guard_expr = self.parse_expr()?;
-            let guard_span = guard_expr.span();
+
+            // Parse guards (can be multiple, separated by commas)
+            // Each guard is either:
+            //   - A pattern guard: `pat <- expr`
+            //   - A boolean guard: `expr`
+            let mut guards = Vec::new();
+            loop {
+                let guard = self.parse_guard_item()?;
+                guards.push(guard);
+
+                // Multiple guards can be separated by commas
+                if !self.eat(&TokenKind::Comma) {
+                    break;
+                }
+            }
+
             self.expect(&TokenKind::Arrow)?;
             let body = self.parse_expr()?;
             let span = start.to(body.span());
             guarded_rhss.push(GuardedRhs {
-                guards: vec![Guard::Expr(guard_expr, guard_span)],
+                guards,
                 body,
                 span,
             });
         }
         Ok(guarded_rhss)
+    }
+
+    /// Parse a single guard item (pattern guard `pat <- expr` or boolean guard `expr`).
+    fn parse_guard_item(&mut self) -> ParseResult<Guard> {
+        let start = self.current_span();
+
+        // Save position for backtracking
+        let saved_pos = self.pos;
+
+        // Try parsing as pattern guard: pat <- expr
+        if let Ok(pat) = self.parse_pattern() {
+            if self.eat(&TokenKind::LeftArrow) {
+                // This is a pattern guard
+                let expr = self.parse_expr()?;
+                let span = start.to(expr.span());
+                return Ok(Guard::Pattern(pat, expr, span));
+            }
+            // Not a pattern guard, backtrack
+            self.pos = saved_pos;
+        } else {
+            // Couldn't parse as pattern, reset position
+            self.pos = saved_pos;
+        }
+
+        // Parse as boolean guard
+        let expr = self.parse_expr()?;
+        let span = start.to(expr.span());
+        Ok(Guard::Expr(expr, span))
     }
 
     /// Parse a do expression.

@@ -1150,6 +1150,23 @@ rescreen = getInfo >>= \case
     }
 
     #[test]
+    fn test_type_equality_constraint() {
+        // Test type equality constraint: (a ~ Type) =>
+        let src = r#"module Test where
+
+instance (a ~ Int) => Num a where
+  fromInteger = undefined
+"#;
+        let (module, diags) = parse_module(src, FileId::new(0));
+        for d in &diags {
+            eprintln!("Error: {:?}", d);
+        }
+        assert!(diags.is_empty(), "Type equality constraint should parse");
+        let module = module.expect("Should parse");
+        assert_eq!(module.decls.len(), 1);
+    }
+
+    #[test]
     fn test_xmonad_parsing() {
         // Test parsing XMonad-style code
         use std::path::Path;
