@@ -14,7 +14,9 @@ impl<'src> Parser<'src> {
             Some(kind) => matches!(
                 kind,
                 TokenKind::Ident(_)
+                    | TokenKind::QualIdent(_, _)
                     | TokenKind::ConId(_)
+                    | TokenKind::QualConId(_, _)
                     | TokenKind::IntLit(_)
                     | TokenKind::FloatLit(_)
                     | TokenKind::CharLit(_)
@@ -124,12 +126,36 @@ impl<'src> Parser<'src> {
                 }
             }
 
+            TokenKind::QualIdent(qual, name) => {
+                // Qualified identifier like M.x - treat as variable
+                let full_name = format!("{}.{}", qual.as_str(), name.as_str());
+                let ident = Ident::from_str(&full_name);
+                let span = tok.span;
+                self.advance();
+                Ok(Pat::Var(ident, span))
+            }
+
             TokenKind::ConId(sym) => {
                 let ident = Ident::new(*sym);
                 let span = tok.span;
                 self.advance();
 
                 // Check for record pattern: Con { field = pat, ... }
+                if self.check(&TokenKind::LBrace) {
+                    return self.parse_record_pattern(ident, span);
+                }
+
+                Ok(Pat::Con(ident, vec![], span))
+            }
+
+            TokenKind::QualConId(qual, name) => {
+                // Qualified constructor like W.RationalRect
+                let full_name = format!("{}.{}", qual.as_str(), name.as_str());
+                let ident = Ident::from_str(&full_name);
+                let span = tok.span;
+                self.advance();
+
+                // Check for record pattern: Qual.Con { field = pat, ... }
                 if self.check(&TokenKind::LBrace) {
                     return self.parse_record_pattern(ident, span);
                 }
