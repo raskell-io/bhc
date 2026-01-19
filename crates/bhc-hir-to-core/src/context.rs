@@ -124,6 +124,25 @@ impl LowerContext {
         }
     }
 
+    /// Register builtins using DefIds from the lowering pass.
+    ///
+    /// This replaces the hardcoded DefIds with the actual DefIds assigned
+    /// during AST-to-HIR lowering, ensuring consistency across passes.
+    pub fn register_lowered_builtins(&mut self, defs: &crate::DefMap) {
+        // Clear the existing hardcoded builtins
+        self.var_map.clear();
+
+        // Register all definitions from the lowering pass
+        for (_def_id, def_info) in defs.iter() {
+            let var = Var {
+                name: def_info.name,
+                id: VarId::new(def_info.id.index()),
+                ty: Ty::Error, // Types resolved during evaluation
+            };
+            self.var_map.insert(def_info.id, var);
+        }
+    }
+
     /// Generate a fresh variable with the given base name.
     ///
     /// The name will be mangled with a counter to ensure uniqueness.

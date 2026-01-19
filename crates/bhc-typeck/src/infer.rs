@@ -13,7 +13,8 @@
 //! 5. **Let**: Infer binding, generalize, then infer body
 
 use bhc_hir::{Binding, CaseAlt, Expr, Lit};
-use bhc_types::Ty;
+use bhc_intern::Symbol;
+use bhc_types::{Scheme, Ty};
 
 use crate::context::TyCtxt;
 use crate::diagnostics;
@@ -89,12 +90,90 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
         }
 
         Expr::Let(bindings, body, _span) => {
+            use bhc_hir::{DefId, Pat};
+
             // Enter scope for let bindings
             ctx.env.push_scope();
 
-            // Check each binding
+            // For recursive let bindings (Haskell's default), we need to:
+            // 1. Pre-register all binding variables with fresh type variables
+            // 2. Infer the RHS types (which can now reference other bindings)
+            // 3. Unify and generalize
+
+            // Helper to extract (name, def_id) pairs from a pattern
+            fn extract_var_ids(pat: &Pat, out: &mut Vec<(Symbol, DefId)>) {
+                match pat {
+                    Pat::Var(name, def_id, _) => out.push((*name, *def_id)),
+                    Pat::As(name, def_id, inner, _) => {
+                        out.push((*name, *def_id));
+                        extract_var_ids(inner, out);
+                    }
+                    Pat::Con(_, sub_pats, _) => {
+                        for p in sub_pats {
+                            extract_var_ids(p, out);
+                        }
+                    }
+                    Pat::Ann(inner, _, _) => extract_var_ids(inner, out),
+                    Pat::Or(left, _, _) => extract_var_ids(left, out),
+                    Pat::Wild(_) | Pat::Lit(_, _) | Pat::Error(_) => {}
+                }
+            }
+
+            // Step 1: Pre-register all bound variables with fresh types
+            let mut binding_types: Vec<(Vec<(Symbol, DefId)>, Ty)> = Vec::new();
             for binding in bindings {
-                check_binding(ctx, binding);
+                let fresh_ty = ctx.fresh_ty();
+                let mut var_ids = Vec::new();
+                extract_var_ids(&binding.pat, &mut var_ids);
+
+                // Register by both name and DefId (like pattern checking does)
+                let scheme = Scheme::mono(fresh_ty.clone());
+                for (name, def_id) in &var_ids {
+                    ctx.env.insert_local(*name, scheme.clone());
+                    ctx.env.insert_global(*def_id, scheme.clone());
+                }
+                binding_types.push((var_ids, fresh_ty));
+            }
+
+            // Step 2: Check each binding's RHS and unify with pre-registered type
+            for (binding, (_var_ids, expected_ty)) in bindings.iter().zip(binding_types.iter()) {
+                let rhs_ty = infer_expr(ctx, &binding.rhs);
+
+                // If there's a signature, unify with it
+                if let Some(sig) = &binding.sig {
+                    ctx.unify(&rhs_ty, &sig.ty, binding.span);
+                }
+
+                // Unify with the pre-registered type
+                ctx.unify(&rhs_ty, expected_ty, binding.span);
+
+                // Check pattern
+                ctx.check_pattern(&binding.pat, &rhs_ty);
+            }
+
+            // Step 3: Generalize binding types (update the environment)
+            // For pattern bindings, check_pattern has already set the correct types.
+            // We need to look up each variable's actual type and generalize it,
+            // rather than using the whole binding type.
+            for (binding, (var_ids, _ty)) in bindings.iter().zip(binding_types.iter()) {
+                // For simple variable patterns, the var's type is the binding type
+                // For complex patterns (Con, As, etc.), each var has its own type
+                for (name, def_id) in var_ids {
+                    // Look up the current type for this variable (set by check_pattern)
+                    let var_ty = ctx.env.lookup_def_id(*def_id)
+                        .map(|s| ctx.apply_subst(&s.ty))
+                        .unwrap_or_else(|| ctx.fresh_ty());
+                    let scheme = ctx.generalize(&var_ty);
+                    ctx.env.insert_local(*name, scheme.clone());
+                    ctx.env.insert_global(*def_id, scheme);
+                }
+                // For simple variable bindings, also add the generalized type annotation if present
+                if let Some(sig) = &binding.sig {
+                    if var_ids.len() == 1 {
+                        let (_name, def_id) = &var_ids[0];
+                        ctx.env.insert_global(*def_id, sig.clone());
+                    }
+                }
             }
 
             // Infer body type
@@ -276,7 +355,8 @@ fn extract_result_type(ty: &Ty) -> Ty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bhc_hir::Pat;
+    use bhc_hir::{DefId, Pat};
+    use bhc_index::Idx;
     use bhc_intern::Symbol;
     use bhc_span::{FileId, Span};
 
@@ -346,7 +426,7 @@ mod tests {
         let mut ctx = test_context();
         let x = Symbol::intern("x");
         let expr = Expr::Lam(
-            vec![Pat::Var(x, Span::DUMMY)],
+            vec![Pat::Var(x, DefId::new(100), Span::DUMMY)],
             Box::new(Expr::Lit(Lit::Int(42), Span::DUMMY)),
             Span::DUMMY,
         );

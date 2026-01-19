@@ -377,8 +377,21 @@ impl<'src> Parser<'src> {
         }
 
         // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)` or `(:)`
-        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Minus) | Some(TokenKind::Percent) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
+        // Note: `-` is NOT included here because `(-5)` should be negative 5, not a section.
+        // Only `(-)` (minus followed immediately by rparen) should be a section.
+        // We handle that case below.
+        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Percent) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
             return self.parse_operator_section(start);
+        }
+
+        // Special case for `-`: only `(-)` is a section, otherwise it's negation
+        if matches!(self.current_kind(), Some(TokenKind::Minus)) {
+            // Peek at the next token to see if it's immediately followed by `)`
+            if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].node.kind, TokenKind::RParen) {
+                // `(-)` is the subtraction operator as a function
+                return self.parse_operator_section(start);
+            }
+            // Otherwise, fall through to parse as prefix negation
         }
 
         // Check for backtick right section: (`op` x) means \y -> y `op` x
@@ -422,8 +435,8 @@ impl<'src> Parser<'src> {
         }
 
         // For left sections like `(1 +)`, we need to parse without consuming operators
-        // Parse application expression first (no infix operators)
-        let first = self.parse_app_expr()?;
+        // Parse prefix expression first (handles negation like `(-5)`)
+        let first = self.parse_prefix_expr()?;
 
         // Check for left operator section: `(x +)` or infix expression in parens
         let op_ident = match self.current_kind().cloned() {

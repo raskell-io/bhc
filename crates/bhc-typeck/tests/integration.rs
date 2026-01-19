@@ -276,7 +276,7 @@ fn test_identity_lambda() {
         0,
         "id",
         Expr::Lam(
-            vec![Pat::Var(x, Span::DUMMY)],
+            vec![Pat::Var(x, DefId::new(100), Span::DUMMY)],
             Box::new(Expr::Lit(Lit::Int(42), Span::DUMMY)), // For now, return Int
             Span::DUMMY,
         ),
@@ -308,7 +308,7 @@ fn test_const_lambda() {
     let module = module_with_items(vec![Item::Value(func_def(
         0,
         "const",
-        vec![Pat::Var(x, Span::DUMMY), Pat::Var(y, Span::DUMMY)],
+        vec![Pat::Var(x, DefId::new(100), Span::DUMMY), Pat::Var(y, DefId::new(101), Span::DUMMY)],
         Expr::Lit(Lit::Int(1), Span::DUMMY),
     ))]);
 
@@ -344,7 +344,7 @@ fn test_simple_let() {
         "result",
         Expr::Let(
             vec![Binding {
-                pat: Pat::Var(x, Span::DUMMY),
+                pat: Pat::Var(x, DefId::new(100), Span::DUMMY),
                 sig: None,
                 rhs: Expr::Lit(Lit::Int(42), Span::DUMMY),
                 span: Span::DUMMY,
@@ -385,7 +385,7 @@ fn test_let_with_tuple_pattern() {
             vec![Binding {
                 pat: Pat::Con(
                     tuple_con,
-                    vec![Pat::Var(a, Span::DUMMY), Pat::Var(b, Span::DUMMY)],
+                    vec![Pat::Var(a, DefId::new(102), Span::DUMMY), Pat::Var(b, DefId::new(103), Span::DUMMY)],
                     Span::DUMMY,
                 ),
                 sig: None,
@@ -423,7 +423,7 @@ fn test_if_expression_type_match() {
         "result",
         Expr::If(
             Box::new(Expr::Con(DefRef {
-                def_id: DefId::new(0xFFFF_0000), // True builtin ID
+                def_id: DefId::new(9), // True builtin ID
                 span: Span::DUMMY,
             })),
             Box::new(Expr::Lit(Lit::Int(1), Span::DUMMY)),
@@ -674,7 +674,7 @@ fn test_constructor_pattern_match() {
                 vec![CaseAlt {
                     pat: Pat::Con(
                         def_ref(1),
-                        vec![Pat::Var(x, Span::DUMMY), Pat::Var(y, Span::DUMMY)],
+                        vec![Pat::Var(x, DefId::new(100), Span::DUMMY), Pat::Var(y, DefId::new(101), Span::DUMMY)],
                         Span::DUMMY,
                     ),
                     guards: Vec::new(),
@@ -825,9 +825,9 @@ fn test_nested_lambdas() {
         0,
         "pair_fn",
         Expr::Lam(
-            vec![Pat::Var(x, Span::DUMMY)],
+            vec![Pat::Var(x, DefId::new(100), Span::DUMMY)],
             Box::new(Expr::Lam(
-                vec![Pat::Var(y, Span::DUMMY)],
+                vec![Pat::Var(y, DefId::new(101), Span::DUMMY)],
                 Box::new(Expr::Tuple(
                     vec![
                         Expr::Lit(Lit::Int(1), Span::DUMMY),
@@ -872,21 +872,21 @@ fn test_deeply_nested_lets() {
         "nested",
         Expr::Let(
             vec![Binding {
-                pat: Pat::Var(a, Span::DUMMY),
+                pat: Pat::Var(a, DefId::new(102), Span::DUMMY),
                 sig: None,
                 rhs: Expr::Lit(Lit::Int(1), Span::DUMMY),
                 span: Span::DUMMY,
             }],
             Box::new(Expr::Let(
                 vec![Binding {
-                    pat: Pat::Var(b, Span::DUMMY),
+                    pat: Pat::Var(b, DefId::new(103), Span::DUMMY),
                     sig: None,
                     rhs: Expr::Lit(Lit::Int(2), Span::DUMMY),
                     span: Span::DUMMY,
                 }],
                 Box::new(Expr::Let(
                     vec![Binding {
-                        pat: Pat::Var(c, Span::DUMMY),
+                        pat: Pat::Var(c, DefId::new(104), Span::DUMMY),
                         sig: None,
                         rhs: Expr::Lit(Lit::Int(3), Span::DUMMY),
                         span: Span::DUMMY,

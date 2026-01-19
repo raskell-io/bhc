@@ -7,7 +7,7 @@
 //! - `Lam` with multiple patterns becomes nested lambdas with case
 //! - `Tuple` and `List` become constructor applications
 
-use bhc_core::{self as core, Alt, AltCon, DataCon, Literal, Var, VarId};
+use bhc_core::{self as core, Alt, AltCon, Bind, DataCon, Literal, Var, VarId};
 use bhc_hir::{self as hir, DefRef, Expr, Lit};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
@@ -245,12 +245,89 @@ fn lower_let(
     body: &hir::Expr,
     span: Span,
 ) -> LowerResult<core::Expr> {
+    use crate::binding::{lower_bindings, preregister_bindings};
+
+    // First, pre-register all binding variables so they're available
+    // when lowering the body (and for recursive references in RHSes)
+    let _vars = preregister_bindings(ctx, bindings)?;
+
+    // Now lower the body - it can reference the bound variables
+    let body_core = lower_expr(ctx, body)?;
+
+    // Check if we have pattern bindings that need case expressions
+    // For simple `let x = e in body`, we just create a let binding.
+    // For pattern bindings like `let (x, y) = e in body`, we generate
+    // `case e of (x, y) -> body` instead.
+    lower_let_bindings(ctx, bindings, body_core, span)
+}
+
+/// Lower let bindings, handling pattern bindings with case expressions.
+fn lower_let_bindings(
+    ctx: &mut LowerContext,
+    bindings: &[hir::Binding],
+    body: core::Expr,
+    span: Span,
+) -> LowerResult<core::Expr> {
     use crate::binding::lower_bindings;
 
-    let body_core = lower_expr(ctx, body)?;
-    let bind = lower_bindings(ctx, bindings, span)?;
+    // Process bindings from right to left, wrapping the body
+    let mut result = body;
 
-    Ok(core::Expr::Let(Box::new(bind), Box::new(body_core), span))
+    for binding in bindings.iter().rev() {
+        result = lower_single_let_binding(ctx, binding, result, span)?;
+    }
+
+    Ok(result)
+}
+
+/// Lower a single let binding.
+/// For simple variable patterns, creates a let binding.
+/// For complex patterns, creates a case expression.
+fn lower_single_let_binding(
+    ctx: &mut LowerContext,
+    binding: &hir::Binding,
+    body: core::Expr,
+    span: Span,
+) -> LowerResult<core::Expr> {
+    use crate::binding::collect_free_vars;
+
+    match &binding.pat {
+        // Simple variable pattern: let x = e in body
+        hir::Pat::Var(name, def_id, _) => {
+            let rhs = lower_expr(ctx, &binding.rhs)?;
+            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| {
+                Var {
+                    name: *name,
+                    id: ctx.fresh_id(),
+                    ty: Ty::Error,
+                }
+            });
+
+            // Check if the binding is self-recursive
+            let free_vars = collect_free_vars(&rhs);
+            let is_recursive = free_vars.contains(name);
+
+            let bind = if is_recursive {
+                Bind::Rec(vec![(var, Box::new(rhs))])
+            } else {
+                Bind::NonRec(var, Box::new(rhs))
+            };
+
+            Ok(core::Expr::Let(Box::new(bind), Box::new(body), span))
+        }
+
+        // Complex pattern: let pat = e in body -> case e of pat -> body
+        _ => {
+            let scrutinee = lower_expr(ctx, &binding.rhs)?;
+            let alt = lower_pat_to_alt(ctx, &binding.pat, body, span)?;
+            Ok(core::Expr::Case(
+                Box::new(scrutinee),
+                vec![alt],
+                Ty::Error,
+                span,
+            ))
+        }
+    }
 }
 
 /// Lower a case expression to Core.
@@ -260,11 +337,17 @@ fn lower_case(
     alts: &[hir::CaseAlt],
     span: Span,
 ) -> LowerResult<core::Expr> {
+    use crate::pattern::bind_pattern_vars;
+
     let scrutinee_core = lower_expr(ctx, scrutinee)?;
 
     let mut core_alts = Vec::with_capacity(alts.len());
 
     for alt in alts {
+        // Pre-bind pattern variables so guards can reference them
+        // The variables will be bound to the scrutinee when the pattern matches
+        bind_pattern_vars(ctx, &alt.pat, None);
+
         // Handle guards by wrapping RHS in nested ifs
         let rhs = if alt.guards.is_empty() {
             lower_expr(ctx, &alt.rhs)?

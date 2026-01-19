@@ -21,6 +21,109 @@ use crate::context::LowerContext;
 use crate::expr::lower_expr;
 use crate::{LowerError, LowerResult};
 
+/// Pre-register binding variables in the context.
+///
+/// This registers all variables bound by the bindings so they can be
+/// referenced in the body before the binding RHSes are lowered.
+/// Returns the variables in order corresponding to the bindings.
+pub fn preregister_bindings(
+    ctx: &mut LowerContext,
+    bindings: &[Binding],
+) -> LowerResult<Vec<Var>> {
+    let mut vars = Vec::with_capacity(bindings.len());
+
+    for binding in bindings {
+        let var = preregister_pattern(ctx, &binding.pat)?;
+        vars.push(var);
+    }
+
+    Ok(vars)
+}
+
+/// Pre-register a pattern's bound variable in the context.
+/// Returns the top-level variable for the pattern (used for the binding).
+fn preregister_pattern(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<Var> {
+    match pat {
+        Pat::Var(name, def_id, _span) => {
+            let var = Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
+            };
+            // Register so it can be looked up later
+            ctx.register_var(*def_id, var.clone());
+            Ok(var)
+        }
+        Pat::Wild(span) => {
+            let var = ctx.fresh_var("_wild", Ty::Error, *span);
+            Ok(var)
+        }
+        Pat::Con(_, sub_pats, span) => {
+            // Also pre-register all sub-pattern variables
+            for sub_pat in sub_pats {
+                preregister_pattern_nested(ctx, sub_pat)?;
+            }
+            let var = ctx.fresh_var("_pat", Ty::Error, *span);
+            Ok(var)
+        }
+        Pat::As(name, def_id, inner, _span) => {
+            // Also pre-register inner pattern variables
+            preregister_pattern_nested(ctx, inner)?;
+            let var = Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
+            };
+            ctx.register_var(*def_id, var.clone());
+            Ok(var)
+        }
+        Pat::Lit(_, span) => {
+            let var = ctx.fresh_var("_lit", Ty::Error, *span);
+            Ok(var)
+        }
+        Pat::Ann(inner, _, _) => preregister_pattern(ctx, inner),
+        Pat::Or(left, _, _) => preregister_pattern(ctx, left),
+        Pat::Error(span) => {
+            let var = ctx.fresh_var("_err", Ty::Error, *span);
+            Ok(var)
+        }
+    }
+}
+
+/// Pre-register all variables in a nested pattern.
+/// This is used for sub-patterns inside constructor patterns.
+fn preregister_pattern_nested(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<()> {
+    match pat {
+        Pat::Var(name, def_id, _span) => {
+            let var = Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
+            };
+            ctx.register_var(*def_id, var);
+            Ok(())
+        }
+        Pat::Wild(_) | Pat::Lit(_, _) | Pat::Error(_) => Ok(()),
+        Pat::Con(_, sub_pats, _) => {
+            for sub_pat in sub_pats {
+                preregister_pattern_nested(ctx, sub_pat)?;
+            }
+            Ok(())
+        }
+        Pat::As(name, def_id, inner, _span) => {
+            preregister_pattern_nested(ctx, inner)?;
+            let var = Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
+            };
+            ctx.register_var(*def_id, var);
+            Ok(())
+        }
+        Pat::Ann(inner, _, _) | Pat::Or(inner, _, _) => preregister_pattern_nested(ctx, inner),
+    }
+}
+
 /// Lower a group of HIR bindings to Core.
 ///
 /// This analyzes the bindings for mutual recursion and creates appropriate
@@ -123,16 +226,22 @@ fn lower_binding_group(
 /// Extract binding information from a pattern.
 ///
 /// Returns the main variable and all names bound by the pattern.
+/// If the variable was pre-registered (via `preregister_bindings`), reuses that.
 fn extract_binding_info(
     ctx: &mut LowerContext,
     pat: &Pat,
 ) -> LowerResult<(Var, Vec<Symbol>)> {
     match pat {
-        Pat::Var(name, _def_id, span) => {
-            let var = Var {
-                name: *name,
-                id: ctx.fresh_id(),
-                ty: Ty::Error,
+        Pat::Var(name, def_id, _span) => {
+            // Try to use pre-registered variable if available
+            let var = if let Some(v) = ctx.lookup_var(*def_id) {
+                v.clone()
+            } else {
+                Var {
+                    name: *name,
+                    id: ctx.fresh_id(),
+                    ty: Ty::Error,
+                }
             };
             Ok((var, vec![*name]))
         }
@@ -142,7 +251,7 @@ fn extract_binding_info(
             Ok((var, vec![]))
         }
 
-        Pat::Con(_, sub_pats, span) => {
+        Pat::Con(_, _sub_pats, span) => {
             // Pattern binding: let (x, y) = ...
             // We need to generate code to destructure the tuple/constructor
             // For now, create a single variable and let pattern compilation handle it
@@ -151,11 +260,16 @@ fn extract_binding_info(
             Ok((var, names))
         }
 
-        Pat::As(name, _def_id, inner, span) => {
-            let var = Var {
-                name: *name,
-                id: ctx.fresh_id(),
-                ty: Ty::Error,
+        Pat::As(name, def_id, inner, _span) => {
+            // Try to use pre-registered variable if available
+            let var = if let Some(v) = ctx.lookup_var(*def_id) {
+                v.clone()
+            } else {
+                Var {
+                    name: *name,
+                    id: ctx.fresh_id(),
+                    ty: Ty::Error,
+                }
             };
             let mut names = vec![*name];
             names.extend(inner.bound_vars());
@@ -179,7 +293,7 @@ fn extract_binding_info(
 ///
 /// This is a simple free variable analysis that collects all variable
 /// names referenced in the expression.
-fn collect_free_vars(expr: &core::Expr) -> FxHashSet<Symbol> {
+pub fn collect_free_vars(expr: &core::Expr) -> FxHashSet<Symbol> {
     let mut free = FxHashSet::default();
     collect_free_vars_impl(expr, &mut FxHashSet::default(), &mut free);
     free

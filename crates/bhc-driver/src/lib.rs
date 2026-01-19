@@ -324,16 +324,16 @@ impl Compiler {
 
         // Phase 2: Lower AST to HIR
         self.callbacks.on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
-        let hir = self.lower(&ast)?;
+        let (hir, lower_ctx) = self.lower(&ast)?;
         debug!(module = %unit.module_name, items = hir.items.len(), "HIR lowering complete");
 
         // Phase 2b: Type check HIR
-        let _typed = self.type_check(&hir, file_id)?;
+        let _typed = self.type_check(&hir, file_id, &lower_ctx)?;
         self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
         self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
-        let core = self.core_lower(&hir)?;
+        let core = self.core_lower(&hir, &lower_ctx)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
         self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
 
@@ -452,8 +452,8 @@ impl Compiler {
         }
     }
 
-    /// Lower an AST module to HIR.
-    fn lower(&self, ast: &AstModule) -> CompileResult<HirModule> {
+    /// Lower an AST module to HIR, returning both the HIR and the lowering context.
+    fn lower(&self, ast: &AstModule) -> CompileResult<(HirModule, LowerContext)> {
         let mut ctx = LowerContext::with_builtins();
         let hir = bhc_lower::lower_module(&mut ctx, ast)?;
 
@@ -463,14 +463,34 @@ impl Compiler {
             return Err(bhc_lower::LowerError::Multiple(errors).into());
         }
 
-        Ok(hir)
+        Ok((hir, ctx))
     }
 
     /// Type check a HIR module.
-    fn type_check(&self, hir: &HirModule, file_id: FileId) -> CompileResult<TypedModule> {
+    fn type_check(
+        &self,
+        hir: &HirModule,
+        file_id: FileId,
+        lower_ctx: &LowerContext,
+    ) -> CompileResult<TypedModule> {
         debug!("type checking module");
 
-        match bhc_typeck::type_check_module(hir, file_id) {
+        // Convert lower context's DefMap to typeck's DefMap
+        let def_map: bhc_typeck::DefMap = lower_ctx
+            .defs
+            .iter()
+            .map(|(def_id, def_info)| {
+                (
+                    *def_id,
+                    bhc_typeck::DefInfo {
+                        id: *def_id,
+                        name: def_info.name,
+                    },
+                )
+            })
+            .collect();
+
+        match bhc_typeck::type_check_module_with_defs(hir, file_id, Some(&def_map)) {
             Ok(typed) => Ok(typed),
             Err(diagnostics) => {
                 eprintln!("Type errors:");
@@ -483,9 +503,25 @@ impl Compiler {
     }
 
     /// Lower HIR to Core IR.
-    fn core_lower(&self, hir: &HirModule) -> CompileResult<CoreModule> {
+    fn core_lower(&self, hir: &HirModule, lower_ctx: &LowerContext) -> CompileResult<CoreModule> {
         debug!("lowering HIR to Core");
-        bhc_hir_to_core::lower_module(hir).map_err(CompileError::from)
+
+        // Convert lower context's DefMap to hir-to-core's DefMap
+        let def_map: bhc_hir_to_core::DefMap = lower_ctx
+            .defs
+            .iter()
+            .map(|(def_id, def_info)| {
+                (
+                    *def_id,
+                    bhc_hir_to_core::DefInfo {
+                        id: *def_id,
+                        name: def_info.name,
+                    },
+                )
+            })
+            .collect();
+
+        bhc_hir_to_core::lower_module_with_defs(hir, Some(&def_map)).map_err(CompileError::from)
     }
 
     /// Run source code and return the result value.
@@ -530,13 +566,13 @@ impl Compiler {
 
         // Phase 2: Lower AST to HIR
         self.callbacks.on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
-        let hir = self.lower(&ast)?;
-        let _typed = self.type_check(&hir, file_id)?;
+        let (hir, lower_ctx) = self.lower(&ast)?;
+        let _typed = self.type_check(&hir, file_id, &lower_ctx)?;
         self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
         self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
-        let core = self.core_lower(&hir)?;
+        let core = self.core_lower(&hir, &lower_ctx)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
 
         self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);

@@ -454,7 +454,7 @@ impl PrimOp {
             // UArray operations
             "uarrayFromList" | "fromList" => Some(Self::UArrayFromList),
             "uarrayToList" | "toList" => Some(Self::UArrayToList),
-            "uarrayMap" => Some(Self::UArrayMap),
+            "uarrayMap" | "map" => Some(Self::UArrayMap),
             "uarrayZipWith" => Some(Self::UArrayZipWith),
             "uarrayFold" => Some(Self::UArrayFold),
             "uarraySum" | "sum" => Some(Self::UArraySum),

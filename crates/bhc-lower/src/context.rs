@@ -201,6 +201,8 @@ impl LowerContext {
             ("[]", "List"),        // DefId 15 - list nil
             (":", "List"),         // DefId 16 - list cons
             ("()", "Unit"),        // DefId 17 - unit
+            ("(,)", "Tuple2"),     // DefId 18 - pair constructor
+            ("(,,)", "Tuple3"),    // DefId 19 - triple constructor
         ];
 
         for (con_name, _type_name) in builtin_cons {

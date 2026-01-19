@@ -18,6 +18,7 @@ bhc-index = { workspace = true }
 # External dependencies
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

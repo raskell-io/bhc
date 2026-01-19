@@ -256,6 +256,46 @@ impl Builtins {
         // () :: ()
         let unit_id = DefId::new(BUILTIN_UNIT_ID);
         env.register_data_con(unit_id, Symbol::intern("()"), Scheme::mono(Ty::unit()));
+
+        // Tuple constructors
+        // (,) :: forall a b. a -> b -> (a, b)
+        let pair_a = TyVar::new_star(BUILTIN_TYVAR_A);
+        let pair_b = TyVar::new_star(BUILTIN_TYVAR_B);
+        let pair_id = DefId::new(BUILTIN_PAIR_ID);
+        let pair_ty = Ty::Tuple(vec![Ty::Var(pair_a.clone()), Ty::Var(pair_b.clone())]);
+        env.register_data_con(
+            pair_id,
+            Symbol::intern("(,)"),
+            Scheme::poly(
+                vec![pair_a.clone(), pair_b.clone()],
+                Ty::fun(Ty::Var(pair_a), Ty::fun(Ty::Var(pair_b), pair_ty)),
+            ),
+        );
+
+        // (,,) :: forall a b c. a -> b -> c -> (a, b, c)
+        let triple_a = TyVar::new_star(BUILTIN_TYVAR_A);
+        let triple_b = TyVar::new_star(BUILTIN_TYVAR_B);
+        let triple_c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+        let triple_id = DefId::new(BUILTIN_TRIPLE_ID);
+        let triple_ty = Ty::Tuple(vec![
+            Ty::Var(triple_a.clone()),
+            Ty::Var(triple_b.clone()),
+            Ty::Var(triple_c.clone()),
+        ]);
+        env.register_data_con(
+            triple_id,
+            Symbol::intern("(,,)"),
+            Scheme::poly(
+                vec![triple_a.clone(), triple_b.clone(), triple_c.clone()],
+                Ty::fun(
+                    Ty::Var(triple_a),
+                    Ty::fun(
+                        Ty::Var(triple_b),
+                        Ty::fun(Ty::Var(triple_c), triple_ty),
+                    ),
+                ),
+            ),
+        );
     }
 
     /// Create a list type `[a]`.
@@ -373,9 +413,9 @@ impl Builtins {
     /// - Alternative: <|>
     /// - And many more...
     pub fn register_primitive_ops(&self, env: &mut TypeEnv) {
-        // Start after types (9) and constructors (9: 6 basic + 3 list/unit) = 18
+        // Start after types (9) and constructors (11: 6 basic + 3 list/unit + 2 tuples) = 20
         // Order MUST match bhc_lower::context::define_builtins
-        let mut next_id = BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + BUILTIN_LIST_UNIT_COUNT;
+        let mut next_id = BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + BUILTIN_LIST_UNIT_COUNT + BUILTIN_TUPLE_COUNT;
 
         // Type variables for polymorphic types
         let a = TyVar::new_star(BUILTIN_TYVAR_A);
@@ -819,6 +859,12 @@ const BUILTIN_UNIT_ID: usize = BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + 2; // 17
 
 // Count of list/unit constructors for calculating operator DefId start
 const BUILTIN_LIST_UNIT_COUNT: usize = 3; // [], :, ()
+
+// Tuple constructors - after list/unit constructors
+const BUILTIN_PAIR_ID: usize = BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + BUILTIN_LIST_UNIT_COUNT; // 18
+const BUILTIN_TRIPLE_ID: usize = BUILTIN_PAIR_ID + 1; // 19
+
+const BUILTIN_TUPLE_COUNT: usize = 2; // (,), (,,)
 
 // M9 Phase 5: Dynamic tensor operations - use reserved range to avoid conflicts
 const BUILTIN_RESERVED_BASE: usize = 0xFFFF_0000;

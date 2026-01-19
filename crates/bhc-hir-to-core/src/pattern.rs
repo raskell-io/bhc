@@ -43,13 +43,17 @@ pub fn lower_pat_to_alt(
             })
         }
 
-        Pat::Var(name, _, _) => {
+        Pat::Var(name, def_id, _) => {
             // Variable pattern: bind the value to the variable
-            let var = Var {
-                name: *name,
-                id: ctx.fresh_id(),
-                ty: Ty::Error,
-            };
+            // Use pre-registered variable if available (for guards),
+            // otherwise create a fresh one
+            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| {
+                Var {
+                    name: *name,
+                    id: ctx.fresh_id(),
+                    ty: Ty::Error,
+                }
+            });
             // Default pattern with a binder
             Ok(Alt {
                 con: AltCon::Default,

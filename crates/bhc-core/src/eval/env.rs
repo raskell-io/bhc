@@ -65,6 +65,11 @@ impl Env {
     pub fn is_empty(&self) -> bool {
         self.bindings.is_empty()
     }
+
+    /// Returns all VarIds in the environment (for debugging).
+    pub fn keys(&self) -> impl Iterator<Item = &VarId> {
+        self.bindings.keys()
+    }
 }
 
 #[cfg(test)]

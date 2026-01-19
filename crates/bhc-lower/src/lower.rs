@@ -8,7 +8,7 @@
 //! 3. Building HIR nodes
 
 use bhc_ast as ast;
-use bhc_hir as hir;
+use bhc_hir::{self as hir, DefId};
 use bhc_intern::Symbol;
 use bhc_span::Span;
 
@@ -198,16 +198,127 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                 .iter()
                 .filter_map(|d| {
                     if let ast::Decl::FunBind(fb) = d {
-                        // For simple bindings
+                        // Look up the DefId that was bound for this where binding
+                        let def_id = ctx.lookup_value(fb.name.name)
+                            .expect("where binding should be bound");
+
+                        // For simple bindings (no parameters)
                         if fb.clauses.len() == 1 && fb.clauses[0].pats.is_empty() {
                             let rhs_expr = lower_rhs(ctx, &fb.clauses[0].rhs);
-                            // Look up the DefId that was bound for this where binding
-                            let def_id = ctx.lookup_value(fb.name.name)
-                                .expect("where binding should be bound");
                             return Some(hir::Binding {
                                 pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
                                 sig: None,
                                 rhs: rhs_expr,
+                                span: fb.span,
+                            });
+                        }
+
+                        // For function bindings with parameters, lower to a lambda
+                        // f x y = expr  =>  f = \x -> \y -> expr
+                        if fb.clauses.len() == 1 {
+                            let clause = &fb.clauses[0];
+                            // Enter scope and bind pattern variables
+                            ctx.enter_scope();
+                            for p in &clause.pats {
+                                bind_pattern(ctx, p);
+                            }
+                            let mut pats: Vec<hir::Pat> = Vec::new();
+                            for p in &clause.pats {
+                                pats.push(lower_pat(ctx, p));
+                            }
+                            let body = lower_rhs(ctx, &clause.rhs);
+                            ctx.exit_scope();
+                            // Create a lambda expression
+                            let lam = hir::Expr::Lam(pats, Box::new(body), fb.span);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs: lam,
+                                span: fb.span,
+                            });
+                        }
+
+                        // For multi-clause functions, create a lambda with case
+                        // f 0 = a; f n = b  =>  f = \x -> case x of { 0 -> a; n -> b }
+                        if !fb.clauses.is_empty() && !fb.clauses[0].pats.is_empty() {
+                            let arity = fb.clauses[0].pats.len();
+                            // Create fresh variables for the lambda parameters
+                            let mut param_names = Vec::new();
+                            let mut param_pats = Vec::new();
+                            for i in 0..arity {
+                                let name = Symbol::intern(&format!("_arg{}", i));
+                                let param_def_id = ctx.fresh_def_id();
+                                ctx.define(param_def_id, name, DefKind::Value, fb.span);
+                                ctx.bind_value(name, param_def_id);
+                                param_names.push((name, param_def_id));
+                                param_pats.push(hir::Pat::Var(name, param_def_id, fb.span));
+                            }
+
+                            // Build case alternatives from clauses
+                            let mut alts = Vec::new();
+                            for clause in &fb.clauses {
+                                // Enter a scope for this alternative's pattern bindings
+                                ctx.enter_scope();
+
+                                // First bind all pattern variables
+                                for p in &clause.pats {
+                                    bind_pattern(ctx, p);
+                                }
+
+                                // Create a tuple pattern from clause patterns
+                                let pat = if clause.pats.len() == 1 {
+                                    lower_pat(ctx, &clause.pats[0])
+                                } else {
+                                    // Create a tuple pattern for multi-argument case
+                                    let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
+                                    let tuple_def_id = ctx.fresh_def_id();
+                                    ctx.define(tuple_def_id, tuple_sym, DefKind::Constructor, fb.span);
+                                    let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
+                                    hir::Pat::Con(
+                                        tuple_ref,
+                                        clause.pats.iter().map(|p| lower_pat(ctx, p)).collect(),
+                                        fb.span,
+                                    )
+                                };
+                                let body = lower_rhs(ctx, &clause.rhs);
+                                ctx.exit_scope();
+                                alts.push(hir::CaseAlt {
+                                    pat,
+                                    guards: Vec::new(),
+                                    rhs: body,
+                                    span: clause.span,
+                                });
+                            }
+
+                            // Create the scrutinee (tuple of params or single param)
+                            let scrutinee = if param_names.len() == 1 {
+                                hir::Expr::Var(hir::DefRef {
+                                    def_id: param_names[0].1,
+                                    span: fb.span,
+                                })
+                            } else {
+                                hir::Expr::Tuple(
+                                    param_names.iter().map(|(_, def_id)| {
+                                        hir::Expr::Var(hir::DefRef {
+                                            def_id: *def_id,
+                                            span: fb.span,
+                                        })
+                                    }).collect(),
+                                    fb.span,
+                                )
+                            };
+
+                            let case_expr = hir::Expr::Case(
+                                Box::new(scrutinee),
+                                alts,
+                                fb.span,
+                            );
+
+                            let lam = hir::Expr::Lam(param_pats, Box::new(case_expr), fb.span);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs: lam,
                                 span: fb.span,
                             });
                         }
@@ -367,9 +478,17 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
             // Bind all declarations first
             for decl in decls {
                 if let ast::Decl::FunBind(fb) = decl {
-                    let def_id = ctx.fresh_def_id();
-                    ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
-                    ctx.bind_value(fb.name.name, def_id);
+                    // Check for pattern binding (special name $patbind)
+                    if fb.name.name.as_str() == "$patbind" && fb.clauses.len() == 1 && fb.clauses[0].pats.len() == 1 {
+                        // Pattern binding: (x, y) = expr
+                        // Bind variables from the pattern
+                        bind_pattern(ctx, &fb.clauses[0].pats[0]);
+                    } else {
+                        // Regular function binding
+                        let def_id = ctx.fresh_def_id();
+                        ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
+                        ctx.bind_value(fb.name.name, def_id);
+                    }
                 }
             }
 
@@ -378,15 +497,125 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                 .iter()
                 .filter_map(|d| {
                     if let ast::Decl::FunBind(fb) = d {
+                        // Check for pattern binding (special name $patbind)
+                        if fb.name.name.as_str() == "$patbind" && fb.clauses.len() == 1 && fb.clauses[0].pats.len() == 1 {
+                            // Pattern binding: (x, y) = expr
+                            let pat = lower_pat(ctx, &fb.clauses[0].pats[0]);
+                            let rhs_expr = lower_rhs(ctx, &fb.clauses[0].rhs);
+                            return Some(hir::Binding {
+                                pat,
+                                sig: None,
+                                rhs: rhs_expr,
+                                span: fb.span,
+                            });
+                        }
+
+                        let def_id = ctx.lookup_value(fb.name.name)
+                            .expect("let binding should be bound");
+
+                        // Simple binding (no parameters): let x = expr
                         if fb.clauses.len() == 1 && fb.clauses[0].pats.is_empty() {
                             let rhs_expr = lower_rhs(ctx, &fb.clauses[0].rhs);
-                            // Look up the DefId that was bound above
-                            let def_id = ctx.lookup_value(fb.name.name)
-                                .expect("let binding should be bound");
                             return Some(hir::Binding {
                                 pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
                                 sig: None,
                                 rhs: rhs_expr,
+                                span: fb.span,
+                            });
+                        }
+
+                        // Single-clause function: let f x y = expr => f = \x -> \y -> expr
+                        if fb.clauses.len() == 1 {
+                            let clause = &fb.clauses[0];
+                            ctx.enter_scope();
+                            for p in &clause.pats {
+                                bind_pattern(ctx, p);
+                            }
+                            let mut pats: Vec<hir::Pat> = Vec::new();
+                            for p in &clause.pats {
+                                pats.push(lower_pat(ctx, p));
+                            }
+                            let body_expr = lower_rhs(ctx, &clause.rhs);
+                            ctx.exit_scope();
+                            let lam = hir::Expr::Lam(pats, Box::new(body_expr), fb.span);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs: lam,
+                                span: fb.span,
+                            });
+                        }
+
+                        // Multi-clause function: let f 0 = a; f n = b => f = \x -> case x of ...
+                        if !fb.clauses.is_empty() && !fb.clauses[0].pats.is_empty() {
+                            let arity = fb.clauses[0].pats.len();
+                            // Create fresh variables for the lambda parameters
+                            let mut param_names = Vec::new();
+                            let mut param_pats = Vec::new();
+                            for i in 0..arity {
+                                let name = Symbol::intern(&format!("_arg{}", i));
+                                let param_def_id = ctx.fresh_def_id();
+                                ctx.define(param_def_id, name, DefKind::Value, fb.span);
+                                ctx.bind_value(name, param_def_id);
+                                param_names.push((name, param_def_id));
+                                param_pats.push(hir::Pat::Var(name, param_def_id, fb.span));
+                            }
+
+                            // Build case alternatives from clauses
+                            let mut alts = Vec::new();
+                            for clause in &fb.clauses {
+                                ctx.enter_scope();
+                                for p in &clause.pats {
+                                    bind_pattern(ctx, p);
+                                }
+                                let pat = if clause.pats.len() == 1 {
+                                    lower_pat(ctx, &clause.pats[0])
+                                } else {
+                                    let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
+                                    let tuple_def_id = ctx.fresh_def_id();
+                                    ctx.define(tuple_def_id, tuple_sym, DefKind::Constructor, fb.span);
+                                    let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
+                                    hir::Pat::Con(
+                                        tuple_ref,
+                                        clause.pats.iter().map(|p| lower_pat(ctx, p)).collect(),
+                                        fb.span,
+                                    )
+                                };
+                                let clause_body = lower_rhs(ctx, &clause.rhs);
+                                ctx.exit_scope();
+                                alts.push(hir::CaseAlt {
+                                    pat,
+                                    guards: Vec::new(),
+                                    rhs: clause_body,
+                                    span: clause.span,
+                                });
+                            }
+
+                            // Create the scrutinee (tuple of params or single param)
+                            let scrutinee = if param_names.len() == 1 {
+                                hir::Expr::Var(hir::DefRef {
+                                    def_id: param_names[0].1,
+                                    span: fb.span,
+                                })
+                            } else {
+                                let tuple_elems: Vec<hir::Expr> = param_names
+                                    .iter()
+                                    .map(|(_n, id)| {
+                                        hir::Expr::Var(hir::DefRef {
+                                            def_id: *id,
+                                            span: fb.span,
+                                        })
+                                    })
+                                    .collect();
+                                hir::Expr::Tuple(tuple_elems, fb.span)
+                            };
+
+                            let case_expr = hir::Expr::Case(Box::new(scrutinee), alts, fb.span);
+                            let lam = hir::Expr::Lam(param_pats, Box::new(case_expr), fb.span);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs: lam,
                                 span: fb.span,
                             });
                         }
@@ -579,8 +808,12 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
         ast::Pat::Tuple(pats, span) => {
             // Tuple pattern is sugar for tuple constructor
             let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(pats.len().saturating_sub(1))));
-            let def_id = ctx.fresh_def_id();
-            ctx.define(def_id, tuple_sym, DefKind::Constructor, *span);
+            // Use existing constructor if available, otherwise create one
+            let def_id = ctx.lookup_constructor(tuple_sym).unwrap_or_else(|| {
+                let id = ctx.fresh_def_id();
+                ctx.define(id, tuple_sym, DefKind::Constructor, *span);
+                id
+            });
             let tuple_ref = ctx.def_ref(def_id, *span);
 
             let hir_pats: Vec<hir::Pat> = pats.iter().map(|p| lower_pat(ctx, p)).collect();

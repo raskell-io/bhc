@@ -74,8 +74,10 @@ pub use kind_check::KindEnv;
 
 use bhc_diagnostics::Diagnostic;
 use bhc_hir::{DefId, HirId, Module};
+use bhc_intern::Symbol;
 use bhc_span::FileId;
 use bhc_types::{Scheme, Ty};
+use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 
 /// The result of type checking a module.
@@ -91,6 +93,19 @@ pub struct TypedModule {
     /// Type schemes for each definition (indexed by `DefId`).
     pub def_schemes: FxHashMap<DefId, Scheme>,
 }
+
+/// Information about a definition from the lowering pass.
+/// This mirrors `bhc_lower::context::DefInfo`.
+#[derive(Clone, Debug)]
+pub struct DefInfo {
+    /// The unique ID.
+    pub id: DefId,
+    /// The name.
+    pub name: Symbol,
+}
+
+/// Map from `DefId` to definition information.
+pub type DefMap = IndexMap<DefId, DefInfo>;
 
 /// Type check a HIR module.
 ///
@@ -119,10 +134,35 @@ pub struct TypedModule {
 /// let result = type_check_module(&module, file_id);
 /// ```
 pub fn type_check_module(hir: &Module, file_id: FileId) -> Result<TypedModule, Vec<Diagnostic>> {
+    type_check_module_with_defs(hir, file_id, None)
+}
+
+/// Type check a HIR module with definition mappings from the lowering pass.
+///
+/// This function accepts the DefMap from the lowering context, which allows
+/// the type checker to register builtins with the correct DefIds assigned
+/// during lowering.
+///
+/// # Arguments
+///
+/// * `hir` - The HIR module to type check
+/// * `file_id` - The file ID for error reporting
+/// * `defs` - Optional definition map from the lowering context
+pub fn type_check_module_with_defs(
+    hir: &Module,
+    file_id: FileId,
+    defs: Option<&DefMap>,
+) -> Result<TypedModule, Vec<Diagnostic>> {
     let mut ctx = TyCtxt::new(file_id);
 
     // Register built-in types
     ctx.register_builtins();
+
+    // If we have definition mappings from the lowering pass, use them
+    // to register builtins with the correct DefIds
+    if let Some(def_map) = defs {
+        ctx.register_lowered_builtins(def_map);
+    }
 
     // Register data types from the module
     for item in &hir.items {

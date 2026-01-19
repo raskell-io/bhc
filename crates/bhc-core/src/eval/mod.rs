@@ -108,6 +108,11 @@ pub struct Evaluator {
     /// This is always consulted for variable lookups, allowing recursive
     /// functions to find themselves without capturing a circular environment.
     module_env: RefCell<Option<Env>>,
+    /// Stack of recursive environments for local let bindings.
+    /// When evaluating the body of a recursive let, we push the environment
+    /// containing all the recursive bindings here, so that closures can find
+    /// their recursive references.
+    rec_env_stack: RefCell<Vec<Env>>,
 }
 
 impl Evaluator {
@@ -123,6 +128,7 @@ impl Evaluator {
             max_depth: 10000,
             depth: RefCell::new(0),
             module_env: RefCell::new(None),
+            rec_env_stack: RefCell::new(Vec::new()),
         }
     }
 
@@ -208,6 +214,7 @@ impl Evaluator {
             ("fromList", PrimOp::UArrayFromList),
             ("toList", PrimOp::UArrayToList),
             ("uarrayMap", PrimOp::UArrayMap),
+            ("map", PrimOp::UArrayMap),  // Standard list map
             ("uarrayZipWith", PrimOp::UArrayZipWith),
             ("uarrayFold", PrimOp::UArrayFold),
             ("sum", PrimOp::UArraySum),
@@ -286,6 +293,11 @@ impl Evaluator {
             },
             args: vec![],
         }));
+
+        // Boolean constructors and otherwise
+        prims.insert(Symbol::intern("True"), Value::bool(true));
+        prims.insert(Symbol::intern("False"), Value::bool(false));
+        prims.insert(Symbol::intern("otherwise"), Value::bool(true));
     }
 
     /// Evaluates an expression to a value.
@@ -370,6 +382,15 @@ impl Evaluator {
         // First check the local environment
         if let Some(value) = env.lookup(var.id) {
             return self.force(value.clone());
+        }
+
+        // Then check the recursive environment stack (for local recursive lets)
+        // This allows closures created in recursive bindings to find their
+        // siblings and themselves
+        for rec_env in self.rec_env_stack.borrow().iter().rev() {
+            if let Some(value) = rec_env.lookup(var.id) {
+                return self.force(value.clone());
+            }
         }
 
         // Then check the module-level environment
@@ -737,10 +758,11 @@ impl Evaluator {
                             .collect();
                         Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(mapped?)))
                     }
-                    // Also support mapping over lists for convenience
-                    _ if args[1].as_list().is_some() => {
-                        let list = args[1].as_list().unwrap();
-                        let mapped: Result<Vec<Value>, _> = list
+                    // Support mapping over lists - need to force thunks while traversing
+                    _ => {
+                        // Try to traverse list, forcing thunks along the way
+                        let list_result = self.force_list(arr.clone())?;
+                        let mapped: Result<Vec<Value>, _> = list_result
                             .iter()
                             .map(|x| {
                                 let result = self.apply(f.clone(), x.clone())?;
@@ -749,10 +771,6 @@ impl Evaluator {
                             .collect();
                         Ok(Value::from_list(mapped?))
                     }
-                    _ => Err(EvalError::TypeError {
-                        expected: "UArray or List".into(),
-                        got: format!("{arr:?}"),
-                    }),
                 }
             }
 
@@ -801,10 +819,10 @@ impl Evaluator {
                             .collect();
                         Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(zipped?)))
                     }
-                    // Support lists
-                    _ if arr1.as_list().is_some() && arr2.as_list().is_some() => {
-                        let list1 = arr1.as_list().unwrap();
-                        let list2 = arr2.as_list().unwrap();
+                    // Support lists - force thunks while traversing
+                    _ => {
+                        let list1 = self.force_list(arr1.clone())?;
+                        let list2 = self.force_list(arr2.clone())?;
                         let zipped: Result<Vec<Value>, _> = list1
                             .iter()
                             .zip(list2.iter())
@@ -818,10 +836,6 @@ impl Evaluator {
                             .collect();
                         Ok(Value::from_list(zipped?))
                     }
-                    _ => Err(EvalError::TypeError {
-                        expected: "two UArrays or Lists".into(),
-                        got: format!("{arr1:?}, {arr2:?}"),
-                    }),
                 }
             }
 
@@ -854,8 +868,9 @@ impl Evaluator {
                         }
                         Ok(acc)
                     }
-                    _ if arr.as_list().is_some() => {
-                        let list = arr.as_list().unwrap();
+                    _ => {
+                        // Force the list and fold over it
+                        let list = self.force_list(arr.clone())?;
                         let mut acc = init;
                         for x in list {
                             let result = self.apply(
@@ -866,10 +881,6 @@ impl Evaluator {
                         }
                         Ok(acc)
                     }
-                    _ => Err(EvalError::TypeError {
-                        expected: "UArray or List".into(),
-                        got: format!("{arr:?}"),
-                    }),
                 }
             }
 
@@ -878,8 +889,9 @@ impl Evaluator {
                 match &args[0] {
                     Value::UArrayInt(arr) => Ok(Value::Int(arr.sum())),
                     Value::UArrayDouble(arr) => Ok(Value::Double(arr.sum())),
-                    _ if args[0].as_list().is_some() => {
-                        let list = args[0].as_list().unwrap();
+                    _ => {
+                        // Force the list and sum it
+                        let list = self.force_list(args[0].clone())?;
                         // Try to sum as integers first
                         let ints: Option<i64> = list.iter().map(Value::as_int).try_fold(0i64, |acc, x| {
                             x.map(|n| acc.wrapping_add(n))
@@ -899,10 +911,6 @@ impl Evaluator {
                             got: format!("{:?}", args[0]),
                         })
                     }
-                    _ => Err(EvalError::TypeError {
-                        expected: "UArray or List".into(),
-                        got: format!("{:?}", args[0]),
-                    }),
                 }
             }
 
@@ -910,14 +918,11 @@ impl Evaluator {
                 match &args[0] {
                     Value::UArrayInt(arr) => Ok(Value::Int(arr.len() as i64)),
                     Value::UArrayDouble(arr) => Ok(Value::Int(arr.len() as i64)),
-                    _ if args[0].as_list().is_some() => {
-                        let list = args[0].as_list().unwrap();
+                    _ => {
+                        // Force the list and get its length
+                        let list = self.force_list(args[0].clone())?;
                         Ok(Value::Int(list.len() as i64))
                     }
-                    _ => Err(EvalError::TypeError {
-                        expected: "UArray or List".into(),
-                        got: format!("{:?}", args[0]),
-                    }),
                 }
             }
 
@@ -956,29 +961,44 @@ impl Evaluator {
             }
 
             Bind::Rec(bindings) => {
-                // For recursive bindings, we need to create thunks that
-                // reference the environment containing all bindings
-                let mut new_env = env.clone();
+                // For recursive bindings, we need closures to be able to find
+                // their recursive references. Since closures capture their env
+                // at creation time and our envs are immutable, we use a
+                // "recursive env stack" that is checked during variable lookup.
+                //
+                // Strategy:
+                // 1. Evaluate all RHS expressions (typically lambdas) with current env
+                //    This creates Closures that capture env (without recursive bindings)
+                // 2. Build final_env with all the evaluated values
+                // 3. Push final_env onto rec_env_stack before evaluating body
+                // 4. Variable lookup checks rec_env_stack, so recursive calls work
+                //
+                // This approach works because:
+                // - When a Closure is applied, its body is evaluated
+                // - Variable lookup in the body checks rec_env_stack
+                // - The rec_env_stack contains the binding for the recursive function
 
-                // First pass: create placeholder thunks
+                let mut final_env = env.clone();
+
+                // Evaluate all bindings and add to final_env
+                // For lambdas, this just creates Closures (very cheap)
                 for (var, rhs) in bindings {
-                    let thunk = Value::Thunk(Thunk {
-                        expr: rhs.clone(),
-                        env: env.clone(), // Will be updated
-                    });
-                    new_env = new_env.extend(var.id, thunk);
+                    let value = self.eval(rhs, env)?;
+                    final_env = final_env.extend(var.id, value);
                 }
 
-                // Second pass: update thunks with the complete environment
-                for (var, rhs) in bindings {
-                    let thunk = Value::Thunk(Thunk {
-                        expr: rhs.clone(),
-                        env: new_env.clone(),
-                    });
-                    new_env = new_env.extend(var.id, thunk);
-                }
+                // Push the recursive environment onto the stack
+                // This makes recursive bindings visible during body evaluation
+                self.rec_env_stack.borrow_mut().push(final_env.clone());
 
-                self.eval(body, &new_env)
+                // Evaluate the body with final_env
+                // The rec_env_stack ensures recursive calls can find their targets
+                let result = self.eval(body, &final_env);
+
+                // Pop the recursive environment
+                self.rec_env_stack.borrow_mut().pop();
+
+                result
             }
         }
     }
@@ -1008,7 +1028,18 @@ impl Evaluator {
         match pattern {
             AltCon::Default => {
                 // Default matches anything
-                Ok(Some(Vec::new()))
+                // If there's a binder, bind it to the scrutinee value
+                if binders.is_empty() {
+                    Ok(Some(Vec::new()))
+                } else {
+                    // For variable patterns like `case e of x -> ...`,
+                    // bind x to the scrutinee value
+                    let bindings: Vec<_> = binders
+                        .iter()
+                        .map(|var| (var.id, value.clone()))
+                        .collect();
+                    Ok(Some(bindings))
+                }
             }
 
             AltCon::Lit(lit) => {
@@ -1053,6 +1084,34 @@ impl Evaluator {
 
     fn force_thunk(&self, thunk: &Thunk) -> Result<Value, EvalError> {
         self.eval(&thunk.expr, &thunk.env)
+    }
+
+    /// Forces a list structure, converting it to a Vec<Value>.
+    /// This traverses the list spine, forcing thunks along the way.
+    fn force_list(&self, value: Value) -> Result<Vec<Value>, EvalError> {
+        let mut result = Vec::new();
+        let mut current = self.force(value)?;
+
+        loop {
+            match &current {
+                Value::Data(d) if d.con.name.as_str() == "[]" => {
+                    return Ok(result);
+                }
+                Value::Data(d) if d.con.name.as_str() == ":" && d.args.len() == 2 => {
+                    // Force the head element
+                    let head = self.force(d.args[0].clone())?;
+                    result.push(head);
+                    // Force the tail and continue traversing
+                    current = self.force(d.args[1].clone())?;
+                }
+                other => {
+                    return Err(EvalError::TypeError {
+                        expected: "List".into(),
+                        got: format!("{other:?}"),
+                    });
+                }
+            }
+        }
     }
 }
 

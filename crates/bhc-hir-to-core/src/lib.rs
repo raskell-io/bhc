@@ -21,11 +21,26 @@ mod expr;
 mod pattern;
 
 use bhc_core::CoreModule;
-use bhc_hir::Module as HirModule;
+use bhc_hir::{DefId, Module as HirModule};
+use bhc_intern::Symbol;
 use bhc_span::Span;
+use indexmap::IndexMap;
 use thiserror::Error;
 
 pub use context::LowerContext;
+
+/// Information about a definition from the lowering pass.
+/// This mirrors `bhc_lower::context::DefInfo`.
+#[derive(Clone, Debug)]
+pub struct DefInfo {
+    /// The unique ID.
+    pub id: DefId,
+    /// The name.
+    pub name: Symbol,
+}
+
+/// Map from `DefId` to definition information.
+pub type DefMap = IndexMap<DefId, DefInfo>;
 
 /// Errors that can occur during HIR to Core lowering.
 #[derive(Debug, Error)]
@@ -68,7 +83,36 @@ pub type LowerResult<T> = Result<T, LowerError>;
 /// Returns `LowerError` if lowering fails due to internal errors or
 /// unsupported constructs.
 pub fn lower_module(module: &HirModule) -> LowerResult<CoreModule> {
+    lower_module_with_defs(module, None)
+}
+
+/// Lower a HIR module to Core IR with definition mappings from the lowering pass.
+///
+/// This function accepts the DefMap from the lowering context, which allows
+/// the Core lowering to register builtins with the correct DefIds assigned
+/// during the AST-to-HIR lowering pass.
+///
+/// # Arguments
+///
+/// * `module` - The typed HIR module to lower
+/// * `defs` - Optional definition map from the lowering context
+///
+/// # Errors
+///
+/// Returns `LowerError` if lowering fails due to internal errors or
+/// unsupported constructs.
+pub fn lower_module_with_defs(
+    module: &HirModule,
+    defs: Option<&DefMap>,
+) -> LowerResult<CoreModule> {
     let mut ctx = LowerContext::new();
+
+    // If we have definition mappings from the lowering pass, use them
+    // to register builtins with the correct DefIds
+    if let Some(def_map) = defs {
+        ctx.register_lowered_builtins(def_map);
+    }
+
     ctx.lower_module(module)
 }
 
