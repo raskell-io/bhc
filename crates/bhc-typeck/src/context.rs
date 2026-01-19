@@ -10,7 +10,8 @@
 
 use bhc_diagnostics::{Diagnostic, DiagnosticHandler, FullSpan};
 use bhc_hir::{
-    Binding, DataDef, DefId, Equation, HirId, Item, Module, NewtypeDef, Pat, ValueDef,
+    Binding, ClassDef, DataDef, DefId, Equation, HirId, InstanceDef, Item, Module, NewtypeDef, Pat,
+    ValueDef,
 };
 use bhc_span::{FileId, Span};
 use bhc_types::{Kind, Scheme, Subst, Ty, TyCon, TyVar};
@@ -18,7 +19,7 @@ use rustc_hash::FxHashMap;
 
 use crate::binding_groups::BindingGroup;
 use crate::builtins::Builtins;
-use crate::env::TypeEnv;
+use crate::env::{ClassInfo, InstanceInfo, TypeEnv};
 use crate::TypedModule;
 
 /// Generator for fresh type variables.
@@ -428,6 +429,53 @@ impl TyCtxt {
             .register_data_con(newtype.con.id, newtype.con.name, scheme);
     }
 
+    /// Register a type class definition.
+    pub fn register_class(&mut self, class: &ClassDef) {
+        // Build method signatures map
+        let methods = class
+            .methods
+            .iter()
+            .map(|m| (m.name, m.ty.clone()))
+            .collect();
+
+        let info = ClassInfo {
+            name: class.name,
+            params: class.params.clone(),
+            supers: class.supers.clone(),
+            methods,
+        };
+
+        self.env.register_class(info);
+
+        // TODO: Register default method implementations
+        // for default in &class.defaults {
+        //     self.check_value_def(default);
+        // }
+    }
+
+    /// Register a type class instance.
+    pub fn register_instance(&mut self, instance: &InstanceDef) {
+        // Build method implementations map
+        let methods = instance
+            .methods
+            .iter()
+            .map(|m| (m.name, m.id))
+            .collect();
+
+        let info = InstanceInfo {
+            class: instance.class,
+            types: instance.types.clone(),
+            methods,
+        };
+
+        self.env.register_instance(info);
+
+        // Type check the instance method implementations
+        for method in &instance.methods {
+            self.check_value_def(method);
+        }
+    }
+
     /// Compute the kind of a type constructor given its arity.
     fn compute_type_con_kind(arity: usize) -> Kind {
         let mut kind = Kind::Star;
@@ -532,17 +580,16 @@ impl TyCtxt {
     fn check_item(&mut self, item: &Item) {
         match item {
             Item::Value(value_def) => self.check_value_def(value_def),
+            Item::Class(class_def) => self.register_class(class_def),
+            Item::Instance(instance_def) => self.register_instance(instance_def),
             // These are handled separately:
             // - Data/Newtype: registered in register_data_type/register_newtype
             // - TypeAlias: handled during type resolution
-            // - Class/Instance: handled separately
             // - Fixity: no type checking needed
             // - Foreign: uses declared type
             Item::Data(_)
             | Item::Newtype(_)
             | Item::TypeAlias(_)
-            | Item::Class(_)
-            | Item::Instance(_)
             | Item::Fixity(_)
             | Item::Foreign(_) => {}
         }

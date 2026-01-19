@@ -7,10 +7,11 @@
 //! - Local bindings (let, lambda, case patterns)
 //! - Type constructors
 //! - Data constructors
+//! - Type classes and instances
 
 use bhc_hir::DefId;
 use bhc_intern::Symbol;
-use bhc_types::{Scheme, TyCon, TyVar};
+use bhc_types::{Scheme, Ty, TyCon, TyVar};
 use rustc_hash::FxHashMap;
 
 /// Information about a data constructor.
@@ -24,6 +25,30 @@ pub struct DataConInfo {
     pub scheme: Scheme,
 }
 
+/// Information about a type class.
+#[derive(Clone, Debug)]
+pub struct ClassInfo {
+    /// The class name.
+    pub name: Symbol,
+    /// Type parameters.
+    pub params: Vec<TyVar>,
+    /// Superclass names.
+    pub supers: Vec<Symbol>,
+    /// Method signatures (name -> type scheme).
+    pub methods: FxHashMap<Symbol, Scheme>,
+}
+
+/// Information about a type class instance.
+#[derive(Clone, Debug)]
+pub struct InstanceInfo {
+    /// The class being instantiated.
+    pub class: Symbol,
+    /// The instance types (e.g., `Int` for `instance Show Int`).
+    pub types: Vec<Ty>,
+    /// Method implementations (name -> DefId of the implementation).
+    pub methods: FxHashMap<Symbol, DefId>,
+}
+
 /// The type environment during type checking.
 ///
 /// Maintains bindings at various scopes:
@@ -31,6 +56,8 @@ pub struct DataConInfo {
 /// - Local: Lambda-bound, let-bound, and pattern-bound variables
 /// - Type constructors: Type names to `TyCon`
 /// - Data constructors: Constructor names to `DataConInfo`
+/// - Type classes: Class definitions
+/// - Instances: Type class instances for resolution
 #[derive(Debug)]
 pub struct TypeEnv {
     /// Global definitions (module-level, indexed by `DefId`).
@@ -48,6 +75,13 @@ pub struct TypeEnv {
 
     /// Data constructors by `DefId` (for lookup by `DefRef`).
     data_cons_by_id: FxHashMap<DefId, DataConInfo>,
+
+    /// Type classes (name -> `ClassInfo`).
+    classes: FxHashMap<Symbol, ClassInfo>,
+
+    /// Type class instances (class name -> list of instances).
+    /// Multiple instances can exist for the same class with different types.
+    instances: FxHashMap<Symbol, Vec<InstanceInfo>>,
 }
 
 impl Default for TypeEnv {
@@ -66,6 +100,8 @@ impl TypeEnv {
             type_cons: FxHashMap::default(),
             data_cons: FxHashMap::default(),
             data_cons_by_id: FxHashMap::default(),
+            classes: FxHashMap::default(),
+            instances: FxHashMap::default(),
         }
     }
 
@@ -181,6 +217,49 @@ impl TypeEnv {
     #[must_use]
     pub fn lookup_data_con_by_id(&self, def_id: DefId) -> Option<&DataConInfo> {
         self.data_cons_by_id.get(&def_id)
+    }
+
+    /// Register a type class.
+    pub fn register_class(&mut self, info: ClassInfo) {
+        self.classes.insert(info.name, info);
+    }
+
+    /// Look up a type class by name.
+    #[must_use]
+    pub fn lookup_class(&self, name: Symbol) -> Option<&ClassInfo> {
+        self.classes.get(&name)
+    }
+
+    /// Register a type class instance.
+    pub fn register_instance(&mut self, info: InstanceInfo) {
+        self.instances
+            .entry(info.class)
+            .or_insert_with(Vec::new)
+            .push(info);
+    }
+
+    /// Look up all instances for a class.
+    #[must_use]
+    pub fn lookup_instances(&self, class: Symbol) -> Option<&[InstanceInfo]> {
+        self.instances.get(&class).map(|v| v.as_slice())
+    }
+
+    /// Resolve an instance for a class and type.
+    ///
+    /// Returns the instance info if a matching instance is found.
+    /// This is a simple implementation that does exact matching;
+    /// a full implementation would need to handle type unification.
+    #[must_use]
+    pub fn resolve_instance(&self, class: Symbol, ty: &Ty) -> Option<&InstanceInfo> {
+        let instances = self.instances.get(&class)?;
+        for inst in instances {
+            // Simple exact match for now
+            // TODO: implement proper instance matching with unification
+            if !inst.types.is_empty() && &inst.types[0] == ty {
+                return Some(inst);
+            }
+        }
+        None
     }
 
     /// Get all free type variables in the environment.
