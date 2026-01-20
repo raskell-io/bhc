@@ -81,7 +81,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Check if current token can start an atomic pattern.
-    fn is_apat_start(&self) -> bool {
+    pub fn is_apat_start(&self) -> bool {
         match self.current_kind() {
             Some(kind) => matches!(
                 kind,
@@ -95,13 +95,16 @@ impl<'src> Parser<'src> {
                     | TokenKind::LParen
                     | TokenKind::LBracket
                     | TokenKind::Underscore
+                    | TokenKind::Tilde        // Lazy pattern ~x
+                    | TokenKind::Bang         // Strict pattern !x
             ),
             None => false,
         }
     }
 
     /// Parse an atomic pattern.
-    fn parse_atom_pattern(&mut self) -> ParseResult<Pat> {
+    /// This is used for function argument patterns in clause LHS.
+    pub fn parse_atom_pattern(&mut self) -> ParseResult<Pat> {
         let tok = self.current().ok_or(ParseError::UnexpectedEof {
             expected: "pattern".to_string(),
         })?;

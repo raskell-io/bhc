@@ -750,9 +750,10 @@ impl<'src> Parser<'src> {
                 pats.push(second_pat);
                 (op_name, true)
             } else {
-                // Prefix: parse patterns normally
-                while self.is_pattern_start() {
-                    pats.push(self.parse_pattern()?);
+                // Prefix: parse atomic patterns for function arguments
+                // (in Haskell, function LHS uses apat, not full patterns)
+                while self.is_apat_start() {
+                    pats.push(self.parse_atom_pattern()?);
                 }
                 (name, false)
             };

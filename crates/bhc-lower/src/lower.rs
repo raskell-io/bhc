@@ -600,9 +600,10 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                                     lower_pat(ctx, &clause.pats[0])
                                 } else {
                                     // Create a tuple pattern for multi-argument case
+                                    // Look up the existing tuple constructor from builtins
                                     let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
-                                    let tuple_def_id = ctx.fresh_def_id();
-                                    ctx.define(tuple_def_id, tuple_sym, DefKind::Constructor, fb.span);
+                                    let tuple_def_id = ctx.lookup_constructor(tuple_sym)
+                                        .expect("tuple constructor should be in builtins");
                                     let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
                                     hir::Pat::Con(
                                         tuple_ref,
@@ -919,9 +920,10 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                                 let pat = if clause.pats.len() == 1 {
                                     lower_pat(ctx, &clause.pats[0])
                                 } else {
+                                    // Look up the existing tuple constructor from builtins
                                     let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
-                                    let tuple_def_id = ctx.fresh_def_id();
-                                    ctx.define(tuple_def_id, tuple_sym, DefKind::Constructor, fb.span);
+                                    let tuple_def_id = ctx.lookup_constructor(tuple_sym)
+                                        .expect("tuple constructor should be in builtins");
                                     let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
                                     hir::Pat::Con(
                                         tuple_ref,
