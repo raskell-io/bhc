@@ -419,6 +419,42 @@ pub enum PrimOp {
     ListThen,
     /// Monadic return for lists: return x = [x]
     ListReturn,
+
+    // Additional list operations
+    /// Right fold: foldr f z xs
+    Foldr,
+    /// Left fold: foldl f z xs
+    Foldl,
+    /// Strict left fold: foldl' f z xs
+    FoldlStrict,
+    /// Filter: filter p xs
+    Filter,
+    /// Zip two lists: zip xs ys
+    Zip,
+    /// Zip with function: zipWith f xs ys
+    ZipWith,
+    /// Take n elements: take n xs
+    Take,
+    /// Drop n elements: drop n xs
+    Drop,
+    /// Head of list: head xs
+    Head,
+    /// Tail of list: tail xs
+    Tail,
+    /// Last element: last xs
+    Last,
+    /// All but last: init xs
+    Init,
+    /// Reverse a list: reverse xs
+    Reverse,
+    /// Null check: null xs
+    Null,
+    /// Element at index: xs !! n
+    Index,
+    /// Replicate: replicate n x
+    Replicate,
+    /// Enumeration: enumFromTo start end
+    EnumFromTo,
 }
 
 impl PrimOp {
@@ -426,13 +462,20 @@ impl PrimOp {
     #[must_use]
     pub fn arity(self) -> usize {
         match self {
+            // Arity 1
             Self::NegInt | Self::NegDouble | Self::NotBool | Self::IntToDouble
             | Self::DoubleToInt | Self::CharToInt | Self::IntToChar | Self::Error
             | Self::UArrayFromList | Self::UArrayToList | Self::UArraySum | Self::UArrayLength
-            | Self::ListReturn => 1,
+            | Self::ListReturn | Self::Head | Self::Tail | Self::Last | Self::Init
+            | Self::Reverse | Self::Null => 1,
+            // Arity 2
             Self::UArrayMap | Self::UArrayRange | Self::Concat | Self::ConcatMap | Self::Append
-            | Self::ListBind | Self::ListThen => 2,
-            Self::UArrayZipWith | Self::UArrayFold => 3,
+            | Self::ListBind | Self::ListThen | Self::Filter | Self::Zip | Self::Take | Self::Drop
+            | Self::Index | Self::Replicate | Self::EnumFromTo => 2,
+            // Arity 3
+            Self::UArrayZipWith | Self::UArrayFold | Self::Foldr | Self::Foldl | Self::FoldlStrict
+            | Self::ZipWith => 3,
+            // Default arity 2 for arithmetic/comparison ops
             _ => 2,
         }
     }
@@ -486,6 +529,24 @@ impl PrimOp {
             ">>=" => Some(Self::ListBind),
             ">>" => Some(Self::ListThen),
             "return" => Some(Self::ListReturn),
+            // Additional list operations
+            "foldr" => Some(Self::Foldr),
+            "foldl" => Some(Self::Foldl),
+            "foldl'" => Some(Self::FoldlStrict),
+            "filter" => Some(Self::Filter),
+            "zip" => Some(Self::Zip),
+            "zipWith" => Some(Self::ZipWith),
+            "take" => Some(Self::Take),
+            "drop" => Some(Self::Drop),
+            "head" => Some(Self::Head),
+            "tail" => Some(Self::Tail),
+            "last" => Some(Self::Last),
+            "init" => Some(Self::Init),
+            "reverse" => Some(Self::Reverse),
+            "null" => Some(Self::Null),
+            "!!" => Some(Self::Index),
+            "replicate" => Some(Self::Replicate),
+            "enumFromTo" => Some(Self::EnumFromTo),
             _ => None,
         }
     }

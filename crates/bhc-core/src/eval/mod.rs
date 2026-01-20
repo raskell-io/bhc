@@ -229,6 +229,24 @@ impl Evaluator {
             (">>=", PrimOp::ListBind),
             (">>", PrimOp::ListThen),
             ("return", PrimOp::ListReturn),
+            // Additional list operations
+            ("foldr", PrimOp::Foldr),
+            ("foldl", PrimOp::Foldl),
+            ("foldl'", PrimOp::FoldlStrict),
+            ("filter", PrimOp::Filter),
+            ("zip", PrimOp::Zip),
+            ("zipWith", PrimOp::ZipWith),
+            ("take", PrimOp::Take),
+            ("drop", PrimOp::Drop),
+            ("head", PrimOp::Head),
+            ("tail", PrimOp::Tail),
+            ("last", PrimOp::Last),
+            ("init", PrimOp::Init),
+            ("reverse", PrimOp::Reverse),
+            ("null", PrimOp::Null),
+            ("!!", PrimOp::Index),
+            ("replicate", PrimOp::Replicate),
+            ("enumFromTo", PrimOp::EnumFromTo),
         ];
 
         for (name, op) in ops {
@@ -1014,6 +1032,222 @@ impl Evaluator {
                 // return x = [x]
                 let x = args[0].clone();
                 Ok(Value::from_list(vec![x]))
+            }
+
+            // Additional list operations
+            PrimOp::Foldr => {
+                // foldr f z xs
+                // foldr f z [] = z
+                // foldr f z (x:xs) = f x (foldr f z xs)
+                let f = &args[0];
+                let z = args[1].clone();
+                let xs = self.force_list(args[2].clone())?;
+
+                // Process from right to left
+                let mut acc = z;
+                for x in xs.into_iter().rev() {
+                    acc = self.apply(self.apply(f.clone(), x)?, acc)?;
+                }
+                Ok(acc)
+            }
+
+            PrimOp::Foldl => {
+                // foldl f z xs
+                // foldl f z [] = z
+                // foldl f z (x:xs) = foldl f (f z x) xs
+                let f = &args[0];
+                let z = args[1].clone();
+                let xs = self.force_list(args[2].clone())?;
+
+                let mut acc = z;
+                for x in xs {
+                    acc = self.apply(self.apply(f.clone(), acc)?, x)?;
+                }
+                Ok(acc)
+            }
+
+            PrimOp::FoldlStrict => {
+                // foldl' f z xs - strict left fold
+                let f = &args[0];
+                let z = args[1].clone();
+                let xs = self.force_list(args[2].clone())?;
+
+                let mut acc = self.force(z)?;
+                for x in xs {
+                    acc = self.apply(self.apply(f.clone(), acc)?, x)?;
+                    acc = self.force(acc)?;
+                }
+                Ok(acc)
+            }
+
+            PrimOp::Filter => {
+                // filter p xs
+                let p = &args[0];
+                let xs = self.force_list(args[1].clone())?;
+
+                let mut result = Vec::new();
+                for x in xs {
+                    let pred_result = self.apply(p.clone(), x.clone())?;
+                    let pred_forced = self.force(pred_result)?;
+                    if pred_forced.as_bool().unwrap_or(false) {
+                        result.push(x);
+                    }
+                }
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Zip => {
+                // zip xs ys = zipWith (,) xs ys
+                let xs = self.force_list(args[0].clone())?;
+                let ys = self.force_list(args[1].clone())?;
+
+                let pairs: Vec<Value> = xs.into_iter()
+                    .zip(ys.into_iter())
+                    .map(|(x, y)| {
+                        use bhc_types::{Kind, TyCon};
+                        Value::Data(DataValue {
+                            con: crate::DataCon {
+                                name: Symbol::intern("(,)"),
+                                ty_con: TyCon::new(Symbol::intern("(,)"), Kind::Star),
+                                tag: 0,
+                                arity: 2,
+                            },
+                            args: vec![x, y],
+                        })
+                    })
+                    .collect();
+                Ok(Value::from_list(pairs))
+            }
+
+            PrimOp::ZipWith => {
+                // zipWith f xs ys
+                let f = &args[0];
+                let xs = self.force_list(args[1].clone())?;
+                let ys = self.force_list(args[2].clone())?;
+
+                let mut result = Vec::new();
+                for (x, y) in xs.into_iter().zip(ys.into_iter()) {
+                    let r = self.apply(self.apply(f.clone(), x)?, y)?;
+                    result.push(self.force(r)?);
+                }
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Take => {
+                // take n xs
+                let n = args[0].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[0]),
+                })?;
+                let xs = self.force_list(args[1].clone())?;
+
+                let n = n.max(0) as usize;
+                let result: Vec<Value> = xs.into_iter().take(n).collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Drop => {
+                // drop n xs
+                let n = args[0].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[0]),
+                })?;
+                let xs = self.force_list(args[1].clone())?;
+
+                let n = n.max(0) as usize;
+                let result: Vec<Value> = xs.into_iter().skip(n).collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Head => {
+                // head xs - partial, errors on empty list
+                let xs = self.force_list(args[0].clone())?;
+                xs.into_iter().next().ok_or(EvalError::UserError("head: empty list".to_string()))
+            }
+
+            PrimOp::Tail => {
+                // tail xs - partial, errors on empty list
+                let xs = self.force_list(args[0].clone())?;
+                if xs.is_empty() {
+                    return Err(EvalError::UserError("tail: empty list".to_string()));
+                }
+                let result: Vec<Value> = xs.into_iter().skip(1).collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Last => {
+                // last xs - partial, errors on empty list
+                let xs = self.force_list(args[0].clone())?;
+                xs.into_iter().last().ok_or(EvalError::UserError("last: empty list".to_string()))
+            }
+
+            PrimOp::Init => {
+                // init xs - partial, errors on empty list
+                let xs = self.force_list(args[0].clone())?;
+                if xs.is_empty() {
+                    return Err(EvalError::UserError("init: empty list".to_string()));
+                }
+                let len = xs.len();
+                let result: Vec<Value> = xs.into_iter().take(len - 1).collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Reverse => {
+                // reverse xs
+                let xs = self.force_list(args[0].clone())?;
+                let result: Vec<Value> = xs.into_iter().rev().collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::Null => {
+                // null xs - returns True if list is empty
+                let xs = self.force_list(args[0].clone())?;
+                Ok(Value::bool(xs.is_empty()))
+            }
+
+            PrimOp::Index => {
+                // xs !! n - index into list
+                let xs = self.force_list(args[0].clone())?;
+                let n = args[1].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[1]),
+                })?;
+
+                if n < 0 {
+                    return Err(EvalError::UserError("(!!): negative index".to_string()));
+                }
+                let n = n as usize;
+                xs.into_iter().nth(n).ok_or_else(|| {
+                    EvalError::UserError(format!("(!!): index {} too large", n))
+                })
+            }
+
+            PrimOp::Replicate => {
+                // replicate n x
+                let n = args[0].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[0]),
+                })?;
+                let x = args[1].clone();
+
+                let n = n.max(0) as usize;
+                let result: Vec<Value> = std::iter::repeat(x).take(n).collect();
+                Ok(Value::from_list(result))
+            }
+
+            PrimOp::EnumFromTo => {
+                // enumFromTo start end = [start..end]
+                let start = args[0].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[0]),
+                })?;
+                let end = args[1].as_int().ok_or_else(|| EvalError::TypeError {
+                    expected: "Int".into(),
+                    got: format!("{:?}", args[1]),
+                })?;
+
+                let result: Vec<Value> = (start..=end).map(Value::Int).collect();
+                Ok(Value::from_list(result))
             }
         }
     }
