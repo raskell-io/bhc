@@ -136,6 +136,10 @@ pub struct LowerContext {
     pub defs: DefMap,
     /// Errors collected during lowering.
     pub errors: Vec<crate::LowerError>,
+    /// Import aliases: maps alias (e.g., "M") to full module name (e.g., "Data.Map")
+    import_aliases: FxHashMap<Symbol, Symbol>,
+    /// Qualified imports: maps "Module.name" to the unqualified name for resolution
+    qualified_names: FxHashMap<Symbol, Symbol>,
 }
 
 impl Default for LowerContext {
@@ -157,6 +161,8 @@ impl LowerContext {
             current_scope: ScopeId::new(0),
             defs: IndexMap::default(),
             errors: Vec::new(),
+            import_aliases: FxHashMap::default(),
+            qualified_names: FxHashMap::default(),
         }
     }
 
@@ -343,6 +349,8 @@ impl LowerContext {
             "concatMap",
             "head",
             "tail",
+            "last",
+            "init",
             "length",
             "null",
             "reverse",
@@ -495,6 +503,7 @@ impl LowerContext {
             "toInteger",
             "toRational",
             "realToFrac",
+            "fromIntegral",
             "truncate",
             "round",
             "ceiling",
@@ -508,6 +517,64 @@ impl LowerContext {
             "quotRem",
             "divMod",
             "recip",
+            // System operations
+            "getArgs",
+            "getProgName",
+            "getEnv",
+            "lookupEnv",
+            "exitSuccess",
+            "exitFailure",
+            "exitWith",
+            "doesFileExist",
+            "doesDirectoryExist",
+            "getDirectoryContents",
+            "getCurrentDirectory",
+            "setCurrentDirectory",
+            "createDirectory",
+            "removeFile",
+            "removeDirectory",
+            "renameFile",
+            "copyFile",
+            "takeFileName",
+            "takeDirectory",
+            "takeExtension",
+            "dropExtension",
+            "replaceExtension",
+            "splitPath",
+            "joinPath",
+            "(</>)",
+            // Concurrency
+            "forkIO",
+            "killThread",
+            "threadDelay",
+            "newMVar",
+            "newEmptyMVar",
+            "takeMVar",
+            "putMVar",
+            "readMVar",
+            "modifyMVar",
+            "modifyMVar_",
+            "withMVar",
+            "newIORef",
+            "readIORef",
+            "writeIORef",
+            "modifyIORef",
+            "modifyIORef'",
+            "atomicModifyIORef",
+            "atomicModifyIORef'",
+            // Control flow
+            "forever",
+            "replicateM",
+            "replicateM_",
+            "filterM",
+            "foldM",
+            "foldM_",
+            "zipWithM",
+            "zipWithM_",
+            "mapAndUnzipM",
+            "whenJust",
+            "whenM",
+            "unlessM",
             // Data.Function
             "on",
             "fix",
@@ -696,6 +763,74 @@ impl LowerContext {
     /// Takes all errors from the context.
     pub fn take_errors(&mut self) -> Vec<crate::LowerError> {
         std::mem::take(&mut self.errors)
+    }
+
+    /// Registers an import alias.
+    ///
+    /// For `import qualified Data.Map as M`, call:
+    /// `register_import_alias("M", "Data.Map")`
+    pub fn register_import_alias(&mut self, alias: Symbol, module: Symbol) {
+        self.import_aliases.insert(alias, module);
+    }
+
+    /// Registers a qualified name mapping.
+    ///
+    /// For `import Data.Map (lookup)`, register:
+    /// `register_qualified_name("Data.Map.lookup", "lookup")`
+    pub fn register_qualified_name(&mut self, qualified: Symbol, unqualified: Symbol) {
+        self.qualified_names.insert(qualified, unqualified);
+    }
+
+    /// Resolves a qualified variable reference like `M.lookup`.
+    ///
+    /// Returns the DefId if found, or None if not resolvable.
+    pub fn resolve_qualified_var(&self, qualifier: Symbol, name: Symbol) -> Option<DefId> {
+        // First, check if the qualifier is an alias
+        let module = self.import_aliases.get(&qualifier).copied().unwrap_or(qualifier);
+
+        // Try to look up as "Module.name"
+        let qualified_name = Symbol::intern(&format!("{}.{}", module.as_str(), name.as_str()));
+
+        // Check if we have a qualified name mapping
+        if let Some(unqualified) = self.qualified_names.get(&qualified_name) {
+            if let Some(def_id) = self.lookup_value(*unqualified) {
+                return Some(def_id);
+            }
+        }
+
+        // Try direct lookup of the qualified name
+        if let Some(def_id) = self.lookup_value(qualified_name) {
+            return Some(def_id);
+        }
+
+        // Try looking up the unqualified name directly (for builtins)
+        self.lookup_value(name)
+    }
+
+    /// Resolves a qualified constructor reference like `M.Just`.
+    ///
+    /// Returns the DefId if found, or None if not resolvable.
+    pub fn resolve_qualified_constructor(&self, qualifier: Symbol, name: Symbol) -> Option<DefId> {
+        // First, check if the qualifier is an alias
+        let module = self.import_aliases.get(&qualifier).copied().unwrap_or(qualifier);
+
+        // Try to look up as "Module.Name"
+        let qualified_name = Symbol::intern(&format!("{}.{}", module.as_str(), name.as_str()));
+
+        // Check if we have a qualified name mapping
+        if let Some(unqualified) = self.qualified_names.get(&qualified_name) {
+            if let Some(def_id) = self.lookup_constructor(*unqualified) {
+                return Some(def_id);
+            }
+        }
+
+        // Try direct lookup of the qualified name
+        if let Some(def_id) = self.lookup_constructor(qualified_name) {
+            return Some(def_id);
+        }
+
+        // Try looking up the unqualified name directly (for builtins)
+        self.lookup_constructor(name)
     }
 }
 

@@ -28,15 +28,17 @@ pub struct LowerConfig {
 
 /// Lower an AST module to HIR.
 pub fn lower_module(ctx: &mut LowerContext, module: &ast::Module) -> LowerResult<hir::Module> {
+    // Process imports first to register aliases
+    process_imports(ctx, &module.imports);
+
     // First pass: collect all top-level definitions
     collect_module_definitions(ctx, module);
 
     // Second pass: lower all declarations
     let mut items = Vec::new();
     for decl in &module.decls {
-        if let Some(item) = lower_decl(ctx, decl)? {
-            items.push(item);
-        }
+        let new_items = lower_decl(ctx, decl)?;
+        items.extend(new_items);
     }
 
     // Lower imports
@@ -76,54 +78,349 @@ pub fn lower_module(ctx: &mut LowerContext, module: &ast::Module) -> LowerResult
     })
 }
 
+/// Process imports and register aliases.
+fn process_imports(ctx: &mut LowerContext, imports: &[ast::ImportDecl]) {
+    for import in imports {
+        // Get the full module name
+        let module_name = import
+            .module
+            .parts
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        let module_sym = Symbol::intern(&module_name);
+
+        // Determine the alias to use
+        let alias = if let Some(alias_name) = &import.alias {
+            // Explicit alias: import qualified Data.Map as M
+            let alias_str = alias_name
+                .parts
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
+            Symbol::intern(&alias_str)
+        } else if import.qualified {
+            // No explicit alias for qualified import: use full module name
+            // import qualified Data.Map means M.lookup is Data.Map.lookup
+            module_sym
+        } else {
+            // Non-qualified import: no alias needed for qualified access
+            // but we might still want to track it
+            module_sym
+        };
+
+        // Register the alias
+        ctx.register_import_alias(alias, module_sym);
+
+        // For non-qualified imports, also register the last component as an alias
+        // This handles `import Data.Map` allowing both `Data.Map.lookup` and `Map.lookup`
+        if !import.qualified && import.module.parts.len() > 1 {
+            if let Some(last_part) = import.module.parts.last() {
+                let short_alias = Symbol::intern(last_part.as_str());
+                ctx.register_import_alias(short_alias, module_sym);
+            }
+        }
+
+        // Register qualified names for imported items
+        // For now, we register common functions from standard modules
+        register_standard_module_exports(ctx, &module_name);
+    }
+}
+
+/// Register standard module exports.
+///
+/// This is a temporary solution until we have proper module loading.
+/// It registers common functions from well-known modules.
+fn register_standard_module_exports(ctx: &mut LowerContext, module_name: &str) {
+    let exports: &[&str] = match module_name {
+        "Data.Map" | "Data.Map.Strict" => &[
+            "empty", "singleton", "insert", "insertWith", "delete", "lookup",
+            "member", "null", "size", "union", "intersection", "difference",
+            "map", "mapWithKey", "filter", "filterWithKey", "foldr", "foldl",
+            "foldrWithKey", "foldlWithKey", "keys", "elems", "toList", "fromList",
+            "toAscList", "toDescList", "findWithDefault", "adjust", "update",
+            "alter", "unionWith", "intersectionWith", "differenceWith",
+        ],
+        "Data.Set" => &[
+            "empty", "singleton", "insert", "delete", "member", "null", "size",
+            "union", "intersection", "difference", "map", "filter", "foldr", "foldl",
+            "toList", "fromList", "toAscList", "toDescList", "isSubsetOf",
+        ],
+        "Data.List" => &[
+            "sort", "sortBy", "sortOn", "nub", "nubBy", "delete", "deleteBy",
+            "union", "unionBy", "intersect", "intersectBy", "group", "groupBy",
+            "intersperse", "intercalate", "transpose", "subsequences", "permutations",
+            "foldl'", "find", "partition", "span", "break", "stripPrefix",
+        ],
+        "Data.Maybe" => &[
+            "maybe", "isJust", "isNothing", "fromJust", "fromMaybe", "listToMaybe",
+            "maybeToList", "catMaybes", "mapMaybe",
+        ],
+        "Data.Either" => &[
+            "either", "isLeft", "isRight", "fromLeft", "fromRight", "lefts",
+            "rights", "partitionEithers",
+        ],
+        "Data.List.NonEmpty" | "Data.Semigroup" => &[
+            "head", "tail", "last", "init", "toList", "nonEmpty", "fromList",
+            "(<>)", "sconcat", "stimes",
+        ],
+        "Control.Monad" => &[
+            "when", "unless", "guard", "void", "join", "filterM", "mapM", "forM",
+            "sequence", "replicateM", "replicateM_", "forever", "liftM", "liftM2",
+            "ap", "mzero", "mplus", "msum", "mfilter",
+        ],
+        "Control.Applicative" => &[
+            "pure", "(<*>)", "(<$>)", "(*>)", "(<*)", "empty", "(<|>)",
+            "some", "many", "optional", "liftA", "liftA2", "liftA3",
+        ],
+        "Control.Exception" => &[
+            "catch", "try", "throw", "throwIO", "bracket", "bracket_",
+            "bracketOnError", "finally", "onException", "handle", "evaluate",
+            "mask", "mask_", "uninterruptibleMask", "uninterruptibleMask_",
+        ],
+        "Data.Foldable" => &[
+            "fold", "foldMap", "foldr", "foldl", "foldl'", "foldr1", "foldl1",
+            "toList", "null", "length", "elem", "maximum", "minimum", "sum", "product",
+            "any", "all", "and", "or", "find", "notElem", "concat", "concatMap",
+            "asum", "msum", "traverse_", "for_", "sequenceA_", "mapM_", "forM_",
+        ],
+        "Data.Traversable" => &[
+            "traverse", "sequenceA", "mapM", "sequence", "for", "forM",
+            "mapAccumL", "mapAccumR",
+        ],
+        "Data.Monoid" => &[
+            "mempty", "mappend", "mconcat", "(<>)", "Sum", "Product", "Any", "All",
+            "First", "Last", "Endo", "Dual",
+        ],
+        "Data.Bits" => &[
+            "(.&.)", "(.|.)", "xor", "complement", "shift", "rotate",
+            "bit", "setBit", "clearBit", "complementBit", "testBit",
+            "shiftL", "shiftR", "rotateL", "rotateR", "popCount",
+        ],
+        "Data.Char" => &[
+            "ord", "chr", "isAlpha", "isAlphaNum", "isAscii", "isControl",
+            "isDigit", "isHexDigit", "isLetter", "isLower", "isNumber",
+            "isPrint", "isPunctuation", "isSpace", "isSymbol", "isUpper",
+            "toLower", "toUpper", "digitToInt", "intToDigit",
+        ],
+        "Data.Function" => &["id", "const", "flip", "($)", "(&)", "on", "fix"],
+        "Data.Tuple" => &["fst", "snd", "curry", "uncurry", "swap"],
+        "Data.Ord" => &["compare", "(<)", "(<=)", "(>)", "(>=)", "max", "min", "comparing", "Down"],
+        "Data.Eq" => &["(==)", "(/=)"],
+        "Text.Read" => &["read", "reads", "readMaybe", "readEither", "readPrec", "lex"],
+        "Text.Show" => &["show", "shows", "showString", "showChar", "showParen"],
+        "System.IO" => &[
+            "IO", "FilePath", "Handle", "IOMode", "stdin", "stdout", "stderr",
+            "openFile", "hClose", "hGetLine", "hGetContents", "hPutStr", "hPutStrLn",
+            "hPrint", "hFlush", "hIsEOF", "withFile", "readFile", "writeFile",
+            "appendFile", "getLine", "getContents", "putStr", "putStrLn", "print",
+        ],
+        _ => &[],
+    };
+
+    let module_sym = Symbol::intern(module_name);
+    for &export in exports {
+        let qualified_name = Symbol::intern(&format!("{}.{}", module_name, export));
+        let unqualified = Symbol::intern(export);
+
+        // Register the mapping from qualified to unqualified
+        ctx.register_qualified_name(qualified_name, unqualified);
+
+        // Also ensure the unqualified name is defined (if not already)
+        if ctx.lookup_value(unqualified).is_none() {
+            let def_id = ctx.fresh_def_id();
+            ctx.define(def_id, unqualified, DefKind::Value, Span::default());
+            ctx.bind_value(unqualified, def_id);
+        }
+    }
+}
+
 /// Lower a top-level declaration.
-fn lower_decl(ctx: &mut LowerContext, decl: &ast::Decl) -> LowerResult<Option<hir::Item>> {
+fn lower_decl(ctx: &mut LowerContext, decl: &ast::Decl) -> LowerResult<Vec<hir::Item>> {
     match decl {
         ast::Decl::FunBind(fun_bind) => {
-            let item = lower_fun_bind(ctx, fun_bind)?;
-            Ok(Some(hir::Item::Value(item)))
+            // Check for pattern binding (special name $patbind)
+            if fun_bind.name.name.as_str() == "$patbind"
+                && fun_bind.clauses.len() == 1
+                && fun_bind.clauses[0].pats.len() == 1
+            {
+                // Pattern binding: (x, y) = expr
+                // Generate a value definition for each variable in the pattern
+                let items = lower_pattern_binding(ctx, fun_bind)?;
+                Ok(items)
+            } else {
+                let item = lower_fun_bind(ctx, fun_bind)?;
+                Ok(vec![hir::Item::Value(item)])
+            }
         }
 
         ast::Decl::DataDecl(data_decl) => {
             let item = lower_data_decl(ctx, data_decl)?;
-            Ok(Some(hir::Item::Data(item)))
+            Ok(vec![hir::Item::Data(item)])
         }
 
         ast::Decl::Newtype(newtype_decl) => {
             let item = lower_newtype_decl(ctx, newtype_decl)?;
-            Ok(Some(hir::Item::Newtype(item)))
+            Ok(vec![hir::Item::Newtype(item)])
         }
 
         ast::Decl::TypeAlias(type_alias) => {
             let item = lower_type_alias(ctx, type_alias)?;
-            Ok(Some(hir::Item::TypeAlias(item)))
+            Ok(vec![hir::Item::TypeAlias(item)])
         }
 
         ast::Decl::ClassDecl(class_decl) => {
             let item = lower_class_decl(ctx, class_decl)?;
-            Ok(Some(hir::Item::Class(item)))
+            Ok(vec![hir::Item::Class(item)])
         }
 
         ast::Decl::InstanceDecl(instance_decl) => {
             let item = lower_instance_decl(ctx, instance_decl)?;
-            Ok(Some(hir::Item::Instance(item)))
+            Ok(vec![hir::Item::Instance(item)])
         }
 
         ast::Decl::Fixity(fixity_decl) => {
             let item = lower_fixity_decl(fixity_decl);
-            Ok(Some(hir::Item::Fixity(item)))
+            Ok(vec![hir::Item::Fixity(item)])
         }
 
         ast::Decl::Foreign(foreign) => {
             let item = lower_foreign_decl(ctx, foreign)?;
-            Ok(Some(hir::Item::Foreign(item)))
+            Ok(vec![hir::Item::Foreign(item)])
         }
 
         // Type signatures are associated with their definitions
-        ast::Decl::TypeSig(_) => Ok(None),
+        ast::Decl::TypeSig(_) => Ok(vec![]),
 
         // Pragmas in declarations are handled at parse time or ignored
-        ast::Decl::PragmaDecl(_) => Ok(None),
+        ast::Decl::PragmaDecl(_) => Ok(vec![]),
+    }
+}
+
+/// Lower a top-level pattern binding to multiple value definitions.
+///
+/// For `(x, y) = (1, 2)`, generates:
+/// - `x = let (x, y) = (1, 2) in x`
+/// - `y = let (x, y) = (1, 2) in y`
+fn lower_pattern_binding(
+    ctx: &mut LowerContext,
+    fun_bind: &ast::FunBind,
+) -> LowerResult<Vec<hir::Item>> {
+    let clause = &fun_bind.clauses[0];
+    let pat = &clause.pats[0];
+
+    // Collect all variables bound by the pattern
+    let bound_vars = collect_pattern_vars(pat);
+    if bound_vars.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // For each variable, generate a value definition
+    let mut items = Vec::new();
+    for (var_name, var_span) in bound_vars {
+        // Look up the DefId for this variable (should have been bound in collect_module_definitions)
+        let def_id = ctx
+            .lookup_value(var_name)
+            .expect("pattern variable should be pre-bound");
+
+        // Create a let expression: let pat = rhs in var
+        let rhs_expr = ctx.in_scope(|ctx| {
+            // Bind pattern variables in this scope
+            bind_pattern(ctx, pat);
+
+            // Lower the pattern
+            let hir_pat = lower_pat(ctx, pat);
+
+            // Lower the RHS
+            let hir_rhs = lower_rhs(ctx, &clause.rhs);
+
+            // Create the binding
+            let binding = hir::Binding {
+                pat: hir_pat,
+                sig: None,
+                rhs: hir_rhs,
+                span: fun_bind.span,
+            };
+
+            // Look up the variable's def_id in this scope
+            let var_def_id = ctx
+                .lookup_value(var_name)
+                .expect("pattern variable should be bound");
+
+            // Create the body: just reference the variable
+            let body = hir::Expr::Var(ctx.def_ref(var_def_id, var_span));
+
+            // Create the let expression
+            hir::Expr::Let(vec![binding], Box::new(body), fun_bind.span)
+        });
+
+        // Create the value definition
+        let value_def = hir::ValueDef {
+            id: def_id,
+            name: var_name,
+            sig: None,
+            equations: vec![hir::Equation {
+                pats: vec![],
+                guards: vec![],
+                rhs: rhs_expr,
+                span: fun_bind.span,
+            }],
+            span: fun_bind.span,
+        };
+
+        items.push(hir::Item::Value(value_def));
+    }
+
+    Ok(items)
+}
+
+/// Collect all variable names bound by a pattern.
+fn collect_pattern_vars(pat: &ast::Pat) -> Vec<(Symbol, Span)> {
+    let mut vars = Vec::new();
+    collect_pattern_vars_impl(pat, &mut vars);
+    vars
+}
+
+fn collect_pattern_vars_impl(pat: &ast::Pat, vars: &mut Vec<(Symbol, Span)>) {
+    match pat {
+        ast::Pat::Var(ident, span) => {
+            vars.push((ident.name, *span));
+        }
+        ast::Pat::As(ident, inner, span) => {
+            vars.push((ident.name, *span));
+            collect_pattern_vars_impl(inner, vars);
+        }
+        ast::Pat::Con(_, pats, _) | ast::Pat::Tuple(pats, _) | ast::Pat::List(pats, _) => {
+            for p in pats {
+                collect_pattern_vars_impl(p, vars);
+            }
+        }
+        ast::Pat::Infix(left, _, right, _) => {
+            collect_pattern_vars_impl(left, vars);
+            collect_pattern_vars_impl(right, vars);
+        }
+        ast::Pat::Record(_, fields, _) => {
+            for field in fields {
+                if let Some(p) = &field.pat {
+                    collect_pattern_vars_impl(p, vars);
+                } else {
+                    // Punning: Foo { x } binds x
+                    vars.push((field.name.name, field.span));
+                }
+            }
+        }
+        ast::Pat::Paren(inner, _) | ast::Pat::Ann(inner, _, _) => {
+            collect_pattern_vars_impl(inner, vars);
+        }
+        ast::Pat::Lazy(inner, _) | ast::Pat::Bang(inner, _) => {
+            collect_pattern_vars_impl(inner, vars);
+        }
+        ast::Pat::View(_, result_pat, _) => {
+            collect_pattern_vars_impl(result_pat, vars);
+        }
+        ast::Pat::Wildcard(_) | ast::Pat::Lit(_, _) => {}
     }
 }
 
@@ -166,9 +463,19 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
             ctx.enter_scope();
             for where_decl in &clause.wheres {
                 if let ast::Decl::FunBind(fb) = where_decl {
-                    let def_id = ctx.fresh_def_id();
-                    ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
-                    ctx.bind_value(fb.name.name, def_id);
+                    // Check for pattern binding (special name $patbind)
+                    if fb.name.name.as_str() == "$patbind"
+                        && fb.clauses.len() == 1
+                        && fb.clauses[0].pats.len() == 1
+                    {
+                        // Pattern binding: bind all variables in the pattern
+                        bind_pattern(ctx, &fb.clauses[0].pats[0]);
+                    } else {
+                        // Regular function binding
+                        let def_id = ctx.fresh_def_id();
+                        ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
+                        ctx.bind_value(fb.name.name, def_id);
+                    }
                 }
             }
         }
@@ -198,6 +505,22 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                 .iter()
                 .filter_map(|d| {
                     if let ast::Decl::FunBind(fb) = d {
+                        // Check for pattern binding (special name $patbind)
+                        if fb.name.name.as_str() == "$patbind"
+                            && fb.clauses.len() == 1
+                            && fb.clauses[0].pats.len() == 1
+                        {
+                            // Pattern binding: (x, y) = expr
+                            let pat = lower_pat(ctx, &fb.clauses[0].pats[0]);
+                            let rhs_expr = lower_rhs(ctx, &fb.clauses[0].rhs);
+                            return Some(hir::Binding {
+                                pat,
+                                sig: None,
+                                rhs: rhs_expr,
+                                span: fb.span,
+                            });
+                        }
+
                         // Look up the DefId that was bound for this where binding
                         let def_id = ctx.lookup_value(fb.name.name)
                             .expect("where binding should be bound");
@@ -379,14 +702,23 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
         }
 
         ast::Expr::QualVar(module_name, ident, span) => {
-            // Qualified variable like M.foo
-            let qual_name = format!("{}.{}", module_name.to_string(), ident.name.as_str());
-            let name = Symbol::intern(&qual_name);
-            if let Some(def_id) = resolve_var(ctx, name, *span) {
+            // Qualified variable like M.foo or Data.Map.lookup
+            let qualifier = Symbol::intern(&module_name.to_string());
+            let name = ident.name;
+
+            // Use the qualified name resolution which handles aliases
+            if let Some(def_id) = ctx.resolve_qualified_var(qualifier, name) {
                 hir::Expr::Var(ctx.def_ref(def_id, *span))
             } else {
+                // Fall back to creating a placeholder with the full qualified name
+                let qual_name = format!("{}.{}", module_name.to_string(), name.as_str());
+                let qual_sym = Symbol::intern(&qual_name);
+                ctx.error(crate::LowerError::UnboundVar {
+                    name: qual_name,
+                    span: *span,
+                });
                 let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, name, DefKind::Value, *span);
+                ctx.define(def_id, qual_sym, DefKind::Value, *span);
                 hir::Expr::Var(ctx.def_ref(def_id, *span))
             }
         }
@@ -403,14 +735,23 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
         }
 
         ast::Expr::QualCon(module_name, ident, span) => {
-            // Qualified constructor like M.Just
-            let qual_name = format!("{}.{}", module_name.to_string(), ident.name.as_str());
-            let name = Symbol::intern(&qual_name);
-            if let Some(def_id) = resolve_constructor(ctx, name, *span) {
+            // Qualified constructor like M.Just or Data.Maybe.Just
+            let qualifier = Symbol::intern(&module_name.to_string());
+            let name = ident.name;
+
+            // Use the qualified constructor resolution which handles aliases
+            if let Some(def_id) = ctx.resolve_qualified_constructor(qualifier, name) {
                 hir::Expr::Con(ctx.def_ref(def_id, *span))
             } else {
+                // Fall back to creating a placeholder with the full qualified name
+                let qual_name = format!("{}.{}", module_name.to_string(), name.as_str());
+                let qual_sym = Symbol::intern(&qual_name);
+                ctx.error(crate::LowerError::UnboundCon {
+                    name: qual_name,
+                    span: *span,
+                });
                 let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, name, DefKind::Constructor, *span);
+                ctx.define(def_id, qual_sym, DefKind::Constructor, *span);
                 hir::Expr::Con(ctx.def_ref(def_id, *span))
             }
         }

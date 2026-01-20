@@ -177,10 +177,20 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
     for decl in &module.decls {
         match decl {
             ast::Decl::FunBind(fun_bind) => {
-                let name = fun_bind.name.name;
-                let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, name, DefKind::Value, fun_bind.span);
-                ctx.bind_value(name, def_id);
+                // Check for pattern binding (special name $patbind)
+                if fun_bind.name.name.as_str() == "$patbind"
+                    && fun_bind.clauses.len() == 1
+                    && fun_bind.clauses[0].pats.len() == 1
+                {
+                    // Pattern binding: bind all variables in the pattern
+                    bind_pattern(ctx, &fun_bind.clauses[0].pats[0]);
+                } else {
+                    // Regular function binding
+                    let name = fun_bind.name.name;
+                    let def_id = ctx.fresh_def_id();
+                    ctx.define(def_id, name, DefKind::Value, fun_bind.span);
+                    ctx.bind_value(name, def_id);
+                }
             }
 
             ast::Decl::DataDecl(data_decl) => {
