@@ -137,7 +137,8 @@ impl Builtins {
         let float_ty = Ty::Con(float_con.clone());
         let char_ty = Ty::Con(char_con.clone());
         let bool_ty = Ty::Con(bool_con.clone());
-        let string_ty = Ty::Con(string_con.clone());
+        // String is a type alias for [Char] in Haskell
+        let string_ty = Ty::List(Box::new(Ty::Con(char_con.clone())));
 
         Self {
             int_con,

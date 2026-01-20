@@ -1405,6 +1405,13 @@ impl Evaluator {
 
         loop {
             match &current {
+                // String is [Char] - convert to list of characters
+                Value::String(s) => {
+                    for c in s.chars() {
+                        result.push(Value::Char(c));
+                    }
+                    return Ok(result);
+                }
                 Value::Data(d) if d.con.name.as_str() == "[]" => {
                     return Ok(result);
                 }

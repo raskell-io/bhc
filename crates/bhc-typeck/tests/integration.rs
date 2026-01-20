@@ -165,9 +165,13 @@ fn test_string_literal() {
     let typed = result.unwrap();
     let scheme = typed.def_schemes.get(&def_id(0)).unwrap();
 
+    // String is [Char] in Haskell
     match &scheme.ty {
-        Ty::Con(c) => assert_eq!(c.name, Symbol::intern("String")),
-        _ => panic!("Expected String type"),
+        Ty::List(elem) => match elem.as_ref() {
+            Ty::Con(c) => assert_eq!(c.name, Symbol::intern("Char")),
+            _ => panic!("Expected Char element type"),
+        },
+        _ => panic!("Expected [Char] type"),
     }
 }
 
