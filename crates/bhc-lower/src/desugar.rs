@@ -94,8 +94,30 @@ fn desugar_do_stmts(
 
         // Let statement: let x = e
         [ast::Stmt::LetStmt(decls, stmt_span), rest @ ..] => {
+            // Enter scope and bind let variables BEFORE processing the rest
+            ctx.enter_scope();
+            pre_bind_let_decls(ctx, decls);
             let body = desugar_do_stmts(ctx, rest, span, lower_expr, lower_pat);
-            desugar_let_decls(ctx, decls, body, *stmt_span, lower_expr, lower_pat)
+            let result = desugar_let_decls(ctx, decls, body, *stmt_span, lower_expr, lower_pat);
+            ctx.exit_scope();
+            result
+        }
+    }
+}
+
+/// Pre-bind let declaration names into the current scope.
+/// This must be called before desugaring the body that uses these bindings.
+fn pre_bind_let_decls(ctx: &mut LowerContext, decls: &[ast::Decl]) {
+    use crate::context::DefKind;
+
+    for decl in decls {
+        if let ast::Decl::FunBind(fun_bind) = decl {
+            // Only handle simple bindings (single clause, no patterns)
+            if fun_bind.clauses.len() == 1 && fun_bind.clauses[0].pats.is_empty() {
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, fun_bind.name.name, DefKind::Value, fun_bind.span);
+                ctx.bind_value(fun_bind.name.name, def_id);
+            }
         }
     }
 }
@@ -111,13 +133,16 @@ fn desugar_let_decls(
 ) -> hir::Expr {
     use crate::context::DefKind;
 
-    // First pass: bind all names
+    // First pass: bind all names (if not already bound by pre_bind_let_decls)
     for decl in decls {
         if let ast::Decl::FunBind(fun_bind) = decl {
             if fun_bind.clauses.len() == 1 && fun_bind.clauses[0].pats.is_empty() {
-                let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, fun_bind.name.name, DefKind::Value, fun_bind.span);
-                ctx.bind_value(fun_bind.name.name, def_id);
+                // Only bind if not already bound (e.g., from do-notation pre-binding)
+                if ctx.lookup_value(fun_bind.name.name).is_none() {
+                    let def_id = ctx.fresh_def_id();
+                    ctx.define(def_id, fun_bind.name.name, DefKind::Value, fun_bind.span);
+                    ctx.bind_value(fun_bind.name.name, def_id);
+                }
             }
         }
     }
@@ -390,5 +415,95 @@ mod tests {
 
         // Result should be a Var (since `map` is a builtin)
         assert!(matches!(result, hir::Expr::Var(_)));
+    }
+
+    #[test]
+    fn test_desugar_do_with_let() {
+        let mut ctx = LowerContext::with_builtins();
+
+        // do { let x = 5; return x }
+        // The variable `x` bound in the let should be visible in the subsequent statement
+        let x_ident = bhc_intern::Ident::from_str("x");
+        let return_ident = bhc_intern::Ident::from_str("return");
+
+        // Build: let x = 5
+        let lit_5 = ast::Expr::Lit(ast::Lit::Int(5), Span::default());
+        let let_decl = ast::Decl::FunBind(ast::FunBind {
+            name: x_ident,
+            clauses: vec![ast::Clause {
+                pats: vec![],
+                rhs: ast::Rhs::Simple(lit_5, Span::default()),
+                wheres: vec![],
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        });
+
+        // Build: return x
+        let return_expr = ast::Expr::Var(return_ident, Span::default());
+        let x_expr = ast::Expr::Var(x_ident, Span::default());
+        let return_x = ast::Expr::App(
+            Box::new(return_expr),
+            Box::new(x_expr),
+            Span::default(),
+        );
+
+        let stmts = vec![
+            ast::Stmt::LetStmt(vec![let_decl], Span::default()),
+            ast::Stmt::Qualifier(return_x, Span::default()),
+        ];
+
+        let result = desugar_do(
+            &mut ctx,
+            &stmts,
+            Span::default(),
+            |ctx, e| {
+                match e {
+                    ast::Expr::Var(ident, span) => {
+                        let name = ident.name;
+                        if let Some(def_id) = ctx.lookup_value(name) {
+                            hir::Expr::Var(ctx.def_ref(def_id, *span))
+                        } else {
+                            panic!("unbound variable: {}", name.as_str())
+                        }
+                    }
+                    ast::Expr::Lit(ast::Lit::Int(n), span) => {
+                        hir::Expr::Lit(hir::Lit::Int(*n as i128), *span)
+                    }
+                    ast::Expr::App(f, arg, span) => {
+                        // Simplified: just lower f and arg directly
+                        let f_expr = match f.as_ref() {
+                            ast::Expr::Var(ident, span) => {
+                                let name = ident.name;
+                                if let Some(def_id) = ctx.lookup_value(name) {
+                                    hir::Expr::Var(ctx.def_ref(def_id, *span))
+                                } else {
+                                    panic!("unbound variable in app: {}", name.as_str())
+                                }
+                            }
+                            _ => hir::Expr::Error(Span::default()),
+                        };
+                        let arg_expr = match arg.as_ref() {
+                            ast::Expr::Var(ident, span) => {
+                                let name = ident.name;
+                                if let Some(def_id) = ctx.lookup_value(name) {
+                                    hir::Expr::Var(ctx.def_ref(def_id, *span))
+                                } else {
+                                    panic!("unbound variable in arg: {}", name.as_str())
+                                }
+                            }
+                            _ => hir::Expr::Error(Span::default()),
+                        };
+                        hir::Expr::App(Box::new(f_expr), Box::new(arg_expr), *span)
+                    }
+                    _ => hir::Expr::Error(Span::default()),
+                }
+            },
+            |_ctx, _p| hir::Pat::Wild(Span::default()),
+        );
+
+        // Result should be a Let expression wrapping the body
+        assert!(matches!(result, hir::Expr::Let(_, _, _)),
+            "expected Let expression, got {:?}", result);
     }
 }
