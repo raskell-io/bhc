@@ -264,7 +264,14 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                 ctx.bind_value(name, def_id);
             }
 
-            ast::Decl::Fixity(_) | ast::Decl::TypeSig(_) | ast::Decl::InstanceDecl(_) | ast::Decl::PragmaDecl(_) => {
+            ast::Decl::TypeSig(sig) => {
+                // Register the type signature for each name
+                for name in &sig.names {
+                    ctx.register_type_signature(name.name, sig.ty.clone());
+                }
+            }
+
+            ast::Decl::Fixity(_) | ast::Decl::InstanceDecl(_) | ast::Decl::PragmaDecl(_) => {
                 // These don't introduce new names
             }
         }

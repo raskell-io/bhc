@@ -7,6 +7,7 @@
 //! - Scope management for name resolution
 //! - Symbol tables mapping names to definitions
 
+use bhc_ast as ast;
 use bhc_hir::{DefId, DefRef, HirId};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
@@ -140,6 +141,8 @@ pub struct LowerContext {
     import_aliases: FxHashMap<Symbol, Symbol>,
     /// Qualified imports: maps "Module.name" to the unqualified name for resolution
     qualified_names: FxHashMap<Symbol, Symbol>,
+    /// Type signatures: maps function name to its declared type
+    type_signatures: FxHashMap<Symbol, ast::Type>,
 }
 
 impl Default for LowerContext {
@@ -163,6 +166,7 @@ impl LowerContext {
             errors: Vec::new(),
             import_aliases: FxHashMap::default(),
             qualified_names: FxHashMap::default(),
+            type_signatures: FxHashMap::default(),
         }
     }
 
@@ -831,6 +835,21 @@ impl LowerContext {
 
         // Try looking up the unqualified name directly (for builtins)
         self.lookup_constructor(name)
+    }
+
+    /// Registers a type signature for a function.
+    ///
+    /// Called during the first pass of module lowering to collect all
+    /// type signatures before lowering function definitions.
+    pub fn register_type_signature(&mut self, name: Symbol, ty: ast::Type) {
+        self.type_signatures.insert(name, ty);
+    }
+
+    /// Looks up a type signature for a function.
+    ///
+    /// Returns the AST type if a signature was declared, or None otherwise.
+    pub fn lookup_type_signature(&self, name: Symbol) -> Option<&ast::Type> {
+        self.type_signatures.get(&name)
     }
 }
 

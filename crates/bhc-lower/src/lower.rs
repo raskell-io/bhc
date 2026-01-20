@@ -437,10 +437,17 @@ fn lower_fun_bind(ctx: &mut LowerContext, fun_bind: &ast::FunBind) -> LowerResul
         equations.push(eq);
     }
 
+    // Look up the type signature if one was declared
+    let sig = ctx.lookup_type_signature(name).cloned().map(|ty| {
+        // Convert AST type to a monomorphic scheme
+        // The type checker will handle generalization
+        bhc_types::Scheme::mono(lower_type(ctx, &ty))
+    });
+
     Ok(hir::ValueDef {
         id: def_id,
         name,
-        sig: None, // TODO: look up type signature
+        sig,
         equations,
         span: fun_bind.span,
     })
