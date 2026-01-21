@@ -115,9 +115,11 @@ fn unify_constructor_pattern(
 ) -> Ty {
     let mut current_ty = con_ty.clone();
     let mut pat_iter = sub_pats.iter();
+    let mut matched_any_arrows = false;
 
     // Peel off function arrows, matching each argument with a pattern
     while let Ty::Fun(arg_ty, result_ty) = current_ty {
+        matched_any_arrows = true;
         match pat_iter.next() {
             Some(pat) => {
                 check_pattern(ctx, pat, &arg_ty);
@@ -133,7 +135,18 @@ fn unify_constructor_pattern(
 
     // Check for extra patterns
     if pat_iter.next().is_some() {
-        crate::diagnostics::emit_too_many_pattern_args(ctx, span);
+        // Only emit error if we actually matched some function arrows.
+        // If the constructor had arity 0 (no function arrows), this might be a
+        // record pattern where field types aren't known (e.g., external types).
+        // In that case, infer fresh types for remaining patterns silently.
+        if matched_any_arrows {
+            crate::diagnostics::emit_too_many_pattern_args(ctx, span);
+        } else {
+            // Infer fresh types for all sub-patterns (record-style pattern with unknown fields)
+            for pat in sub_pats {
+                infer_pattern(ctx, pat);
+            }
+        }
     }
 
     current_ty
