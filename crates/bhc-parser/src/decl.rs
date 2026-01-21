@@ -103,6 +103,13 @@ impl<'src> Parser<'src> {
         for decl in decls {
             match decl {
                 Decl::FunBind(mut fun_bind) => {
+                    // Don't merge $patbind declarations - each pattern binding is independent
+                    // (they all have the same synthetic name but are not clauses of the same function)
+                    if fun_bind.name.name.as_str() == "$patbind" {
+                        result.push(Decl::FunBind(fun_bind));
+                        continue;
+                    }
+
                     // Check if the last declaration is a FunBind with the same name
                     if let Some(Decl::FunBind(ref mut last)) = result.last_mut() {
                         if last.name.name == fun_bind.name.name {
@@ -741,8 +748,47 @@ impl<'src> Parser<'src> {
             let mut pats = Vec::new();
 
             // Check for infix binding: `x `op` y = ...` or `x --> y = ...`
-            let (actual_name, _is_infix) = if self.is_infix_op_start() {
-                // This is infix: the name we parsed is actually the first pattern
+            // BUT: if the operator is a constructor (starts with :), this is a pattern binding
+            // e.g., `cur :| visi = expr` is a pattern binding, not a function definition
+            let (actual_name, _is_infix) = if self.is_infix_con_op_start() {
+                // Constructor operator: this is actually a pattern binding like `x :| xs = expr`
+                // Rewind and parse as pattern binding
+                let pat_start = start;
+                // Build the infix pattern: name op pat
+                let left_pat = Pat::Var(name.clone(), start);
+                let op = self.parse_infix_op()?;
+                let right_pat = self.parse_pattern()?;
+                let pat_span = pat_start.to(right_pat.span());
+                let full_pat = Pat::Infix(Box::new(left_pat), op, Box::new(right_pat), pat_span);
+
+                // Parse `= expr`
+                self.expect(&TokenKind::Eq)?;
+                let expr = self.parse_expr()?;
+
+                // Parse optional where clause
+                let wheres = if self.eat(&TokenKind::Where) {
+                    self.parse_local_decls()?
+                } else {
+                    vec![]
+                };
+
+                let span = pat_start.to(self.tokens[self.pos.saturating_sub(1)].span);
+
+                // Represent as pattern binding with $patbind
+                let clause = Clause {
+                    pats: vec![full_pat],
+                    rhs: Rhs::Simple(expr, span),
+                    wheres,
+                    span,
+                };
+
+                return Ok(Decl::FunBind(FunBind {
+                    name: Ident::from_str("$patbind"),
+                    clauses: vec![clause],
+                    span,
+                }));
+            } else if self.is_infix_var_op_start() {
+                // Variable operator: this is an infix function binding like `x --> y = ...`
                 let first_pat = Pat::Var(name.clone(), start);
                 let op_name = self.parse_infix_op()?;
                 let second_pat = self.parse_pattern()?;
@@ -907,6 +953,22 @@ impl<'src> Parser<'src> {
     fn is_infix_op_start(&self) -> bool {
         match self.current_kind() {
             Some(TokenKind::Operator(_)) | Some(TokenKind::ConOperator(_)) => true,
+            Some(TokenKind::Backtick) => true,
+            _ => false,
+        }
+    }
+
+    /// Check if the current token starts a constructor operator (starts with `:`)
+    /// This indicates a pattern binding like `x :| xs = expr`
+    fn is_infix_con_op_start(&self) -> bool {
+        matches!(self.current_kind(), Some(TokenKind::ConOperator(_)))
+    }
+
+    /// Check if the current token starts a variable operator (doesn't start with `:`)
+    /// This indicates an infix function binding like `x --> y = expr`
+    fn is_infix_var_op_start(&self) -> bool {
+        match self.current_kind() {
+            Some(TokenKind::Operator(_)) => true,
             Some(TokenKind::Backtick) => true,
             _ => false,
         }

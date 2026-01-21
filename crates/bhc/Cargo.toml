@@ -29,3 +29,6 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 insta = { workspace = true }
+bhc-lower = { workspace = true }
+bhc-typeck = { workspace = true }
+bhc-hir = { workspace = true }

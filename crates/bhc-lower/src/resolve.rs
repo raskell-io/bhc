@@ -229,6 +229,16 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                 let con_def_id = ctx.fresh_def_id();
                 ctx.define(con_def_id, con_name, DefKind::Constructor, newtype_decl.constr.span);
                 ctx.bind_constructor(con_name, con_def_id);
+
+                // Record fields also become functions (same as data declarations)
+                if let ast::ConFields::Record(fields) = &newtype_decl.constr.fields {
+                    for field in fields {
+                        let field_name = field.name.name;
+                        let field_def_id = ctx.fresh_def_id();
+                        ctx.define(field_def_id, field_name, DefKind::Value, field.span);
+                        ctx.bind_value(field_name, field_def_id);
+                    }
+                }
             }
 
             ast::Decl::TypeAlias(type_alias) => {

@@ -266,8 +266,13 @@ fn lower_decl(ctx: &mut LowerContext, decl: &ast::Decl) -> LowerResult<Vec<hir::
         }
 
         ast::Decl::Newtype(newtype_decl) => {
-            let item = lower_newtype_decl(ctx, newtype_decl)?;
-            Ok(vec![hir::Item::Newtype(item)])
+            let (newtype_def, accessors) = lower_newtype_decl_with_accessors(ctx, newtype_decl)?;
+            let mut items = Vec::with_capacity(1 + accessors.len());
+            items.push(hir::Item::Newtype(newtype_def));
+            for accessor in accessors {
+                items.push(hir::Item::Value(accessor));
+            }
+            Ok(items)
         }
 
         ast::Decl::TypeAlias(type_alias) => {
@@ -1105,15 +1110,115 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
 /// Lower a case alternative.
 fn lower_alt(ctx: &mut LowerContext, alt: &ast::Alt) -> hir::CaseAlt {
     ctx.in_scope(|ctx| {
+        // Bind pattern variables first
         bind_pattern(ctx, &alt.pat);
         let pat = lower_pat(ctx, &alt.pat);
 
-        let rhs = lower_rhs(ctx, &alt.rhs);
+        // Handle where bindings (they scope over the RHS)
+        if !alt.wheres.is_empty() {
+            ctx.enter_scope();
+            // Pre-bind all where clause names
+            for where_decl in &alt.wheres {
+                if let ast::Decl::FunBind(fb) = where_decl {
+                    if fb.name.name.as_str() == "$patbind"
+                        && fb.clauses.len() == 1
+                        && fb.clauses[0].pats.len() == 1
+                    {
+                        // Pattern binding: bind all variables in the pattern
+                        bind_pattern(ctx, &fb.clauses[0].pats[0]);
+                    } else {
+                        // Regular function binding
+                        let def_id = ctx.fresh_def_id();
+                        ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
+                        ctx.bind_value(fb.name.name, def_id);
+                    }
+                }
+            }
+        }
+
+        // Lower the RHS (where clause bindings are now in scope)
+        let rhs_expr = lower_rhs(ctx, &alt.rhs);
+
+        // Wrap in let if there are where bindings
+        let final_rhs = if !alt.wheres.is_empty() {
+            let bindings: Vec<hir::Binding> = alt
+                .wheres
+                .iter()
+                .filter_map(|d| {
+                    if let ast::Decl::FunBind(fb) = d {
+                        // Check for pattern binding (special name $patbind)
+                        if fb.name.name.as_str() == "$patbind"
+                            && fb.clauses.len() == 1
+                            && fb.clauses[0].pats.len() == 1
+                        {
+                            // Pattern binding: (x, y) = expr or (x :| xs) = expr
+                            let pat = lower_pat(ctx, &fb.clauses[0].pats[0]);
+                            let rhs = lower_rhs(ctx, &fb.clauses[0].rhs);
+                            return Some(hir::Binding {
+                                pat,
+                                sig: None,
+                                rhs,
+                                span: fb.span,
+                            });
+                        }
+
+                        // Look up the DefId that was bound for this where binding
+                        let def_id = ctx
+                            .lookup_value(fb.name.name)
+                            .expect("where binding should be bound");
+
+                        // For simple bindings (no parameters)
+                        if fb.clauses.len() == 1 && fb.clauses[0].pats.is_empty() {
+                            let rhs = lower_rhs(ctx, &fb.clauses[0].rhs);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs,
+                                span: fb.span,
+                            });
+                        }
+
+                        // For function bindings with parameters, lower to a lambda
+                        if fb.clauses.len() == 1 {
+                            let clause = &fb.clauses[0];
+                            ctx.enter_scope();
+                            for p in &clause.pats {
+                                bind_pattern(ctx, p);
+                            }
+                            let mut pats: Vec<hir::Pat> = Vec::new();
+                            for p in &clause.pats {
+                                pats.push(lower_pat(ctx, p));
+                            }
+                            let body = lower_rhs(ctx, &clause.rhs);
+                            ctx.exit_scope();
+
+                            let lam = hir::Expr::Lam(pats, Box::new(body), fb.span);
+                            return Some(hir::Binding {
+                                pat: hir::Pat::Var(fb.name.name, def_id, fb.span),
+                                sig: None,
+                                rhs: lam,
+                                span: fb.span,
+                            });
+                        }
+
+                        // Multi-clause where bindings would need more work
+                        None
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            ctx.exit_scope();
+            hir::Expr::Let(bindings, Box::new(rhs_expr), alt.span)
+        } else {
+            rhs_expr
+        };
 
         hir::CaseAlt {
             pat,
             guards: vec![],
-            rhs,
+            rhs: final_rhs,
             span: alt.span,
         }
     })
@@ -1601,10 +1706,11 @@ fn lower_con_def(ctx: &mut LowerContext, con: &ast::ConDecl) -> hir::ConDef {
 }
 
 /// Lower a newtype declaration.
-fn lower_newtype_decl(
+/// Lower a newtype declaration and generate field accessor functions for records.
+fn lower_newtype_decl_with_accessors(
     ctx: &mut LowerContext,
     newtype: &ast::NewtypeDecl,
-) -> LowerResult<hir::NewtypeDef> {
+) -> LowerResult<(hir::NewtypeDef, Vec<hir::ValueDef>)> {
     let type_def_id = ctx
         .lookup_type(newtype.name.name)
         .expect("type should be pre-bound");
@@ -1623,14 +1729,25 @@ fn lower_newtype_decl(
         .map(|c| c.name)
         .collect();
 
-    Ok(hir::NewtypeDef {
+    // Generate field accessor functions for record constructors
+    let mut accessors = Vec::new();
+    if let hir::ConFields::Named(fields) = &con.fields {
+        for (field_idx, field) in fields.iter().enumerate() {
+            let accessor = generate_field_accessor(ctx, &con, fields.len(), field_idx, field);
+            accessors.push(accessor);
+        }
+    }
+
+    let newtype_def = hir::NewtypeDef {
         id: type_def_id,
         name: newtype.name.name,
         params,
         con,
         deriving,
         span: newtype.span,
-    })
+    };
+
+    Ok((newtype_def, accessors))
 }
 
 /// Lower a type alias declaration.

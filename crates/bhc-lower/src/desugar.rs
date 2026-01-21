@@ -285,14 +285,111 @@ pub fn desugar_guarded_rhs(
         // Default: error "Non-exhaustive guards"
         make_pattern_match_error(ctx, span),
         |else_branch, grhs| {
-            let body = lower_expr(ctx, &grhs.body);
-            // Process guards right-to-left, wrapping the body
-            desugar_guards(ctx, &grhs.guards, body, else_branch, span, lower_expr, lower_pat)
+            // Pass the AST body to desugar_guards - it will be lowered inside
+            // the pattern guard scopes so that pattern variables are visible.
+            desugar_guards_with_body(
+                ctx,
+                &grhs.guards,
+                &grhs.body,
+                else_branch,
+                span,
+                lower_expr,
+                lower_pat,
+            )
         },
     )
 }
 
+/// Desugar a sequence of guards with an AST body, properly scoping pattern variables.
+///
+/// This function defers lowering of the body until all pattern guard scopes have been
+/// entered, ensuring that pattern-bound variables are visible in the body expression.
+fn desugar_guards_with_body(
+    ctx: &mut LowerContext,
+    guards: &[ast::Guard],
+    body: &ast::Expr,
+    else_branch: hir::Expr,
+    span: Span,
+    lower_expr: &impl Fn(&mut LowerContext, &ast::Expr) -> hir::Expr,
+    lower_pat: &impl Fn(&mut LowerContext, &ast::Pat) -> hir::Pat,
+) -> hir::Expr {
+    match guards {
+        [] => {
+            // No more guards - now lower the body with all pattern variables in scope
+            lower_expr(ctx, body)
+        }
+        [guard, rest @ ..] => {
+            match guard {
+                ast::Guard::Expr(cond_expr, _guard_span) => {
+                    // Boolean guard: if cond then <recurse> else else_branch
+                    let cond = lower_expr(ctx, cond_expr);
+                    let then_branch = desugar_guards_with_body(
+                        ctx,
+                        rest,
+                        body,
+                        else_branch.clone(),
+                        span,
+                        lower_expr,
+                        lower_pat,
+                    );
+                    hir::Expr::If(
+                        Box::new(cond),
+                        Box::new(then_branch),
+                        Box::new(else_branch),
+                        span,
+                    )
+                }
+                ast::Guard::Pattern(pat, scrut_expr, guard_span) => {
+                    // Pattern guard: case scrut of { pat -> <recurse>; _ -> else_branch }
+                    // Lower the scrutinee before entering the scope (it shouldn't see pattern vars)
+                    let scrut = lower_expr(ctx, scrut_expr);
+
+                    // Enter a new scope for the pattern variables
+                    ctx.enter_scope();
+                    // Bind pattern variables BEFORE recursing
+                    bind_pattern(ctx, pat);
+                    let pat_hir = lower_pat(ctx, pat);
+
+                    // Now recurse - the body will be lowered with pattern variables in scope
+                    let inner = desugar_guards_with_body(
+                        ctx,
+                        rest,
+                        body,
+                        else_branch.clone(),
+                        span,
+                        lower_expr,
+                        lower_pat,
+                    );
+
+                    let match_alt = hir::CaseAlt {
+                        pat: pat_hir,
+                        guards: vec![],
+                        rhs: inner,
+                        span: *guard_span,
+                    };
+                    ctx.exit_scope();
+
+                    let default_alt = hir::CaseAlt {
+                        pat: hir::Pat::Wild(*guard_span),
+                        guards: vec![],
+                        rhs: else_branch,
+                        span: *guard_span,
+                    };
+
+                    hir::Expr::Case(
+                        Box::new(scrut),
+                        vec![match_alt, default_alt],
+                        span,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /// Desugar a sequence of guards into nested if/case expressions.
+/// (Legacy version - kept for compatibility, use desugar_guards_with_body for new code)
+#[allow(dead_code)]
 fn desugar_guards(
     ctx: &mut LowerContext,
     guards: &[ast::Guard],
