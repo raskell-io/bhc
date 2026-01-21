@@ -1788,14 +1788,121 @@ fn generate_field_accessor(
     }
 }
 
+/// Infer the kind of a type parameter from how it's used in constructor field types.
+/// Returns the number of arguments the parameter takes (0 = kind *, 1 = kind * -> *, etc.)
+fn infer_param_arity(param_name: Symbol, tys: &[&ast::Type]) -> usize {
+    let mut max_arity: usize = 0;
+    for ty in tys {
+        max_arity = max_arity.max(infer_param_arity_in_type(param_name, ty));
+    }
+    max_arity
+}
+
+/// Recursively find the maximum arity for a type parameter in a type expression.
+fn infer_param_arity_in_type(param_name: Symbol, ty: &ast::Type) -> usize {
+    match ty {
+        ast::Type::Var(v, _) => {
+            // A bare type variable has arity 0 (it appears as itself)
+            if v.name.name == param_name {
+                0
+            } else {
+                0
+            }
+        }
+        ast::Type::App(f, a, _) => {
+            // Check if this application chain has our parameter at the base
+            // e.g., for `f a b`, if f is our param, it takes 2 args
+            let chain_arity = count_app_chain_arity(param_name, ty);
+            // Also check recursively in both parts for nested uses
+            let f_recursive = infer_param_arity_in_type(param_name, f);
+            let a_recursive = infer_param_arity_in_type(param_name, a);
+            chain_arity.max(f_recursive).max(a_recursive)
+        }
+        ast::Type::Fun(from, to, _) => {
+            infer_param_arity_in_type(param_name, from)
+                .max(infer_param_arity_in_type(param_name, to))
+        }
+        ast::Type::Tuple(tys, _) => {
+            tys.iter()
+                .map(|t| infer_param_arity_in_type(param_name, t))
+                .max()
+                .unwrap_or(0)
+        }
+        ast::Type::List(elem, _) => infer_param_arity_in_type(param_name, elem),
+        ast::Type::Paren(inner, _) => infer_param_arity_in_type(param_name, inner),
+        ast::Type::Forall(_, inner, _) => infer_param_arity_in_type(param_name, inner),
+        // Type constructors, qualified constructors, constrained types, promoted lists,
+        // type-level literals, etc. don't contain our type parameter in a way that matters.
+        ast::Type::Con(_, _)
+        | ast::Type::QualCon(_, _, _)
+        | ast::Type::Constrained(_, _, _)
+        | ast::Type::PromotedList(_, _)
+        | ast::Type::NatLit(_, _)
+        | ast::Type::Bang(_, _)
+        | ast::Type::Lazy(_, _) => 0,
+    }
+}
+
+/// Count how many arguments a type parameter takes in a chain of applications.
+/// For example, in `f a b`, if f is the param, it takes 2 arguments.
+fn count_app_chain_arity(param_name: Symbol, ty: &ast::Type) -> usize {
+    // Walk up the application spine to count args
+    fn count_args(param_name: Symbol, ty: &ast::Type, depth: usize) -> usize {
+        match ty {
+            ast::Type::Var(v, _) if v.name.name == param_name => depth,
+            ast::Type::App(f, _, _) => count_args(param_name, f, depth + 1),
+            ast::Type::Paren(inner, _) => count_args(param_name, inner, depth),
+            _ => 0,
+        }
+    }
+    count_args(param_name, ty, 0)
+}
+
+/// Build a kind from an arity (0 = *, 1 = * -> *, 2 = * -> * -> *, etc.)
+fn kind_from_arity(arity: usize) -> bhc_types::Kind {
+    let mut kind = bhc_types::Kind::Star;
+    for _ in 0..arity {
+        kind = bhc_types::Kind::Arrow(Box::new(bhc_types::Kind::Star), Box::new(kind));
+    }
+    kind
+}
+
+/// Collect all field types from constructor declarations.
+fn collect_field_types(constrs: &[ast::ConDecl]) -> Vec<&ast::Type> {
+    let mut types = Vec::new();
+    for con in constrs {
+        match &con.fields {
+            ast::ConFields::Positional(tys) => {
+                for ty in tys {
+                    types.push(ty);
+                }
+            }
+            ast::ConFields::Record(fields) => {
+                for field in fields {
+                    types.push(&field.ty);
+                }
+            }
+        }
+    }
+    types
+}
+
 /// Lower a data declaration.
 fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<hir::DataDef> {
     let type_def_id = ctx.lookup_type(data.name.name).expect("type should be pre-bound");
 
+    // Collect all field types from constructors to infer parameter kinds
+    let field_types = collect_field_types(&data.constrs);
+
+    // Infer kinds for each type parameter based on usage
     let params: Vec<bhc_types::TyVar> = data
         .params
         .iter()
-        .map(|p| bhc_types::TyVar::new_star(p.name.name.as_u32()))
+        .map(|p| {
+            let arity = infer_param_arity(p.name.name, &field_types);
+            let kind = kind_from_arity(arity);
+            bhc_types::TyVar::new(p.name.name.as_u32(), kind)
+        })
         .collect();
 
     let cons: Vec<hir::ConDef> = data

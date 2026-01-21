@@ -686,12 +686,52 @@ impl TyCtxt {
             ConFields::Named(fields) => fields.iter().map(|f| f.ty.clone()).collect(),
         };
 
-        let con_ty = field_types
+        // Fix the kinds of type variables in field types to match params.
+        // The field types were lowered without kind information, so type
+        // variables have kind Star. We need to update them to have the
+        // correct kinds from data.params.
+        let fixed_field_types: Vec<Ty> = field_types
+            .into_iter()
+            .map(|ty| Self::fix_type_var_kinds(&ty, &data.params))
+            .collect();
+
+        let con_ty = fixed_field_types
             .into_iter()
             .rev()
             .fold(result_ty, |acc, field_ty| Ty::fun(field_ty, acc));
 
         Scheme::poly(data.params.clone(), con_ty)
+    }
+
+    /// Fix the kinds of type variables in a type to match the given params.
+    fn fix_type_var_kinds(ty: &Ty, params: &[TyVar]) -> Ty {
+        match ty {
+            Ty::Var(v) => {
+                // Look for a param with the same ID and use its kind
+                if let Some(param) = params.iter().find(|p| p.id == v.id) {
+                    Ty::Var(param.clone())
+                } else {
+                    ty.clone()
+                }
+            }
+            Ty::Con(_) | Ty::Prim(_) | Ty::Error => ty.clone(),
+            Ty::App(f, a) => Ty::App(
+                Box::new(Self::fix_type_var_kinds(f, params)),
+                Box::new(Self::fix_type_var_kinds(a, params)),
+            ),
+            Ty::Fun(from, to) => Ty::Fun(
+                Box::new(Self::fix_type_var_kinds(from, params)),
+                Box::new(Self::fix_type_var_kinds(to, params)),
+            ),
+            Ty::Tuple(tys) => {
+                Ty::Tuple(tys.iter().map(|t| Self::fix_type_var_kinds(t, params)).collect())
+            }
+            Ty::List(elem) => Ty::List(Box::new(Self::fix_type_var_kinds(elem, params))),
+            Ty::Forall(vars, body) => {
+                Ty::Forall(vars.clone(), Box::new(Self::fix_type_var_kinds(body, params)))
+            }
+            Ty::Nat(_) | Ty::TyList(_) => ty.clone(),
+        }
     }
 
     /// Compute the type scheme for a newtype constructor.
@@ -709,7 +749,10 @@ impl TyCtxt {
             }
         };
 
-        let con_ty = Ty::fun(field_ty, result_ty);
+        // Fix the kinds of type variables in field type to match params
+        let fixed_field_ty = Self::fix_type_var_kinds(&field_ty, &newtype.params);
+
+        let con_ty = Ty::fun(fixed_field_ty, result_ty);
         Scheme::poly(newtype.params.clone(), con_ty)
     }
 
