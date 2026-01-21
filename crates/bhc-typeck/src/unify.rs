@@ -41,6 +41,26 @@ fn is_string_con(ty: &Ty) -> bool {
     matches!(ty, Ty::Con(c) if c.name.as_str() == "String")
 }
 
+/// Check if a type is the Dimension type constructor (XMonad type alias).
+fn is_dimension_con(ty: &Ty) -> bool {
+    matches!(ty, Ty::Con(c) if c.name.as_str() == "Dimension")
+}
+
+/// Check if a type is the WorkspaceId type constructor (XMonad type alias).
+fn is_workspaceid_con(ty: &Ty) -> bool {
+    matches!(ty, Ty::Con(c) if c.name.as_str() == "WorkspaceId")
+}
+
+/// Check if a type is the D type constructor (XMonad type alias for (Int, Int)).
+fn is_d_con(ty: &Ty) -> bool {
+    matches!(ty, Ty::Con(c) if c.name.as_str() == "D")
+}
+
+/// Check if a type is the Position type constructor (XMonad type alias for Int).
+fn is_position_con(ty: &Ty) -> bool {
+    matches!(ty, Ty::Con(c) if c.name.as_str() == "Position")
+}
+
 /// Get the element type of a list, if this is a list type.
 fn get_list_elem(ty: &Ty) -> Option<&Ty> {
     match ty {
@@ -54,6 +74,39 @@ fn char_ty() -> Ty {
     use bhc_intern::Symbol;
     use bhc_types::Kind;
     Ty::Con(TyCon::new(Symbol::intern("Char"), Kind::Star))
+}
+
+/// Get the Int type constructor.
+fn int_ty() -> Ty {
+    use bhc_intern::Symbol;
+    use bhc_types::Kind;
+    Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star))
+}
+
+/// Check if two type constructor names are compatible type aliases.
+/// Returns true if they both resolve to the same underlying type.
+fn are_compatible_type_aliases(name1: &str, name2: &str) -> bool {
+    // Type aliases for Int
+    const INT_ALIASES: &[&str] = &["Int", "Dimension", "Position", "KeyMask", "Window", "ScreenId"];
+
+    // Type aliases for String
+    const STRING_ALIASES: &[&str] = &["String", "WorkspaceId"];
+
+    // Check if both are Int aliases
+    let is_int1 = INT_ALIASES.contains(&name1);
+    let is_int2 = INT_ALIASES.contains(&name2);
+    if is_int1 && is_int2 {
+        return true;
+    }
+
+    // Check if both are String aliases
+    let is_str1 = STRING_ALIASES.contains(&name1);
+    let is_str2 = STRING_ALIASES.contains(&name2);
+    if is_str1 && is_str2 {
+        return true;
+    }
+
+    false
 }
 
 /// Unify two types, updating the substitution in the context.
@@ -82,9 +135,13 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
             bind_var(ctx, v, t, span);
         }
 
-        // Type constructors: must have same name
+        // Type constructors: must have same name OR be compatible type aliases
         (Ty::Con(c1), Ty::Con(c2)) => {
-            if c1.name != c2.name {
+            if c1.name == c2.name {
+                // Same type, OK
+            } else if are_compatible_type_aliases(c1.name.as_str(), c2.name.as_str()) {
+                // Type aliases that should be equivalent
+            } else {
                 diagnostics::emit_type_mismatch(ctx, t1, t2, span);
             }
         }
@@ -162,6 +219,10 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
                 // String ~ [elem] => unify elem with Char
                 let char = char_ty();
                 unify_inner(ctx, elem, &char, span);
+            } else if is_string_con(t2) {
+                // String ~ String, ok
+            } else if is_workspaceid_con(t2) {
+                // String ~ WorkspaceId, ok (WorkspaceId = String)
             } else {
                 diagnostics::emit_type_mismatch(ctx, t1, t2, span);
             }
@@ -171,6 +232,94 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
                 // [elem] ~ String => unify elem with Char
                 let char = char_ty();
                 unify_inner(ctx, elem, &char, span);
+            } else if is_workspaceid_con(t1) {
+                // WorkspaceId ~ String, ok (WorkspaceId = String)
+            } else {
+                diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+            }
+        }
+
+        // === Type alias: Dimension = Int (XMonad) ===
+        (t1, t2) if is_dimension_con(t1) => {
+            let int = int_ty();
+            if is_dimension_con(t2) {
+                // Dimension ~ Dimension, ok
+            } else if is_position_con(t2) {
+                // Dimension ~ Position, both are Int aliases
+            } else {
+                unify_inner(ctx, &int, t2, span);
+            }
+        }
+        (t1, t2) if is_dimension_con(t2) => {
+            let int = int_ty();
+            if is_position_con(t1) {
+                // Position ~ Dimension, both are Int aliases
+            } else {
+                unify_inner(ctx, t1, &int, span);
+            }
+        }
+
+        // === Type alias: Position = Int (XMonad) ===
+        (t1, t2) if is_position_con(t1) => {
+            let int = int_ty();
+            if is_position_con(t2) {
+                // Position ~ Position, ok
+            } else {
+                unify_inner(ctx, &int, t2, span);
+            }
+        }
+        (t1, t2) if is_position_con(t2) => {
+            let int = int_ty();
+            unify_inner(ctx, t1, &int, span);
+        }
+
+        // === Type alias: WorkspaceId = String (XMonad) ===
+        (t1, t2) if is_workspaceid_con(t1) => {
+            if is_workspaceid_con(t2) {
+                // WorkspaceId ~ WorkspaceId, ok
+            } else if let Some(elem) = get_list_elem(t2) {
+                // WorkspaceId ~ [elem] => unify elem with Char (WorkspaceId = String = [Char])
+                let char = char_ty();
+                unify_inner(ctx, elem, &char, span);
+            } else {
+                diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+            }
+        }
+        (t1, t2) if is_workspaceid_con(t2) => {
+            if let Some(elem) = get_list_elem(t1) {
+                // [elem] ~ WorkspaceId => unify elem with Char
+                let char = char_ty();
+                unify_inner(ctx, elem, &char, span);
+            } else {
+                diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+            }
+        }
+
+        // === Type alias: D = (Int, Int) (XMonad) ===
+        (t1, t2) if is_d_con(t1) => {
+            let int = int_ty();
+            if is_d_con(t2) {
+                // D ~ D, ok
+            } else if let Ty::Tuple(elems) = t2 {
+                if elems.len() == 2 {
+                    unify_inner(ctx, &int, &elems[0], span);
+                    unify_inner(ctx, &int, &elems[1], span);
+                } else {
+                    diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+                }
+            } else {
+                diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+            }
+        }
+        (t1, t2) if is_d_con(t2) => {
+            let int = int_ty();
+            if let Ty::Tuple(elems) = t1 {
+                if elems.len() == 2 {
+                    unify_inner(ctx, &elems[0], &int, span);
+                    unify_inner(ctx, &elems[1], &int, span);
+                } else {
+                    diagnostics::emit_type_mismatch(ctx, t1, t2, span);
+                }
             } else {
                 diagnostics::emit_type_mismatch(ctx, t1, t2, span);
             }
