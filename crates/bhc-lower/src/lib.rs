@@ -30,10 +30,16 @@
 //!
 //! ```ignore
 //! use bhc_lower::{lower_module, LowerConfig, LowerContext};
+//! use camino::Utf8PathBuf;
 //!
 //! let ast_module: bhc_ast::Module = parse(...)?;
 //! let mut ctx = LowerContext::new();
-//! let hir_module = lower_module(&mut ctx, &ast_module)?;
+//! let config = LowerConfig {
+//!     include_builtins: true,
+//!     warn_unused: false,
+//!     search_paths: vec![Utf8PathBuf::from("/path/to/sources")],
+//! };
+//! let hir_module = lower_module(&mut ctx, &ast_module, &config)?;
 //! ```
 
 #![warn(missing_docs)]
@@ -42,10 +48,12 @@
 
 mod context;
 mod desugar;
+pub mod loader;
 mod lower;
 mod resolve;
 
 pub use context::{DefMap, LowerContext, Scope, ScopeId};
+pub use loader::{LoadError, ModuleCache, ModuleExports};
 pub use lower::{lower_module, LowerConfig};
 
 use bhc_span::Span;

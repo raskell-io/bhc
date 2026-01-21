@@ -455,7 +455,15 @@ impl Compiler {
     /// Lower an AST module to HIR, returning both the HIR and the lowering context.
     fn lower(&self, ast: &AstModule) -> CompileResult<(HirModule, LowerContext)> {
         let mut ctx = LowerContext::with_builtins();
-        let hir = bhc_lower::lower_module(&mut ctx, ast)?;
+
+        // Configure the lowering pass with search paths from session
+        let config = bhc_lower::LowerConfig {
+            include_builtins: true,
+            warn_unused: self.session.options.warn_all,
+            search_paths: self.session.options.import_paths.clone(),
+        };
+
+        let hir = bhc_lower::lower_module(&mut ctx, ast, &config)?;
 
         // Check for lowering errors
         if ctx.has_errors() {

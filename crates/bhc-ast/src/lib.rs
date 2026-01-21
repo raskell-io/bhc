@@ -783,6 +783,8 @@ pub enum Pat {
     Lit(Lit, Span),
     /// Constructor: `Just x`
     Con(Ident, Vec<Pat>, Span),
+    /// Qualified constructor: `M.Just x`, `Data.Maybe.Nothing`
+    QualCon(ModuleName, Ident, Vec<Pat>, Span),
     /// Infix constructor: `x : xs`
     Infix(Box<Pat>, Ident, Box<Pat>, Span),
     /// Tuple: `(a, b)`
@@ -791,6 +793,8 @@ pub enum Pat {
     List(Vec<Pat>, Span),
     /// Record: `Foo { bar = x }`
     Record(Ident, Vec<FieldPat>, Span),
+    /// Qualified record: `M.Foo { bar = x }`
+    QualRecord(ModuleName, Ident, Vec<FieldPat>, Span),
     /// As-pattern: `xs@(x:_)`
     As(Ident, Box<Pat>, Span),
     /// Lazy pattern: `~pat`
@@ -814,10 +818,12 @@ impl Pat {
             | Self::Var(_, s)
             | Self::Lit(_, s)
             | Self::Con(_, _, s)
+            | Self::QualCon(_, _, _, s)
             | Self::Infix(_, _, _, s)
             | Self::Tuple(_, s)
             | Self::List(_, s)
             | Self::Record(_, _, s)
+            | Self::QualRecord(_, _, _, s)
             | Self::As(_, _, s)
             | Self::Lazy(_, s)
             | Self::Bang(_, s)

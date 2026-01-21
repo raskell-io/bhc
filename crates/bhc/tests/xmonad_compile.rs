@@ -1,9 +1,13 @@
 //! Test compiling XMonad source files through the pipeline
 
-use bhc_lower::LowerContext;
+use bhc_lower::{LowerConfig, LowerContext};
 use bhc_parser::parse_module;
 use bhc_span::FileId;
+use camino::Utf8PathBuf;
 use std::fs;
+
+/// XMonad source directory for module resolution
+const XMONAD_SRC_DIR: &str = "/tmp/xmonad/src";
 
 fn test_compile_file(path: &str) -> (String, Vec<String>) {
     let source = match fs::read_to_string(path) {
@@ -28,9 +32,16 @@ fn test_compile_file(path: &str) -> (String, Vec<String>) {
         None => return ("NO_MODULE".into(), vec![]),
     };
 
+    // Configure lowering with search paths for XMonad modules
+    let config = LowerConfig {
+        include_builtins: true,
+        warn_unused: false,
+        search_paths: vec![Utf8PathBuf::from(XMONAD_SRC_DIR)],
+    };
+
     // Try lowering to HIR
     let mut lower_ctx = LowerContext::with_builtins();
-    let hir_module = match bhc_lower::lower_module(&mut lower_ctx, &module) {
+    let hir_module = match bhc_lower::lower_module(&mut lower_ctx, &module, &config) {
         Ok(m) => m,
         Err(e) => return ("LOWER_ERROR".into(), vec![format!("{:?}", e)]),
     };

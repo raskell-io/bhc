@@ -8,12 +8,14 @@
 //! 3. Building HIR nodes
 
 use bhc_ast as ast;
-use bhc_hir::{self as hir, DefId};
+use bhc_hir as hir;
 use bhc_intern::Symbol;
 use bhc_span::Span;
+use camino::Utf8PathBuf;
 
 use crate::context::{DefKind, LowerContext};
 use crate::desugar;
+use crate::loader::{self, LoadError, ModuleCache};
 use crate::resolve::{bind_pattern, collect_module_definitions, resolve_constructor, resolve_var};
 use crate::{LowerError, LowerResult};
 
@@ -24,12 +26,27 @@ pub struct LowerConfig {
     pub include_builtins: bool,
     /// Whether to report warnings for unused bindings.
     pub warn_unused: bool,
+    /// Search paths for module imports.
+    pub search_paths: Vec<Utf8PathBuf>,
 }
 
 /// Lower an AST module to HIR.
-pub fn lower_module(ctx: &mut LowerContext, module: &ast::Module) -> LowerResult<hir::Module> {
+///
+/// # Arguments
+///
+/// * `ctx` - The lowering context containing scope and definition information
+/// * `module` - The AST module to lower
+/// * `config` - Configuration including search paths for module imports
+pub fn lower_module(
+    ctx: &mut LowerContext,
+    module: &ast::Module,
+    config: &LowerConfig,
+) -> LowerResult<hir::Module> {
+    // Create a module cache for this lowering session
+    let mut cache = ModuleCache::new();
+
     // Process imports first to register aliases
-    process_imports(ctx, &module.imports);
+    process_imports(ctx, &module.imports, &config.search_paths, &mut cache);
 
     // First pass: collect all top-level definitions
     collect_module_definitions(ctx, module);
@@ -79,7 +96,16 @@ pub fn lower_module(ctx: &mut LowerContext, module: &ast::Module) -> LowerResult
 }
 
 /// Process imports and register aliases.
-fn process_imports(ctx: &mut LowerContext, imports: &[ast::ImportDecl]) {
+///
+/// This function attempts to load modules from the file system first. If a module
+/// is not found in the search paths, it falls back to the hardcoded standard
+/// library exports.
+fn process_imports(
+    ctx: &mut LowerContext,
+    imports: &[ast::ImportDecl],
+    search_paths: &[Utf8PathBuf],
+    cache: &mut ModuleCache,
+) {
     for import in imports {
         // Get the full module name
         let module_name = import
@@ -123,9 +149,49 @@ fn process_imports(ctx: &mut LowerContext, imports: &[ast::ImportDecl]) {
             }
         }
 
-        // Register qualified names for imported items
-        // For now, we register common functions from standard modules
-        register_standard_module_exports(ctx, &module_name);
+        // Try to load the module from the file system
+        match loader::load_module(&module_name, search_paths, cache, ctx) {
+            Ok(exports) => {
+                // Apply import specification (Only/Hiding)
+                let filtered = loader::apply_import_spec(&exports, &import.spec);
+                // Register the imported names
+                loader::register_imported_names(ctx, import, &filtered);
+                tracing::debug!(
+                    module = %module_name,
+                    values = filtered.values.len(),
+                    types = filtered.types.len(),
+                    constructors = filtered.constructors.len(),
+                    "loaded module exports"
+                );
+            }
+            Err(LoadError::ModuleNotFound(_)) => {
+                // Module not found in search paths - fall back to standard library
+                tracing::debug!(
+                    module = %module_name,
+                    "module not found in search paths, using standard library fallback"
+                );
+                register_standard_module_exports(ctx, &module_name);
+            }
+            Err(LoadError::CircularImport(ref cycle_module)) => {
+                // Log circular import but don't fail - allow compilation to continue
+                tracing::warn!(
+                    module = %module_name,
+                    cycle = %cycle_module,
+                    "circular import detected"
+                );
+                // Still register standard exports as fallback
+                register_standard_module_exports(ctx, &module_name);
+            }
+            Err(e) => {
+                // Other errors (IO, parse) - log and fall back
+                tracing::warn!(
+                    module = %module_name,
+                    error = %e,
+                    "failed to load module, using standard library fallback"
+                );
+                register_standard_module_exports(ctx, &module_name);
+            }
+        }
     }
 }
 
@@ -401,7 +467,10 @@ fn collect_pattern_vars_impl(pat: &ast::Pat, vars: &mut Vec<(Symbol, Span)>) {
             vars.push((ident.name, *span));
             collect_pattern_vars_impl(inner, vars);
         }
-        ast::Pat::Con(_, pats, _) | ast::Pat::Tuple(pats, _) | ast::Pat::List(pats, _) => {
+        ast::Pat::Con(_, pats, _)
+        | ast::Pat::QualCon(_, _, pats, _)
+        | ast::Pat::Tuple(pats, _)
+        | ast::Pat::List(pats, _) => {
             for p in pats {
                 collect_pattern_vars_impl(p, vars);
             }
@@ -410,7 +479,7 @@ fn collect_pattern_vars_impl(pat: &ast::Pat, vars: &mut Vec<(Symbol, Span)>) {
             collect_pattern_vars_impl(left, vars);
             collect_pattern_vars_impl(right, vars);
         }
-        ast::Pat::Record(_, fields, _) => {
+        ast::Pat::Record(_, fields, _) | ast::Pat::QualRecord(_, _, fields, _) => {
             for field in fields {
                 if let Some(p) = &field.pat {
                     collect_pattern_vars_impl(p, vars);
@@ -786,7 +855,16 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
 
         ast::Expr::Infix(lhs, op, rhs, span) => {
             // Desugar infix to prefix: a `op` b -> op a b
-            let op_expr = if op.name.as_str().chars().next().map_or(false, |c| c.is_uppercase()) {
+            // For qualified names like "E.catch", check the last part (after the last dot)
+            let op_name_str = op.name.as_str();
+            let is_con = if let Some(dot_pos) = op_name_str.rfind('.') {
+                // Qualified name - check the part after the last dot
+                op_name_str[dot_pos + 1..].chars().next().map_or(false, |c| c.is_uppercase())
+            } else {
+                // Unqualified name - check the first character
+                op_name_str.chars().next().map_or(false, |c| c.is_uppercase())
+            };
+            let op_expr = if is_con {
                 // Constructor
                 if let Some(def_id) = resolve_constructor(ctx, op.name, *span) {
                     hir::Expr::Con(ctx.def_ref(def_id, *span))
@@ -1321,6 +1399,77 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                 hir::Pat::Con(con_ref, hir_pats, *span)
             } else {
                 hir::Pat::Error(*span)
+            }
+        }
+
+        ast::Pat::QualCon(module_name, ident, pats, span) => {
+            // Qualified constructor like W.StackSet x y
+            let qualifier = Symbol::intern(&module_name.to_string());
+            let con_name = ident.name;
+            if let Some(def_id) = ctx.resolve_qualified_constructor(qualifier, con_name) {
+                let con_ref = ctx.def_ref(def_id, *span);
+                let hir_pats: Vec<hir::Pat> = pats.iter().map(|p| lower_pat(ctx, p)).collect();
+                hir::Pat::Con(con_ref, hir_pats, *span)
+            } else {
+                // Fall back to creating a placeholder with the full qualified name
+                let qual_name = format!("{}.{}", module_name.to_string(), con_name.as_str());
+                let qual_sym = Symbol::intern(&qual_name);
+                ctx.error(crate::LowerError::UnboundCon {
+                    name: qual_name,
+                    span: *span,
+                });
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, qual_sym, DefKind::Constructor, *span);
+                let con_ref = ctx.def_ref(def_id, *span);
+                let hir_pats: Vec<hir::Pat> = pats.iter().map(|p| lower_pat(ctx, p)).collect();
+                hir::Pat::Con(con_ref, hir_pats, *span)
+            }
+        }
+
+        ast::Pat::QualRecord(module_name, con, fields, span) => {
+            // Qualified record pattern like W.StackSet { focus = f }
+            let qualifier = Symbol::intern(&module_name.to_string());
+            let con_name = con.name;
+            if let Some(def_id) = ctx.resolve_qualified_constructor(qualifier, con_name) {
+                let con_ref = ctx.def_ref(def_id, *span);
+                let mut hir_pats: Vec<hir::Pat> = Vec::with_capacity(fields.len());
+                for f in fields {
+                    let pat = match &f.pat {
+                        Some(p) => lower_pat(ctx, p),
+                        None => {
+                            // Punned field: Foo { x } binds x
+                            let field_def_id = ctx.lookup_value(f.name.name)
+                                .expect("punned field should be bound");
+                            hir::Pat::Var(f.name.name, field_def_id, f.span)
+                        }
+                    };
+                    hir_pats.push(pat);
+                }
+                hir::Pat::Con(con_ref, hir_pats, *span)
+            } else {
+                // Fall back to creating a placeholder with the full qualified name
+                let qual_name = format!("{}.{}", module_name.to_string(), con_name.as_str());
+                let qual_sym = Symbol::intern(&qual_name);
+                ctx.error(crate::LowerError::UnboundCon {
+                    name: qual_name,
+                    span: *span,
+                });
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, qual_sym, DefKind::Constructor, *span);
+                let con_ref = ctx.def_ref(def_id, *span);
+                let mut hir_pats: Vec<hir::Pat> = Vec::with_capacity(fields.len());
+                for f in fields {
+                    let pat = match &f.pat {
+                        Some(p) => lower_pat(ctx, p),
+                        None => {
+                            let field_def_id = ctx.lookup_value(f.name.name)
+                                .expect("punned field should be bound");
+                            hir::Pat::Var(f.name.name, field_def_id, f.span)
+                        }
+                    };
+                    hir_pats.push(pat);
+                }
+                hir::Pat::Con(con_ref, hir_pats, *span)
             }
         }
 

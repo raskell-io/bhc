@@ -15,6 +15,8 @@ bhc-ast = { workspace = true }
 bhc-hir = { workspace = true }
 bhc-types = { workspace = true }
 bhc-diagnostics = { workspace = true }
+bhc-parser = { workspace = true }
+bhc-lexer = { workspace = true }
 
 # External dependencies
 thiserror = { workspace = true }
@@ -22,8 +24,7 @@ rustc-hash = { workspace = true }
 indexmap = { workspace = true }
 smallvec = { workspace = true }
 tracing = { workspace = true }
+camino = { workspace = true }
 
 [dev-dependencies]
-bhc-parser = { workspace = true }
-bhc-lexer = { workspace = true }
 pretty_assertions = { workspace = true }

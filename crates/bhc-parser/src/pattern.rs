@@ -57,13 +57,13 @@ impl<'src> Parser<'src> {
         Ok(pat)
     }
 
-    /// Parse an application pattern like `Just x`.
+    /// Parse an application pattern like `Just x` or `W.Workspace i l ms`.
     fn parse_app_pattern(&mut self) -> ParseResult<Pat> {
         let first = self.parse_atom_pattern()?;
 
         // Check for constructor application
-        if let Pat::Con(con, args, span) = first {
-            if args.is_empty() {
+        match first {
+            Pat::Con(con, args, span) if args.is_empty() => {
                 let mut new_args = Vec::new();
                 while self.is_apat_start() {
                     new_args.push(self.parse_atom_pattern()?);
@@ -74,7 +74,25 @@ impl<'src> Parser<'src> {
                 let new_span = span.to(new_args.last().unwrap().span());
                 return Ok(Pat::Con(con, new_args, new_span));
             }
-            return Ok(Pat::Con(con, args, span));
+            Pat::Con(con, args, span) => {
+                return Ok(Pat::Con(con, args, span));
+            }
+            Pat::QualCon(module_name, con, args, span) if args.is_empty() => {
+                // Qualified constructor application like W.Workspace i l ms
+                let mut new_args = Vec::new();
+                while self.is_apat_start() {
+                    new_args.push(self.parse_atom_pattern()?);
+                }
+                if new_args.is_empty() {
+                    return Ok(Pat::QualCon(module_name, con, args, span));
+                }
+                let new_span = span.to(new_args.last().unwrap().span());
+                return Ok(Pat::QualCon(module_name, con, new_args, new_span));
+            }
+            Pat::QualCon(module_name, con, args, span) => {
+                return Ok(Pat::QualCon(module_name, con, args, span));
+            }
+            _ => {}
         }
 
         Ok(first)
@@ -155,17 +173,20 @@ impl<'src> Parser<'src> {
 
             TokenKind::QualConId(qual, name) => {
                 // Qualified constructor like W.RationalRect
-                let full_name = format!("{}.{}", qual.as_str(), name.as_str());
-                let ident = Ident::from_str(&full_name);
+                let module_name = ModuleName {
+                    parts: vec![*qual],
+                    span: tok.span,
+                };
+                let ident = Ident::new(*name);
                 let span = tok.span;
                 self.advance();
 
                 // Check for record pattern: Qual.Con { field = pat, ... }
                 if self.check(&TokenKind::LBrace) {
-                    return self.parse_record_pattern(ident, span);
+                    return self.parse_qual_record_pattern(module_name, ident, span);
                 }
 
-                Ok(Pat::Con(ident, vec![], span))
+                Ok(Pat::QualCon(module_name, ident, vec![], span))
             }
 
             TokenKind::IntLit(ref lit) => {
@@ -296,6 +317,20 @@ impl<'src> Parser<'src> {
                     Ok(result)
                 }
             }
+            Pat::QualCon(module_name, name, args, span) => {
+                if args.is_empty() {
+                    Ok(Expr::QualCon(module_name.clone(), *name, *span))
+                } else {
+                    // Constructor application: Mod.Con a b -> App (App Mod.Con a) b
+                    let mut result = Expr::QualCon(module_name.clone(), *name, *span);
+                    for arg in args {
+                        let arg_expr = self.pat_to_expr(arg)?;
+                        let new_span = result.span().to(arg_expr.span());
+                        result = Expr::App(Box::new(result), Box::new(arg_expr), new_span);
+                    }
+                    Ok(result)
+                }
+            }
             Pat::Paren(inner, span) => {
                 let inner_expr = self.pat_to_expr(inner)?;
                 Ok(Expr::Paren(Box::new(inner_expr), *span))
@@ -350,6 +385,31 @@ impl<'src> Parser<'src> {
         let end = self.expect(&TokenKind::RBrace)?;
         let span = start.to(end.span);
         Ok(Pat::Record(con, fields, span))
+    }
+
+    /// Parse a qualified record pattern: `Qual.Con { field = pat, ... }`
+    fn parse_qual_record_pattern(
+        &mut self,
+        module_name: ModuleName,
+        con: Ident,
+        start: Span,
+    ) -> ParseResult<Pat> {
+        self.expect(&TokenKind::LBrace)?;
+
+        let mut fields = Vec::new();
+        if !self.check(&TokenKind::RBrace) {
+            fields.push(self.parse_field_pat()?);
+            while self.eat(&TokenKind::Comma) {
+                if self.check(&TokenKind::RBrace) {
+                    break;
+                }
+                fields.push(self.parse_field_pat()?);
+            }
+        }
+
+        let end = self.expect(&TokenKind::RBrace)?;
+        let span = start.to(end.span);
+        Ok(Pat::QualRecord(module_name, con, fields, span))
     }
 
     /// Parse a field pattern: `field = pat`, `Mod.field = pat`, or `field` (punning)

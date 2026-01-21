@@ -112,7 +112,7 @@ fn collect_pattern_bindings(
             collect_pattern_bindings(ctx, inner, bindings);
         }
 
-        ast::Pat::Con(_, pats, _) => {
+        ast::Pat::Con(_, pats, _) | ast::Pat::QualCon(_, _, pats, _) => {
             for p in pats {
                 collect_pattern_bindings(ctx, p, bindings);
             }
@@ -136,7 +136,7 @@ fn collect_pattern_bindings(
             collect_pattern_bindings(ctx, right, bindings);
         }
 
-        ast::Pat::Record(_, fields, _) => {
+        ast::Pat::Record(_, fields, _) | ast::Pat::QualRecord(_, _, fields, _) => {
             for field in fields {
                 if let Some(p) = &field.pat {
                     collect_pattern_bindings(ctx, p, bindings);
