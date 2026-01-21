@@ -289,8 +289,12 @@ impl TyCtxt {
                     )
                 }
 
-                // Skip unknown constructors (stubs from external packages)
-                _ => continue,
+                // For imported constructors that aren't known builtins,
+                // register them with a fresh polymorphic type.
+                _ => {
+                    let fresh = self.fresh_ty();
+                    Scheme::mono(fresh)
+                }
             };
 
             // Register the constructor with its DefId from the lowering pass
@@ -514,11 +518,29 @@ impl TyCtxt {
                     vec![a.clone(), b.clone()],
                     Ty::fun(Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]), Ty::Var(b.clone())),
                 ),
-                // Default to error type for unrecognized builtins
+                // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };
 
             // Register the builtin with its DefId from the lowering pass
+            self.env.insert_global(def_info.id, scheme);
+        }
+
+        // Second pass: register any remaining definitions (imported items not in builtins)
+        // with fresh type variables. We do this in a separate pass to avoid borrow conflicts
+        // with the closures above.
+        for (_def_id, def_info) in defs.iter() {
+            // Skip constructors (handled in first pass)
+            if matches!(def_info.kind, DefKind::Constructor | DefKind::StubConstructor) {
+                continue;
+            }
+            // Skip if already registered
+            if self.env.lookup_global(def_info.id).is_some() {
+                continue;
+            }
+            // Register with a fresh polymorphic type
+            let fresh = self.fresh_ty();
+            let scheme = Scheme::mono(fresh);
             self.env.insert_global(def_info.id, scheme);
         }
     }
