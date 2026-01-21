@@ -166,15 +166,136 @@ impl TyCtxt {
 
     /// Register builtins using the DefIds from the lowering pass.
     ///
-    /// The lowering pass assigns DefIds to builtin functions. This method
-    /// registers those builtins in the type environment with the correct
-    /// DefIds so that type checking can find them.
+    /// The lowering pass assigns DefIds to builtin functions and constructors.
+    /// This method registers those builtins in the type environment with the
+    /// correct DefIds so that type checking can find them.
     pub fn register_lowered_builtins(&mut self, defs: &crate::DefMap) {
+        use bhc_lower::DefKind;
         use bhc_types::{TyVar, Kind};
 
         // Type variables for polymorphic types
         let a = TyVar::new_star(0xFFFF_0000);
         let b = TyVar::new_star(0xFFFF_0001);
+
+        // First pass: register data constructors
+        for (_def_id, def_info) in defs.iter() {
+            // Only process constructor kinds
+            if !matches!(def_info.kind, DefKind::Constructor | DefKind::StubConstructor) {
+                continue;
+            }
+
+            let name = def_info.name.as_str();
+            let scheme = match name {
+                // Bool constructors
+                "True" | "False" => Scheme::mono(self.builtins.bool_ty.clone()),
+
+                // Maybe constructors
+                "Nothing" => {
+                    // Nothing :: Maybe a
+                    let maybe_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(vec![a.clone()], maybe_a)
+                }
+                "Just" => {
+                    // Just :: a -> Maybe a
+                    let maybe_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), maybe_a))
+                }
+
+                // Either constructors
+                "Left" => {
+                    // Left :: a -> Either a b
+                    let either_ab = Ty::App(
+                        Box::new(Ty::App(
+                            Box::new(Ty::Con(self.builtins.either_con.clone())),
+                            Box::new(Ty::Var(a.clone())),
+                        )),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), either_ab))
+                }
+                "Right" => {
+                    // Right :: b -> Either a b
+                    let either_ab = Ty::App(
+                        Box::new(Ty::App(
+                            Box::new(Ty::Con(self.builtins.either_con.clone())),
+                            Box::new(Ty::Var(a.clone())),
+                        )),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(b.clone()), either_ab))
+                }
+
+                // List constructors
+                "[]" => {
+                    // [] :: [a]
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], list_a)
+                }
+                ":" => {
+                    // (:) :: a -> [a] -> [a]
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a.clone(), list_a)),
+                    )
+                }
+
+                // Unit constructor
+                "()" => Scheme::mono(Ty::unit()),
+
+                // Tuple constructors
+                "(,)" => {
+                    // (,) :: a -> b -> (a, b)
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())])),
+                        ),
+                    )
+                }
+                "(,,)" => {
+                    // (,,) :: a -> b -> c -> (a, b, c)
+                    let c = TyVar::new_star(0xFFFF_0002);
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(
+                                Ty::Var(b.clone()),
+                                Ty::fun(
+                                    Ty::Var(c.clone()),
+                                    Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone()), Ty::Var(c.clone())]),
+                                ),
+                            ),
+                        ),
+                    )
+                }
+
+                // NonEmpty constructor
+                ":|" => {
+                    // (:|) :: a -> [a] -> NonEmpty a
+                    // For now, approximate as a -> [a] -> [a]
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a.clone(), list_a)),
+                    )
+                }
+
+                // Skip unknown constructors (stubs from external packages)
+                _ => continue,
+            };
+
+            // Register the constructor with its DefId from the lowering pass
+            self.env.register_data_con(def_info.id, def_info.name, scheme);
+        }
 
         // Helper to create common type schemes
         let num_binop = || {

@@ -18,6 +18,7 @@ bhc-span.workspace = true
 bhc-intern.workspace = true
 bhc-index.workspace = true
 bhc-tensor-ir.workspace = true
+bhc-lower.workspace = true
 
 # External dependencies
 rustc-hash.workspace = true

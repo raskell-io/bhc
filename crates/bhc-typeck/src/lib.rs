@@ -94,18 +94,8 @@ pub struct TypedModule {
     pub def_schemes: FxHashMap<DefId, Scheme>,
 }
 
-/// Information about a definition from the lowering pass.
-/// This mirrors `bhc_lower::context::DefInfo`.
-#[derive(Clone, Debug)]
-pub struct DefInfo {
-    /// The unique ID.
-    pub id: DefId,
-    /// The name.
-    pub name: Symbol,
-}
-
-/// Map from `DefId` to definition information.
-pub type DefMap = IndexMap<DefId, DefInfo>;
+// Re-export definition types from bhc-lower
+pub use bhc_lower::{DefKind, DefMap};
 
 /// Type check a HIR module.
 ///

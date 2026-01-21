@@ -483,22 +483,8 @@ impl Compiler {
     ) -> CompileResult<TypedModule> {
         debug!("type checking module");
 
-        // Convert lower context's DefMap to typeck's DefMap
-        let def_map: bhc_typeck::DefMap = lower_ctx
-            .defs
-            .iter()
-            .map(|(def_id, def_info)| {
-                (
-                    *def_id,
-                    bhc_typeck::DefInfo {
-                        id: *def_id,
-                        name: def_info.name,
-                    },
-                )
-            })
-            .collect();
-
-        match bhc_typeck::type_check_module_with_defs(hir, file_id, Some(&def_map)) {
+        // Pass lower context's defs directly - bhc_typeck now uses the same DefMap type
+        match bhc_typeck::type_check_module_with_defs(hir, file_id, Some(&lower_ctx.defs)) {
             Ok(typed) => Ok(typed),
             Err(diagnostics) => {
                 eprintln!("Type errors:");
