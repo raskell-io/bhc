@@ -414,6 +414,8 @@ impl LowerContext {
     ///
     /// This first checks the in-scope dictionaries (for polymorphic contexts),
     /// then falls back to constructing a dictionary from an instance.
+    ///
+    /// Returns the dictionary expression and any bindings that need to be added.
     pub fn resolve_dictionary(
         &mut self,
         constraint: &Constraint,
@@ -430,11 +432,78 @@ impl LowerContext {
             if !has_type_variables(ty) {
                 // Create a DictContext to construct the dictionary
                 let mut dict_ctx = DictContext::new(&self.class_registry);
-                return dict_ctx.get_dictionary(constraint, span);
+                let dict_expr = dict_ctx.get_dictionary(constraint, span)?;
+
+                // If the dictionary construction generated bindings, wrap the
+                // expression in let bindings
+                let bindings = dict_ctx.take_bindings();
+                if bindings.is_empty() {
+                    return Some(dict_expr);
+                }
+
+                // Wrap in let bindings (innermost first)
+                let mut result = dict_expr;
+                for bind in bindings.into_iter().rev() {
+                    result = core::Expr::Let(Box::new(bind), Box::new(result), span);
+                }
+                return Some(result);
             }
         }
 
         None
+    }
+
+    /// Resolve a class method call at a concrete type.
+    ///
+    /// When a class method (like `(+)` from `Num`) is called at a concrete type
+    /// (like `Int`), we need to:
+    /// 1. Construct the dictionary for that instance (e.g., `Num Int`)
+    /// 2. Select the method from the dictionary
+    ///
+    /// Returns the method selection expression with any necessary let bindings.
+    pub fn resolve_method_at_concrete_type(
+        &mut self,
+        method_name: Symbol,
+        class_name: Symbol,
+        concrete_type: &Ty,
+        span: Span,
+    ) -> Option<core::Expr> {
+        // Create a constraint for the concrete type
+        let constraint = Constraint::new(class_name, concrete_type.clone(), span);
+
+        // Construct the dictionary
+        let mut dict_ctx = DictContext::new(&self.class_registry);
+        let dict_expr = dict_ctx.get_dictionary(&constraint, span)?;
+        let bindings = dict_ctx.take_bindings();
+
+        // Create a fresh variable to hold the dictionary
+        let dict_var = self.fresh_var(
+            &format!("$d{}", class_name.as_str()),
+            Ty::Error,
+            span,
+        );
+
+        // Select the method from the dictionary
+        let method_expr = crate::dictionary::select_method(
+            &dict_var,
+            class_name,
+            method_name,
+            &self.class_registry,
+            span,
+        )?;
+
+        // Build the let expression:
+        // let $dict = <dict_expr> in <method_expr>
+        let dict_bind = Bind::NonRec(dict_var, Box::new(dict_expr));
+
+        // If there are additional bindings from nested dictionary construction,
+        // wrap them around the whole thing
+        let mut result = core::Expr::Let(Box::new(dict_bind), Box::new(method_expr), span);
+        for bind in bindings.into_iter().rev() {
+            result = core::Expr::Let(Box::new(bind), Box::new(result), span);
+        }
+
+        Some(result)
     }
 
     /// Select a method from a dictionary.

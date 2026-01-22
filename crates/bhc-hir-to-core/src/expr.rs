@@ -57,8 +57,7 @@ pub fn lower_expr(ctx: &mut LowerContext, expr: &hir::Expr) -> LowerResult<core:
         }
 
         Expr::TypeApp(expr, ty, span) => {
-            let expr_core = lower_expr(ctx, expr)?;
-            Ok(core::Expr::TyApp(Box::new(expr_core), ty.clone(), *span))
+            lower_type_app(ctx, expr, ty, *span)
         }
 
         Expr::Error(span) => {
@@ -183,6 +182,46 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
     }
 
     Ok(base_expr)
+}
+
+/// Lower a type application expression.
+///
+/// Type applications like `f @Int` are used to instantiate polymorphic functions
+/// at specific types. For class methods, this is the key mechanism for resolving
+/// which instance to use at a monomorphic call site.
+///
+/// For example, `(+) @Int` should resolve to the `(+)` method from the `Num Int` instance.
+fn lower_type_app(
+    ctx: &mut LowerContext,
+    expr: &hir::Expr,
+    ty: &Ty,
+    span: Span,
+) -> LowerResult<core::Expr> {
+    // Check if this is a type application to a class method
+    if let Expr::Var(def_ref) = expr {
+        if let Some(var) = ctx.lookup_var(def_ref.def_id) {
+            let method_name = var.name;
+
+            // Check if this is a class method
+            if let Some(class_name) = ctx.is_class_method(method_name) {
+                // This is a class method being instantiated at a concrete type
+                // Construct the dictionary and select the method from it
+                if let Some(method_expr) = ctx.resolve_method_at_concrete_type(
+                    method_name,
+                    class_name,
+                    ty,
+                    span,
+                ) {
+                    return Ok(method_expr);
+                }
+                // Fall through to regular handling if resolution fails
+            }
+        }
+    }
+
+    // Regular type application handling
+    let expr_core = lower_expr(ctx, expr)?;
+    Ok(core::Expr::TyApp(Box::new(expr_core), ty.clone(), span))
 }
 
 /// Lower a constructor reference to Core.

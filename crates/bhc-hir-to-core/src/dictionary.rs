@@ -181,6 +181,15 @@ impl<'a> DictContext<'a> {
         }
     }
 
+    /// Take ownership of the generated dictionary bindings.
+    ///
+    /// These bindings define intermediate dictionaries that were constructed
+    /// during dictionary resolution. They should be added to the enclosing
+    /// let expression or module bindings.
+    pub fn take_bindings(&mut self) -> Vec<Bind> {
+        std::mem::take(&mut self.dict_bindings)
+    }
+
     /// Generate a fresh variable.
     fn fresh_var(&mut self, prefix: &str, ty: Ty, _span: Span) -> Var {
         let name = Symbol::intern(&format!("{}_{}", prefix, self.fresh_counter));
