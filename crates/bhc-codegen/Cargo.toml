@@ -1,16 +1,25 @@
 [package]
 name = "bhc-codegen"
-description = "Code generation backend for BHC (LLVM backend placeholder)"
+description = "Code generation backend for BHC (LLVM backend)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# Internal crates
 bhc-span = { workspace = true }
 bhc-data-structures = { workspace = true }
 bhc-target = { workspace = true }
 bhc-session = { workspace = true }
+bhc-core = { workspace = true }
+bhc-types = { workspace = true }
+bhc-index = { workspace = true }
+
+# LLVM bindings
+inkwell = { workspace = true }
+
+# Utilities
 thiserror = { workspace = true }
 tracing = { workspace = true }
 rustc-hash = { workspace = true }

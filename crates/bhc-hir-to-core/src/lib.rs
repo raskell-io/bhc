@@ -24,7 +24,9 @@ use bhc_core::CoreModule;
 use bhc_hir::{DefId, Module as HirModule};
 use bhc_intern::Symbol;
 use bhc_span::Span;
+use bhc_types::Scheme;
 use indexmap::IndexMap;
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 pub use context::LowerContext;
@@ -41,6 +43,9 @@ pub struct DefInfo {
 
 /// Map from `DefId` to definition information.
 pub type DefMap = IndexMap<DefId, DefInfo>;
+
+/// Map from `DefId` to type scheme (from type checker).
+pub type TypeSchemeMap = FxHashMap<DefId, Scheme>;
 
 /// Errors that can occur during HIR to Core lowering.
 #[derive(Debug, Error)]
@@ -83,7 +88,7 @@ pub type LowerResult<T> = Result<T, LowerError>;
 /// Returns `LowerError` if lowering fails due to internal errors or
 /// unsupported constructs.
 pub fn lower_module(module: &HirModule) -> LowerResult<CoreModule> {
-    lower_module_with_defs(module, None)
+    lower_module_with_defs(module, None, None)
 }
 
 /// Lower a HIR module to Core IR with definition mappings from the lowering pass.
@@ -96,6 +101,7 @@ pub fn lower_module(module: &HirModule) -> LowerResult<CoreModule> {
 ///
 /// * `module` - The typed HIR module to lower
 /// * `defs` - Optional definition map from the lowering context
+/// * `type_schemes` - Optional type schemes from the type checker
 ///
 /// # Errors
 ///
@@ -104,6 +110,7 @@ pub fn lower_module(module: &HirModule) -> LowerResult<CoreModule> {
 pub fn lower_module_with_defs(
     module: &HirModule,
     defs: Option<&DefMap>,
+    type_schemes: Option<&TypeSchemeMap>,
 ) -> LowerResult<CoreModule> {
     let mut ctx = LowerContext::new();
 
@@ -111,6 +118,11 @@ pub fn lower_module_with_defs(
     // to register builtins with the correct DefIds
     if let Some(def_map) = defs {
         ctx.register_lowered_builtins(def_map);
+    }
+
+    // If we have type schemes from the type checker, use them
+    if let Some(schemes) = type_schemes {
+        ctx.set_type_schemes(schemes.clone());
     }
 
     ctx.lower_module(module)

@@ -9,7 +9,7 @@
 
 ## Project Identity
 
-BHC ("Basel Haskell Compiler") is a clean-slate Haskell compiler and runtime, built to remain compatible with the spirit of Haskell while introducing modern profiles (Default/Server/Numeric/Edge), a standardized runtime contract, and a tensor-native compilation pipeline.
+BHC ("Basel Haskell Compiler") is a clean-slate Haskell compiler and runtime, built to remain compatible with the spirit of Haskell while introducing modern profiles (Default/Server/Numeric/Edge/Realtime/Embedded), a standardized runtime contract, and a tensor-native compilation pipeline.
 
 BHC is named after Basel, Switzerland — as a deliberate successor culture to the Glasgow Haskell Compiler lineage, with a new focus on predictability, concurrency, and numerical computing.
 
@@ -23,43 +23,99 @@ BHC prioritizes **predictability over folklore**: if performance matters, the co
 
 ---
 
+## Quick Start
+
+```bash
+# Install BHC
+curl -fsSL https://bhc.raskell.io/install.sh | sh
+
+# Compile in Haskell 2010 mode
+bhc --edition=Haskell2010 Main.hs
+
+# Or use GHC2024 compatibility
+bhc --edition=GHC2024 Main.hs
+
+# Use numeric profile for performance-critical code
+bhc --profile=numeric Main.hs
+
+# Target WebAssembly
+bhc --target=wasi Main.hs
+
+# Target GPU (CUDA)
+bhc --target=cuda --profile=numeric Main.hs
+```
+
+---
+
 ## Repository Structure
 
 ```
 bhc/
-├── compiler/           # Compiler driver + front-end (bhc)
-│   ├── src/
-│   │   ├── Parser/     # Lexer, parser, AST
-│   │   ├── TypeCheck/  # Type inference, typeclasses
-│   │   ├── Core/       # Core IR representation
-│   │   ├── Tensor/     # Tensor IR passes
-│   │   ├── Loop/       # Loop IR, vectorization
-│   │   ├── Codegen/    # Backend code generation
-│   │   └── Driver/     # CLI, orchestration
-│   └── tests/
-├── rts/                # Runtime system (bhc-rts)
-│   ├── src/
-│   │   ├── gc/         # Garbage collector
-│   │   ├── arena/      # Hot arena allocator
-│   │   ├── scheduler/  # Task scheduler
-│   │   └── ffi/        # FFI support
-│   └── tests/
-├── stdlib/             # H26 Platform modules
-│   ├── H26/
-│   │   ├── Bytes.hs
-│   │   ├── Text.hs
-│   │   ├── Vector.hs
-│   │   ├── Tensor.hs
-│   │   ├── Numeric.hs
-│   │   ├── Concurrency.hs
-│   │   └── ...
-│   └── tests/
-├── tests/              # Conformance test suite
-│   ├── semantic/
-│   ├── runtime/
-│   └── benchmarks/
-├── spec/               # Specification documents
-└── tools/              # bhci (REPL), bhi (inspector)
+├── crates/                    # Rust compiler implementation
+│   ├── bhc/                   # Main CLI binary
+│   ├── bhc-driver/            # Compilation orchestration
+│   │
+│   │   # Foundation crates
+│   ├── bhc-span/              # Source locations
+│   ├── bhc-arena/             # Memory arenas
+│   ├── bhc-intern/            # String interning
+│   ├── bhc-index/             # Index types
+│   ├── bhc-data-structures/   # Shared data structures
+│   ├── bhc-diagnostics/       # Error reporting
+│   │
+│   │   # Frontend
+│   ├── bhc-lexer/             # Tokenization
+│   ├── bhc-ast/               # Abstract syntax tree
+│   ├── bhc-parser/            # Parsing
+│   ├── bhc-types/             # Type representation
+│   ├── bhc-typeck/            # Type inference & checking
+│   │
+│   │   # Middle-end
+│   ├── bhc-hir/               # High-level IR
+│   ├── bhc-lower/             # AST → HIR lowering
+│   ├── bhc-core/              # Core IR + evaluator
+│   ├── bhc-hir-to-core/       # HIR → Core lowering
+│   ├── bhc-tensor-ir/         # Tensor IR (Numeric profile)
+│   ├── bhc-loop-ir/           # Loop IR (vectorization)
+│   │
+│   │   # Backend
+│   ├── bhc-target/            # Target specifications
+│   ├── bhc-codegen/           # Native code generation (LLVM)
+│   ├── bhc-gpu/               # GPU backends (CUDA/ROCm)
+│   ├── bhc-wasm/              # WebAssembly backend
+│   ├── bhc-linker/            # Linking
+│   │
+│   │   # Infrastructure
+│   ├── bhc-session/           # Compilation session
+│   ├── bhc-query/             # Incremental compilation
+│   ├── bhc-package/           # Package management
+│   ├── bhc-interface/         # Module interfaces
+│   ├── bhc-ffi/               # FFI support
+│   └── bhc-macros/            # Procedural macros
+│
+├── rts/                       # Runtime system (Rust)
+│   ├── bhc-rts/               # Core runtime
+│   └── bhc-rts-gc/            # Garbage collector
+│
+├── stdlib/                    # Standard library (Rust FFI support)
+│   ├── bhc-prelude/           # Prelude primitives
+│   ├── bhc-base/              # Base library (char, etc.)
+│   ├── bhc-containers/        # Data structures
+│   ├── bhc-text/              # Text/ByteString (SIMD)
+│   ├── bhc-transformers/      # Monad transformers
+│   ├── bhc-numeric/           # Numeric/SIMD/BLAS
+│   ├── bhc-concurrent/        # Concurrency/STM
+│   ├── bhc-system/            # System/IO/Process
+│   └── bhc-utils/             # Time/Random/JSON
+│
+├── tools/                     # Additional tools
+│   ├── bhci/                  # Interactive REPL
+│   └── bhi/                   # IR inspector
+│
+└── tests/                     # Test suites
+    ├── conformance/           # H26 conformance tests
+    ├── benchmarks/            # Performance benchmarks
+    └── integration/           # Integration tests
 ```
 
 ---
@@ -72,28 +128,179 @@ bhc/
 | `bhci` | Interactive REPL |
 | `bhi` | IR inspector / kernel reports |
 
+### Common Usage
+
+```bash
+# Compile to executable
+bhc Main.hs -o main
+
+# Check without generating code
+bhc check Main.hs
+
+# Run directly (via interpreter)
+bhc run Main.hs
+
+# Emit intermediate representations
+bhc --dump-ir=core Main.hs
+bhc --dump-ir=tensor Main.hs
+bhc --dump-ir=loop Main.hs
+
+# Kernel fusion report (Numeric profile)
+bhc --profile=numeric --kernel-report Main.hs
+```
+
 ---
 
-## Conformance Levels
+## Runtime Profiles
 
-BHC targets three conformance levels:
-
-1. **H26-Core**: Language core + minimal runtime contract
-2. **H26-Platform**: Core + required standard libraries + packaging metadata
-3. **H26-Numeric**: Platform + Numeric Profile + Tensor IR guarantees
-
----
-
-## Profiles
-
-Profiles define behavioral + performance contracts. The compiler MUST allow selecting a profile per package.
+Profiles define behavioral + performance contracts. Profiles are explicit and localizable (per package or per module).
 
 | Profile | Use Case | Key Characteristics |
 |---------|----------|---------------------|
-| **Default** | General Haskell | Lazy evaluation, GC managed |
-| **Server** | Web services, daemons | Concurrency, bounded latency, observability |
-| **Numeric** | ML, linear algebra, tensors | Strict-by-default, unboxed, fusion guaranteed |
-| **Edge** | Embedded, WASM | Minimal runtime footprint |
+| **default** | General Haskell | Lazy evaluation, GC managed |
+| **server** | Web services, daemons | Structured concurrency, bounded latency, observability |
+| **numeric** | ML, linear algebra, tensors | Strict-by-default, unboxed, fusion guaranteed, SIMD |
+| **edge** | WASM, serverless | Minimal runtime footprint |
+| **realtime** | Games, audio, robotics | Bounded GC pauses (<1ms), arena allocators |
+| **embedded** | Microcontrollers | No GC, static allocation only |
+
+### Profile Selection
+
+```bash
+# Command line
+bhc --profile=numeric Main.hs
+
+# Per-module pragma
+{-# OPTIONS_BHC -profile=numeric #-}
+module HotPath where
+```
+
+---
+
+## Target Backends
+
+| Target | Command | Status | Notes |
+|--------|---------|--------|-------|
+| **Native** | `bhc Main.hs` | 🔄 | LLVM backend, all profiles |
+| **WASI/WASM** | `bhc --target=wasi Main.hs` | 🔄 | WebAssembly + WASI |
+| **CUDA** | `bhc --target=cuda Main.hs` | 🔄 | NVIDIA GPU (PTX) |
+| **ROCm** | `bhc --target=rocm Main.hs` | 🔄 | AMD GPU (AMDGCN) |
+| **RISC-V** | `bhc --target=riscv64 Main.hs` | 🔄 | Via LLVM |
+
+### Target + Profile Combinations
+
+| Profile | Native | WASI | GPU |
+|---------|--------|------|-----|
+| default | ✅ | ✅ | ❌ |
+| server | ✅ | 🟡 | ❌ |
+| numeric | ✅ | ✅ | ✅ |
+| edge | ✅ | ✅ | ❌ |
+| realtime | ✅ | ❌ | ❌ |
+| embedded | ✅ | ❌ | ❌ |
+
+---
+
+## Haskell Editions
+
+BHC supports multiple Haskell editions for compatibility:
+
+```bash
+bhc --edition=Haskell2010 Main.hs   # Haskell 2010 standard
+bhc --edition=GHC2021 Main.hs       # GHC2021 defaults
+bhc --edition=GHC2024 Main.hs       # GHC2024 defaults
+bhc --edition=H26 Main.hs           # Haskell 2026 (default)
+```
+
+---
+
+## Key Technical Specifications
+
+### Tensor IR (Numeric Profile)
+
+The Tensor IR is the heart of BHC's numeric performance. Each tensor operation tracks:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `dtype` | `DType` | Element type (Float32, Float64, etc.) |
+| `shape` | `[Dim]` | Dimension sizes |
+| `strides` | `[Stride]` | Byte strides per dimension |
+| `layout` | `Layout` | Contiguous, Strided, or Tiled |
+| `alias` | `Maybe BufferId` | Aliasing information |
+
+### Fusion Guarantees
+
+These patterns MUST fuse without intermediate allocation in Numeric profile:
+
+```haskell
+-- Pattern 1: map composition
+map f (map g xs)           -- → map (f . g) xs
+
+-- Pattern 2: zipWith with maps
+zipWith f (map g a) (map h b)  -- → single traversal
+
+-- Pattern 3: fold of map
+sum (map f xs)             -- → single traversal
+
+-- Pattern 4: strict fold of map
+foldl' op z (map f xs)     -- → single traversal
+```
+
+Fusion failure in Numeric profile is a **compiler bug**.
+
+### Memory Model
+
+Three allocation regions:
+
+| Region | Allocation | Deallocation | GC | Use Case |
+|--------|------------|--------------|-----|----------|
+| **Hot Arena** | Bump pointer O(1) | Bulk free at scope end | None | Kernel temporaries |
+| **Pinned Heap** | malloc-style | Explicit/refcounted | Never moved | FFI, DMA, GPU |
+| **General Heap** | GC-managed | Automatic | May move | Normal boxed data |
+
+### Structured Concurrency (Server Profile)
+
+Required primitives:
+
+```haskell
+-- Scope management
+withScope :: (Scope -> IO a) -> IO a
+withDeadline :: Duration -> (Scope -> IO a) -> IO (Maybe a)
+
+-- Task management
+spawn :: Scope -> IO a -> IO (Task a)
+await :: Task a -> IO a
+cancel :: Task a -> IO ()
+poll :: Task a -> IO (Maybe a)
+
+-- STM
+atomically :: STM a -> IO a
+newTVar :: a -> STM (TVar a)
+readTVar :: TVar a -> STM a
+writeTVar :: TVar a -> a -> STM ()
+retry :: STM a
+orElse :: STM a -> STM a -> STM a
+```
+
+### GPU Acceleration (Numeric Profile)
+
+```haskell
+{-# LANGUAGE BHC.TensorIR #-}
+module Compute where
+
+import BHC.Tensor
+
+-- Matrix multiplication - automatically offloaded to GPU
+matmul :: Matrix Double -> Matrix Double -> Matrix Double
+matmul a b = T.contract a b
+
+-- Operations fuse into GPU kernels
+softmax :: Vector Double -> Vector Double
+softmax v = T.map (/ total) exps
+  where
+    maxVal = T.maximum v
+    exps = T.map (\x -> exp (x - maxVal)) v
+    total = T.sum exps
+```
 
 ---
 
@@ -101,7 +308,7 @@ Profiles define behavioral + performance contracts. The compiler MUST allow sele
 
 ### Language
 
-BHC is implemented in **Haskell** (bootstrapping) with performance-critical runtime components in **Rust** or **C**.
+BHC is implemented in **Rust** with the standard library interface in **Haskell**.
 
 ### Core Principles
 
@@ -112,7 +319,7 @@ BHC is implemented in **Haskell** (bootstrapping) with performance-critical runt
 
 ### Code Quality
 
-- All code MUST pass the linter and formatter
+- All code MUST pass `cargo clippy` and `cargo fmt`
 - All public APIs MUST have documentation
 - All new features MUST have tests
 - Performance-critical code MUST have benchmarks
@@ -128,64 +335,28 @@ Use conventional commits:
 - `test:` Test additions/changes
 - `chore:` Build, tooling, etc.
 
-### Pull Requests
-
-- Reference the relevant spec section (e.g., "Implements Section 7.3 Tensor IR")
-- Include benchmark results for performance changes
-- Update conformance tests when behavior changes
-
----
-
-## Key Technical Concepts
-
-### Tensor IR (Section 7)
-
-The Tensor IR is the heart of BHC's numeric performance. Each kernel must have:
-- Element type (dtype)
-- Shape vector
-- Stride vector
-- Layout tags (contiguous, strided, tiled)
-- Aliasing information
-
-### Fusion Guarantees (Section 8)
-
-These patterns MUST fuse without intermediate allocation:
-1. `map f (map g x)`
-2. `zipWith f (map g a) (map h b)`
-3. `sum (map f x)`
-4. `foldl' op z (map f x)`
-
-### Memory Model (Section 9)
-
-Three allocation spaces:
-1. **Hot Arena** — Bump allocator, freed at scope end
-2. **Pinned Heap** — Non-moving, for FFI/device IO
-3. **General Heap** — GC-managed boxed structures
-
-### Structured Concurrency (Section 10)
-
-Required primitives:
-- `withScope :: (Scope -> IO a) -> IO a`
-- `spawn :: Scope -> IO a -> IO (Task a)`
-- `cancel :: Task a -> IO ()`
-- `await :: Task a -> IO a`
-
 ---
 
 ## Building
 
 ```bash
-# Build compiler
-cd compiler && cabal build
+# Build all crates
+cargo build
+
+# Build release
+cargo build --release
 
 # Run tests
-cabal test
+cargo test
 
-# Build with optimizations
-cabal build -O2
+# Run specific crate tests
+cargo test -p bhc-parser
 
 # Run benchmarks
-cabal bench
+cargo bench
+
+# Build and run bhc
+cargo run --bin bhc -- Main.hs
 ```
 
 ---
@@ -194,20 +365,175 @@ cabal bench
 
 ### Test Categories
 
-1. **Semantic Tests** — Strictness, exceptions, determinism
-2. **Runtime Tests** — Cancellation, concurrency, pinned allocation
-3. **Numeric Benchmarks** — dot product, saxpy, matmul, reductions
+1. **Unit Tests** — Per-crate functionality
+2. **Integration Tests** — End-to-end compilation
+3. **Conformance Tests** — H26 specification compliance
+4. **Benchmarks** — Performance regression detection
 
-### Running Conformance Suite
+### Running Tests
 
 ```bash
-cd tests && ./run-conformance.sh
+# All tests
+cargo test
+
+# Conformance suite
+cargo test -p bhc-conformance
+
+# Benchmarks
+cargo bench
 ```
+
+---
+
+## Implementation Roadmap
+
+### Current Status: Pre-Alpha
+
+The compiler frontend (parsing, type checking) is functional. The interpreter works. Native code generation is not yet implemented.
+
+### Phase 1: Core Compilation (Target: Native Hello World)
+
+**Goal:** Compile and run `main = putStrLn "Hello, World!"` to a native executable.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 1.1 LLVM Integration | 🔴 | bhc-codegen | Integrate inkwell/llvm-sys for real LLVM IR emission |
+| 1.2 Core → LLVM | 🔴 | bhc-codegen | Lower Core IR to LLVM IR |
+| 1.3 RTS Bootstrap | 🔴 | bhc-rts | Minimal runtime: entry point, allocation, GC roots |
+| 1.4 Basic GC | 🔴 | bhc-rts-gc | Simple mark-sweep collector |
+| 1.5 Linking | 🔴 | bhc-linker | Link object files + RTS into executable |
+| 1.6 IO Primitives | 🔴 | bhc-rts | putStrLn, getLine via FFI to libc |
+
+**Exit Criteria:** `bhc Main.hs -o main && ./main` prints "Hello, World!"
+
+### Phase 2: Language Completeness
+
+**Goal:** Compile real Haskell programs (e.g., small utilities).
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 2.1 Pattern Matching Codegen | 🔴 | bhc-codegen | Compile case expressions to native code |
+| 2.2 Closures | 🔴 | bhc-codegen | Closure representation and calling convention |
+| 2.3 Thunks & Laziness | 🔴 | bhc-rts | Thunk representation, forcing, update frames |
+| 2.4 Type Classes | 🟡 | bhc-typeck | Dictionary passing compilation |
+| 2.5 Let/Where Bindings | 🔴 | bhc-codegen | Local binding compilation |
+| 2.6 Recursion | 🔴 | bhc-codegen | Recursive bindings, tail call optimization |
+| 2.7 Prelude | 🔴 | stdlib | Basic Prelude functions compiled |
+
+**Exit Criteria:** Compile and run a recursive Fibonacci program.
+
+### Phase 3: Numeric Profile
+
+**Goal:** Deliver promised numeric performance features.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 3.1 Core → Tensor IR | 🟡 | bhc-tensor-ir | Lower numeric Core to Tensor IR |
+| 3.2 Fusion Passes | 🟡 | bhc-tensor-ir | Implement guaranteed fusion patterns |
+| 3.3 Tensor → Loop IR | 🟡 | bhc-loop-ir | Lower Tensor IR to explicit loops |
+| 3.4 Vectorization | 🟡 | bhc-loop-ir | SIMD auto-vectorization pass |
+| 3.5 Parallelization | 🟡 | bhc-loop-ir | Parallel loop detection and codegen |
+| 3.6 Loop → LLVM | 🔴 | bhc-codegen | Emit LLVM IR from Loop IR |
+| 3.7 Hot Arena | 🔴 | bhc-rts | Arena allocator for kernel temporaries |
+| 3.8 Pinned Buffers | 🔴 | bhc-rts | Non-moving memory for FFI |
+| 3.9 Kernel Reports | 🟡 | bhc-driver | `--kernel-report` diagnostics |
+
+**Exit Criteria:** `sum (map (*2) [1..1000000])` fuses to single loop, runs 10x faster than interpreted.
+
+### Phase 4: WASM Backend
+
+**Goal:** Compile to WebAssembly with WASI support.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 4.1 WASM Emitter | 🟡 | bhc-wasm | Emit WASM binary from IR |
+| 4.2 WASI Runtime | 🔴 | bhc-wasm | WASI imports for IO |
+| 4.3 Edge Profile RTS | 🔴 | bhc-rts | Minimal runtime for WASM |
+| 4.4 Memory Model | 🔴 | bhc-wasm | Linear memory management |
+
+**Exit Criteria:** `bhc --target=wasi Main.hs -o app.wasm && wasmtime app.wasm` works.
+
+### Phase 5: Server Profile
+
+**Goal:** Structured concurrency with work-stealing scheduler.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 5.1 Task Scheduler | 🔴 | bhc-rts | Work-stealing task scheduler |
+| 5.2 Scope Primitives | 🔴 | bhc-concurrent | withScope, spawn, await |
+| 5.3 Cancellation | 🔴 | bhc-concurrent | Cooperative cancellation |
+| 5.4 STM Runtime | 🟡 | bhc-concurrent | TVar, atomically, retry, orElse |
+| 5.5 Deadlines | 🔴 | bhc-concurrent | withDeadline, timeout |
+| 5.6 Observability | 🔴 | bhc-rts | Tracing hooks |
+
+**Exit Criteria:** Concurrent web server demo with proper cancellation.
+
+### Phase 6: GPU Backend
+
+**Goal:** Offload numeric kernels to GPU.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 6.1 PTX Codegen | 🟡 | bhc-gpu | NVIDIA PTX emission |
+| 6.2 AMDGCN Codegen | 🟡 | bhc-gpu | AMD AMDGCN emission |
+| 6.3 Device Memory | 🔴 | bhc-gpu | Host/device transfer management |
+| 6.4 Kernel Launch | 🔴 | bhc-gpu | GPU kernel invocation |
+| 6.5 Tensor → GPU | 🔴 | bhc-gpu | Lower Tensor IR to GPU kernels |
+
+**Exit Criteria:** Matrix multiplication runs on GPU, 100x faster than CPU for large matrices.
+
+### Phase 7: Advanced Profiles
+
+**Goal:** Realtime and Embedded profiles.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 7.1 Incremental GC | 🔴 | bhc-rts-gc | Bounded pause GC for realtime |
+| 7.2 Arena per-frame | 🔴 | bhc-rts | Per-frame arena allocation |
+| 7.3 No-GC Mode | 🔴 | bhc-rts | Static allocation only (embedded) |
+| 7.4 Bare Metal | 🔴 | bhc-codegen | No-OS code generation |
+
+**Exit Criteria:** Game loop demo with <1ms GC pauses.
+
+### Phase 8: Ecosystem
+
+**Goal:** Production-ready tooling.
+
+| Task | Status | Crate | Description |
+|------|--------|-------|-------------|
+| 8.1 REPL | 🟡 | bhci | Interactive evaluation |
+| 8.2 IR Inspector | 🟡 | bhi | Debug IR visualizer |
+| 8.3 Package Manager | 🔴 | bhc-package | Dependency resolution |
+| 8.4 LSP Server | 🔴 | bhc-lsp | IDE integration |
+| 8.5 Documentation | 🔴 | - | User guide, API docs |
+
+**Exit Criteria:** Developers can build, test, and deploy BHC projects.
+
+---
+
+### Roadmap Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| 🔴 | Not started |
+| 🟡 | Partial / In progress |
+| 🟢 | Complete |
+
+### Priority Order
+
+1. **Phase 1** — Without native codegen, nothing else matters
+2. **Phase 2** — Language features needed for real programs
+3. **Phase 3** — Numeric profile is our differentiator
+4. **Phase 4** — WASM opens new deployment targets
+5. **Phase 5** — Server profile for production services
+6. **Phase 6** — GPU for competitive numeric performance
+7. **Phase 7** — Advanced profiles for specialized use cases
+8. **Phase 8** — Polish and ecosystem
 
 ---
 
 ## References
 
-- See `ROADMAP.md` for milestone schedule
-- See `spec/` for full specification documents
-- See `rules/` for detailed coding guidelines
+- Website: https://bhc.raskell.io
+- Repository: https://github.com/raskell-io/bhc
+- See `.claude/rules/` for detailed coding guidelines

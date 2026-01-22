@@ -1,19 +1,20 @@
 //! Code generation backend for BHC.
 //!
 //! This crate provides the infrastructure for generating native code from
-//! the compiler's intermediate representations. The primary backend is LLVM,
-//! but the architecture supports multiple backends.
+//! the compiler's intermediate representations. The primary backend is LLVM.
 //!
 //! # Overview
 //!
 //! Code generation in BHC follows this pipeline:
 //!
 //! ```text
-//! Loop IR ──▶ Backend IR ──▶ Object Code
-//!                 │
-//!                 ├──▶ LLVM IR ──▶ LLVM Backend
-//!                 │
-//!                 └──▶ (Future: Cranelift, etc.)
+//! Core IR ──▶ LLVM IR ──▶ Object Code ──▶ Executable
+//! ```
+//!
+//! For numeric code with the numeric profile:
+//!
+//! ```text
+//! Core IR ──▶ Tensor IR ──▶ Loop IR ──▶ LLVM IR ──▶ Object Code
 //! ```
 //!
 //! # Backend Architecture
@@ -27,19 +28,45 @@
 //!
 //! # LLVM Backend
 //!
-//! The LLVM backend (when enabled) provides:
+//! The LLVM backend provides:
 //!
 //! - Full optimization pipeline integration
 //! - Target-specific code generation
 //! - Debug information generation
 //! - Link-time optimization (LTO) support
+//!
+//! # Example
+//!
+//! ```ignore
+//! use bhc_codegen::{CodegenBackend, CodegenConfig, llvm::LlvmBackend};
+//!
+//! // Create the LLVM backend
+//! let backend = LlvmBackend::new();
+//!
+//! // Create a context for code generation
+//! let config = CodegenConfig::default();
+//! let ctx = backend.create_context(config)?;
+//!
+//! // Create a module
+//! let module = ctx.create_module("my_module")?;
+//!
+//! // ... add functions and generate code ...
+//!
+//! // Write output
+//! module.write_to_file(Path::new("output.ll"), CodegenOutputType::LlvmIr)?;
+//! ```
 
 #![warn(missing_docs)]
+
+pub mod llvm;
 
 use bhc_session::{DebugInfo, OptLevel, OutputType};
 use bhc_target::TargetSpec;
 use std::path::Path;
 use thiserror::Error;
+
+// Re-export the LLVM backend as the default
+pub use llvm::{LlvmBackend, LlvmContext, LlvmModule};
 
 /// Errors that can occur during code generation.
 #[derive(Debug, Error)]
@@ -69,6 +96,14 @@ pub enum CodegenError {
     /// Internal code generation error.
     #[error("internal codegen error: {0}")]
     Internal(String),
+
+    /// Type error during code generation.
+    #[error("type error: {0}")]
+    TypeError(String),
+
+    /// Unsupported feature.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }
 
 /// Result type for code generation operations.
@@ -144,6 +179,13 @@ impl CodegenConfig {
         self.lto = lto;
         self
     }
+
+    /// Set the CPU model.
+    #[must_use]
+    pub fn with_cpu(mut self, cpu: impl Into<String>) -> Self {
+        self.cpu = cpu.into();
+        self
+    }
 }
 
 /// The type of code being generated.
@@ -171,7 +213,11 @@ impl From<OutputType> for CodegenOutputType {
 }
 
 /// A module being compiled in the backend.
-pub trait CodegenModule: Send {
+///
+/// Note: Modules are not required to be Send because LLVM modules
+/// are not thread-safe. Compilation of a single module happens
+/// on a single thread.
+pub trait CodegenModule {
     /// Get the module name.
     fn name(&self) -> &str;
 
@@ -216,176 +262,6 @@ pub trait CodegenBackend: Send + Sync {
 
     /// Create a codegen context with the given configuration.
     fn create_context(&self, config: CodegenConfig) -> CodegenResult<Self::Context>;
-}
-
-/// A placeholder LLVM backend (actual implementation requires LLVM bindings).
-pub struct LlvmBackend {
-    /// Whether LLVM is available.
-    available: bool,
-}
-
-impl LlvmBackend {
-    /// Create a new LLVM backend.
-    ///
-    /// Returns `None` if LLVM is not available.
-    #[must_use]
-    pub fn new() -> Option<Self> {
-        // In the real implementation, this would check for LLVM availability
-        Some(Self { available: true })
-    }
-
-    /// Check if LLVM is available.
-    #[must_use]
-    pub fn is_available(&self) -> bool {
-        self.available
-    }
-}
-
-/// Placeholder LLVM context.
-pub struct LlvmContext {
-    config: CodegenConfig,
-}
-
-/// Placeholder LLVM module.
-pub struct LlvmModule {
-    name: String,
-    ir: String,
-}
-
-impl CodegenModule for LlvmModule {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn verify(&self) -> CodegenResult<()> {
-        // Placeholder: would verify LLVM module
-        Ok(())
-    }
-
-    fn optimize(&mut self, _level: OptLevel) -> CodegenResult<()> {
-        // Placeholder: would run LLVM optimization passes
-        Ok(())
-    }
-
-    fn write_to_file(&self, path: &Path, output_type: CodegenOutputType) -> CodegenResult<()> {
-        use std::fs;
-
-        let content = match output_type {
-            CodegenOutputType::LlvmIr => self.ir.clone(),
-            CodegenOutputType::LlvmBitcode => {
-                // Placeholder: would emit bitcode
-                "placeholder bitcode".to_string()
-            }
-            CodegenOutputType::Assembly => {
-                // Placeholder: would emit assembly
-                "; placeholder assembly\n".to_string()
-            }
-            CodegenOutputType::Object => {
-                // Placeholder: would emit object file
-                return Err(CodegenError::Internal(
-                    "object file emission not implemented in placeholder".to_string(),
-                ));
-            }
-        };
-
-        fs::write(path, content).map_err(|e| CodegenError::OutputError {
-            path: path.display().to_string(),
-            source: e,
-        })
-    }
-
-    fn as_llvm_ir(&self) -> CodegenResult<String> {
-        Ok(self.ir.clone())
-    }
-}
-
-impl CodegenContext for LlvmContext {
-    type Module = LlvmModule;
-
-    fn create_module(&self, name: &str) -> CodegenResult<LlvmModule> {
-        Ok(LlvmModule {
-            name: name.to_string(),
-            ir: format!(
-                "; ModuleID = '{}'\n\
-                 source_filename = \"{}\"\n\
-                 target datalayout = \"{}\"\n\
-                 target triple = \"{}\"\n",
-                name,
-                name,
-                self.config.target.data_layout,
-                self.config.target.triple()
-            ),
-        })
-    }
-
-    fn target(&self) -> &TargetSpec {
-        &self.config.target
-    }
-
-    fn config(&self) -> &CodegenConfig {
-        &self.config
-    }
-}
-
-impl CodegenBackend for LlvmBackend {
-    type Context = LlvmContext;
-
-    fn name(&self) -> &'static str {
-        "llvm"
-    }
-
-    fn supports_target(&self, _target: &TargetSpec) -> bool {
-        // LLVM supports all our targets
-        true
-    }
-
-    fn create_context(&self, config: CodegenConfig) -> CodegenResult<LlvmContext> {
-        if !self.available {
-            return Err(CodegenError::BackendNotAvailable("LLVM".to_string()));
-        }
-        Ok(LlvmContext { config })
-    }
-}
-
-/// Builder for LLVM IR (simplified placeholder).
-pub struct IrBuilder {
-    instructions: Vec<String>,
-}
-
-impl IrBuilder {
-    /// Create a new IR builder.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            instructions: Vec::new(),
-        }
-    }
-
-    /// Add a function definition.
-    pub fn define_function(&mut self, name: &str, ret_type: &str, params: &str) {
-        self.instructions.push(format!(
-            "define {} @{}({}) {{\nentry:",
-            ret_type, name, params
-        ));
-    }
-
-    /// Add a return instruction.
-    pub fn build_ret(&mut self, value: &str) {
-        self.instructions.push(format!("  ret {}", value));
-        self.instructions.push("}".to_string());
-    }
-
-    /// Build the IR string.
-    #[must_use]
-    pub fn build(&self) -> String {
-        self.instructions.join("\n")
-    }
-}
-
-impl Default for IrBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// Type layout information for code generation.
@@ -443,29 +319,38 @@ mod tests {
 
     #[test]
     fn test_llvm_backend_creation() {
-        let backend = LlvmBackend::new().unwrap();
+        let backend = LlvmBackend::new();
         assert_eq!(backend.name(), "llvm");
         assert!(backend.is_available());
     }
 
     #[test]
-    fn test_module_creation() {
-        let backend = LlvmBackend::new().unwrap();
-        let ctx = backend.create_context(CodegenConfig::default()).unwrap();
-        let module = ctx.create_module("test").unwrap();
-
-        assert_eq!(module.name(), "test");
-        assert!(module.as_llvm_ir().unwrap().contains("ModuleID = 'test'"));
+    fn test_llvm_context_creation() {
+        let backend = LlvmBackend::new();
+        let config = CodegenConfig::default();
+        let result = backend.create_context(config);
+        assert!(result.is_ok());
     }
 
     #[test]
-    fn test_ir_builder() {
-        let mut builder = IrBuilder::new();
-        builder.define_function("main", "i32", "");
-        builder.build_ret("i32 0");
+    fn test_module_creation() {
+        let ctx = LlvmContext::new(CodegenConfig::default()).unwrap();
+        let module = ctx.create_module("test").unwrap();
 
-        let ir = builder.build();
-        assert!(ir.contains("define i32 @main()"));
-        assert!(ir.contains("ret i32 0"));
+        assert_eq!(module.name(), "test");
+
+        // Verify the module produces valid LLVM IR
+        let ir = module.as_llvm_ir();
+        assert!(ir.contains("ModuleID"));
+        assert!(ir.contains("target triple"));
+    }
+
+    #[test]
+    fn test_module_verification() {
+        let ctx = LlvmContext::new(CodegenConfig::default()).unwrap();
+        let module = ctx.create_module("test").unwrap();
+
+        // Empty module should verify
+        assert!(module.verify().is_ok());
     }
 }

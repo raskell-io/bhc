@@ -64,6 +64,9 @@
 #![warn(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+// FFI entry points for C interop
+pub mod ffi;
+
 // Re-export RTS components
 pub use bhc_rts_alloc as alloc;
 pub use bhc_rts_arena as arena;

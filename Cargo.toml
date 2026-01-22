@@ -182,6 +182,9 @@ pretty_assertions = "1.4"
 semver = "1.0"
 bincode = "1.3"
 
+# LLVM bindings for code generation
+inkwell = { version = "0.5", features = ["llvm18-0"] }
+
 [workspace.lints.rust]
 unsafe_code = "warn"
 missing_docs = "warn"

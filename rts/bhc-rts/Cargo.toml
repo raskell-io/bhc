@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 bhc-rts-alloc = { workspace = true }
 bhc-rts-arena = { workspace = true }

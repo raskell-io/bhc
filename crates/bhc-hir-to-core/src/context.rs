@@ -10,11 +10,11 @@ use bhc_hir::{DefId, Item, Module as HirModule, ValueDef};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_span::Span;
-use bhc_types::Ty;
+use bhc_types::{Scheme, Ty};
 use rustc_hash::FxHashMap;
 
 use crate::expr::lower_expr;
-use crate::{LowerError, LowerResult};
+use crate::{LowerError, LowerResult, TypeSchemeMap};
 
 /// Context for the HIR to Core lowering pass.
 pub struct LowerContext {
@@ -23,6 +23,9 @@ pub struct LowerContext {
 
     /// Mapping from HIR DefIds to Core variables.
     var_map: FxHashMap<DefId, Var>,
+
+    /// Type schemes from the type checker (DefId -> Scheme).
+    type_schemes: TypeSchemeMap,
 
     /// Accumulated errors.
     errors: Vec<LowerError>,
@@ -36,10 +39,26 @@ impl LowerContext {
             // Start after builtin VarIds (builtins use 9-95, so start at 100 to be safe)
             fresh_counter: 100,
             var_map: FxHashMap::default(),
+            type_schemes: FxHashMap::default(),
             errors: Vec::new(),
         };
         ctx.register_builtins();
         ctx
+    }
+
+    /// Set the type schemes from the type checker.
+    pub fn set_type_schemes(&mut self, schemes: TypeSchemeMap) {
+        self.type_schemes = schemes;
+    }
+
+    /// Look up the type for a definition from the type checker.
+    ///
+    /// Returns the monomorphic type from the scheme, or `Ty::Error` if not found.
+    pub fn lookup_type(&self, def_id: DefId) -> Ty {
+        self.type_schemes
+            .get(&def_id)
+            .map(|scheme| scheme.ty.clone())
+            .unwrap_or(Ty::Error)
     }
 
     /// Register builtin operators and constructors.
@@ -210,11 +229,9 @@ impl LowerContext {
         // We use named_var here to preserve the original names for external visibility
         for item in &module.items {
             if let Item::Value(value_def) = item {
-                let var = self.named_var(
-                    value_def.name,
-                    // Type will be filled in later; use a placeholder
-                    Ty::Error,
-                );
+                // Look up the type from the type checker
+                let ty = self.lookup_type(value_def.id);
+                let var = self.named_var(value_def.name, ty);
                 self.register_var(value_def.id, var);
             }
         }

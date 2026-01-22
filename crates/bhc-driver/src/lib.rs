@@ -45,10 +45,15 @@
 #![warn(missing_docs)]
 
 use bhc_ast::Module as AstModule;
+use bhc_codegen::{
+    llvm::{lower_core_module, LlvmBackend, LlvmModuleExt},
+    CodegenConfig, CodegenOutputType,
+};
 use bhc_core::eval::{Env, EvalError, Evaluator, Value};
 use bhc_core::{Bind, CoreModule, Expr, VarId};
 use bhc_hir::Module as HirModule;
 use bhc_intern::Symbol;
+use bhc_linker::{LinkerConfig, LinkLibrary, LinkOutputType};
 use bhc_loop_ir::{
     lower::{LowerConfig, LowerError},
     parallel::{ParallelConfig, ParallelPass},
@@ -56,8 +61,9 @@ use bhc_loop_ir::{
     TargetArch,
 };
 use bhc_lower::LowerContext;
-use bhc_session::{Options, Profile, Session, SessionRef};
+use bhc_session::{Options, OutputType, Profile, Session, SessionRef};
 use bhc_span::FileId;
+use bhc_target::TargetSpec;
 use bhc_tensor_ir::fusion::{self, FusionContext, KernelReport};
 use bhc_typeck::TypedModule;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -328,12 +334,12 @@ impl Compiler {
         debug!(module = %unit.module_name, items = hir.items.len(), "HIR lowering complete");
 
         // Phase 2b: Type check HIR
-        let _typed = self.type_check(&hir, file_id, &lower_ctx)?;
+        let typed = self.type_check(&hir, file_id, &lower_ctx)?;
         self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
         self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
-        let core = self.core_lower(&hir, &lower_ctx)?;
+        let core = self.core_lower(&hir, &lower_ctx, &typed)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
         self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
 
@@ -420,13 +426,29 @@ impl Compiler {
             self.callbacks.on_phase_complete(CompilePhase::LoopLower, &unit.module_name);
         }
 
-        // Phase 5: Code generation (placeholder)
+        // Phase 5: Code generation
         self.callbacks.on_phase_start(CompilePhase::Codegen, &unit.module_name);
-        // TODO: Implement code generation
+        let object_path = self.codegen(&unit.module_name, &core)?;
+        debug!(module = %unit.module_name, object = %object_path.display(), "code generation complete");
         self.callbacks.on_phase_complete(CompilePhase::Codegen, &unit.module_name);
 
         // Determine output path
         let output_path = self.session.output_path(&unit.module_name);
+
+        // Phase 6: Linking (if producing executable or library)
+        if self.session.options.output_type == OutputType::Executable
+            || self.session.options.output_type == OutputType::DynamicLib
+            || self.session.options.output_type == OutputType::StaticLib
+        {
+            self.callbacks.on_phase_start(CompilePhase::Link, &unit.module_name);
+            self.link(&[object_path.clone()], &output_path)?;
+            self.callbacks.on_phase_complete(CompilePhase::Link, &unit.module_name);
+        } else {
+            // For non-linked output types (assembly, IR), copy/move the codegen output
+            std::fs::rename(&object_path, output_path.as_std_path())
+                .or_else(|_| std::fs::copy(&object_path, output_path.as_std_path()).map(|_| ()))
+                .map_err(|e| CompileError::CodegenError(format!("failed to write output: {}", e)))?;
+        }
 
         info!(module = %unit.module_name, output = %output_path, "compilation complete");
 
@@ -497,7 +519,12 @@ impl Compiler {
     }
 
     /// Lower HIR to Core IR.
-    fn core_lower(&self, hir: &HirModule, lower_ctx: &LowerContext) -> CompileResult<CoreModule> {
+    fn core_lower(
+        &self,
+        hir: &HirModule,
+        lower_ctx: &LowerContext,
+        typed: &TypedModule,
+    ) -> CompileResult<CoreModule> {
         debug!("lowering HIR to Core");
 
         // Convert lower context's DefMap to hir-to-core's DefMap
@@ -515,7 +542,178 @@ impl Compiler {
             })
             .collect();
 
-        bhc_hir_to_core::lower_module_with_defs(hir, Some(&def_map)).map_err(CompileError::from)
+        bhc_hir_to_core::lower_module_with_defs(hir, Some(&def_map), Some(&typed.def_schemes))
+            .map_err(CompileError::from)
+    }
+
+    /// Generate code from Core IR to an object file.
+    fn codegen(
+        &self,
+        module_name: &str,
+        core: &CoreModule,
+    ) -> CompileResult<std::path::PathBuf> {
+        debug!("generating code for module: {}", module_name);
+
+        // Initialize LLVM backend
+        let _backend = LlvmBackend::new();
+
+        // Create codegen config from session
+        let target = self.get_target_spec();
+        let codegen_config = CodegenConfig::for_target(target)
+            .with_opt_level(self.session.options.opt_level)
+            .with_debug_info(self.session.options.debug_info)
+            .with_pic(true); // Default to PIC for shared libraries
+
+        // Determine output path and type
+        let output_type = CodegenOutputType::from(self.session.options.output_type);
+        let extension = match output_type {
+            CodegenOutputType::Object => "o",
+            CodegenOutputType::Assembly => "s",
+            CodegenOutputType::LlvmIr => "ll",
+            CodegenOutputType::LlvmBitcode => "bc",
+        };
+
+        // Create temp directory if needed
+        let output_dir = std::env::temp_dir().join("bhc");
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|e| CompileError::CodegenError(format!("failed to create output dir: {}", e)))?;
+
+        let output_path = output_dir.join(format!("{}.{}", module_name, extension));
+
+        // Create LLVM context
+        let ctx = bhc_codegen::LlvmContext::new(codegen_config)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Create LLVM module
+        let mut module = ctx
+            .create_module(module_name)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Lower Core IR to LLVM IR
+        lower_core_module(&ctx, &module, core)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Create entry point if this module has a main function
+        if let Some(haskell_main) = module.get_function("main") {
+            // Create a C main that calls the Haskell main
+            module.create_entry_point(haskell_main)
+                .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+        }
+
+        // Verify the module
+        module
+            .verify()
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Optimize if not at OptLevel::None
+        module
+            .optimize(&ctx, self.session.options.opt_level)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Write output
+        match output_type {
+            CodegenOutputType::Object => {
+                module
+                    .emit_object(&ctx, &output_path)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+            CodegenOutputType::Assembly => {
+                module
+                    .emit_assembly(&ctx, &output_path)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+            CodegenOutputType::LlvmIr | CodegenOutputType::LlvmBitcode => {
+                module
+                    .write_to_file(&output_path, output_type)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+        }
+
+        debug!(
+            module = %module_name,
+            path = %output_path.display(),
+            "code generation complete"
+        );
+
+        Ok(output_path)
+    }
+
+    /// Link object files into an executable.
+    fn link(
+        &self,
+        objects: &[std::path::PathBuf],
+        output: &Utf8Path,
+    ) -> CompileResult<()> {
+        debug!("linking to: {}", output);
+
+        let target = self.get_target_spec();
+        let output_type = LinkOutputType::from(self.session.options.output_type);
+
+        // Build linker configuration
+        let mut config = LinkerConfig::new(target, output.to_path_buf())
+            .output_type(output_type)
+            .with_objects(objects.iter().map(|p| Utf8PathBuf::from_path_buf(p.clone()).unwrap_or_else(|p| {
+                Utf8PathBuf::from(p.to_string_lossy().to_string())
+            })));
+
+        // Add library search paths
+        for path in &self.session.options.library_paths {
+            config = config.with_library_path(path.clone());
+        }
+
+        // Add the BHC RTS library path
+        // Look for RTS in target/release or target/debug
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let workspace_dir = std::path::Path::new(manifest_dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or(std::path::Path::new("."));
+
+        // Try release first, then debug
+        let release_path = workspace_dir.join("target/release");
+        let debug_path = workspace_dir.join("target/debug");
+
+        if release_path.exists() {
+            config = config.with_library_path(Utf8PathBuf::from_path_buf(release_path).unwrap_or_default());
+        }
+        if debug_path.exists() {
+            config = config.with_library_path(Utf8PathBuf::from_path_buf(debug_path).unwrap_or_default());
+        }
+
+        // Add the BHC RTS library
+        // The RTS provides: bhc_init, bhc_rts_init, bhc_shutdown, bhc_alloc, etc.
+        config = config.with_library(LinkLibrary::named("bhc_rts"));
+
+        // Add system libraries needed by the RTS
+        #[cfg(target_os = "linux")]
+        {
+            config = config
+                .with_library(LinkLibrary::named("pthread"))
+                .with_library(LinkLibrary::named("dl"))
+                .with_library(LinkLibrary::named("m"));
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            config = config.with_library(LinkLibrary::named("System"));
+        }
+
+        // Run linker
+        bhc_linker::link(&config)
+            .map_err(|e| CompileError::LinkError(e.to_string()))?;
+
+        info!(output = %output, "linking complete");
+        Ok(())
+    }
+
+    /// Get the target specification from session options.
+    fn get_target_spec(&self) -> TargetSpec {
+        if let Some(ref triple) = self.session.options.target_triple {
+            // Try to parse the target triple
+            bhc_target::parse_triple(triple).unwrap_or_else(|_| bhc_target::host_target())
+        } else {
+            bhc_target::host_target()
+        }
     }
 
     /// Run source code and return the result value and display string.
@@ -562,12 +760,12 @@ impl Compiler {
         // Phase 2: Lower AST to HIR
         self.callbacks.on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
         let (hir, lower_ctx) = self.lower(&ast)?;
-        let _typed = self.type_check(&hir, file_id, &lower_ctx)?;
+        let typed = self.type_check(&hir, file_id, &lower_ctx)?;
         self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
         self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
-        let core = self.core_lower(&hir, &lower_ctx)?;
+        let core = self.core_lower(&hir, &lower_ctx, &typed)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
 
         self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
@@ -963,7 +1161,7 @@ mod tests {
 
         // Should compile without running tensor IR phases
         let result = compiler.compile_source("Test", "main = 42");
-        assert!(result.is_ok(), "Default profile should compile successfully");
+        assert!(result.is_ok(), "Default profile should compile successfully: {:?}", result.err());
     }
 
     /// Test that Numeric profile compiles with tensor IR phases
@@ -1114,5 +1312,81 @@ mod tests {
             CompileError::NoMainFunction => {}
             other => panic!("Expected NoMainFunction, got: {other:?}"),
         }
+    }
+
+    /// Test compiling to a standalone executable and running it
+    #[test]
+    fn test_compile_to_executable() {
+        use std::process::Command;
+        use tempfile::TempDir;
+
+        // Create a temp directory for the executable
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let exe_path = temp_dir.path().join("test_exe");
+
+        let compiler = CompilerBuilder::new()
+            .profile(Profile::Default)
+            .output_type(OutputType::Executable)
+            .output_path(Utf8PathBuf::from_path_buf(exe_path.clone()).unwrap())
+            .build()
+            .unwrap();
+
+        // Compile main = 42 to an executable
+        let result = compiler.compile_source("Test", "main = 42");
+        assert!(result.is_ok(), "Should compile to executable: {:?}", result.err());
+
+        // Verify the executable was created
+        assert!(exe_path.exists(), "Executable should exist at {:?}", exe_path);
+
+        // Run the executable and check exit code
+        // Note: Our main returns 42, which becomes the exit code
+        let output = Command::new(&exe_path)
+            .output()
+            .expect("failed to run executable");
+
+        // Exit code should be 42 (main's return value)
+        assert_eq!(
+            output.status.code(),
+            Some(42),
+            "Executable should exit with code 42"
+        );
+    }
+
+    /// Test compiling and running print 42
+    #[test]
+    fn test_print_primitive() {
+        use std::process::Command;
+        use tempfile::TempDir;
+
+        // Create a temp directory for the executable
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let exe_path = temp_dir.path().join("test_print");
+
+        let compiler = CompilerBuilder::new()
+            .profile(Profile::Default)
+            .output_type(OutputType::Executable)
+            .output_path(Utf8PathBuf::from_path_buf(exe_path.clone()).unwrap())
+            .build()
+            .unwrap();
+
+        // Compile main = print 42 to an executable
+        let result = compiler.compile_source("Test", "main = print 42");
+        assert!(result.is_ok(), "Should compile print 42: {:?}", result.err());
+
+        // Verify the executable was created
+        assert!(exe_path.exists(), "Executable should exist at {:?}", exe_path);
+
+        // Run the executable and check output
+        let output = Command::new(&exe_path)
+            .output()
+            .expect("failed to run executable");
+
+        // Check that stdout contains "42"
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("42"),
+            "Output should contain 42, got: {}",
+            stdout
+        );
     }
 }
