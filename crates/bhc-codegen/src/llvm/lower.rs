@@ -11,13 +11,13 @@
 //! - Case expressions: Compiled to switch/branch
 
 use crate::{CodegenError, CodegenResult};
-use bhc_core::{Alt, AltCon, Bind, CoreModule, Expr, Literal, Var, VarId};
+use bhc_core::{Alt, AltCon, Bind, CoreModule, DataCon, Expr, Literal, Var, VarId};
 use bhc_index::Idx;
 use bhc_types::Ty;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use rustc_hash::FxHashMap;
 
 use super::context::LlvmContext;
@@ -85,6 +85,210 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let print_string_type = void_type.fn_type(&[i8_ptr_type.into()], false);
         let print_string = self.module.llvm_module().add_function("bhc_print_string", print_string_type, None);
         self.functions.insert(VarId::new(1004), print_string);
+
+        // bhc_alloc(size: i64) -> ptr - allocate heap memory
+        let alloc_type = i8_ptr_type.fn_type(&[i64_type.into()], false);
+        let alloc_fn = self.module.llvm_module().add_function("bhc_alloc", alloc_type, None);
+        self.functions.insert(VarId::new(1005), alloc_fn);
+    }
+
+    // ========================================================================
+    // ADT (Algebraic Data Type) Value Representation
+    // ========================================================================
+    //
+    // ADT values are represented as heap-allocated structs:
+    //
+    //   struct ADTValue {
+    //       i64 tag;          // Constructor tag (0, 1, 2, ...)
+    //       ptr fields[];     // Variable-length array of field pointers
+    //   }
+    //
+    // For example, `Just 42` would be:
+    //   { tag: 1, fields: [ptr_to_42] }
+    //
+    // And `Nothing` would be:
+    //   { tag: 0, fields: [] }
+    // ========================================================================
+
+    /// Get the LLVM struct type for an ADT value with the given arity.
+    fn adt_type(&self, arity: u32) -> inkwell::types::StructType<'ctx> {
+        let tm = self.type_mapper();
+        let tag_type = tm.i64_type();
+        let ptr_type = tm.ptr_type();
+
+        // Create array type for fields
+        let fields_type = ptr_type.array_type(arity);
+
+        // Struct: { i64 tag, [arity x ptr] fields }
+        self.llvm_ctx.struct_type(&[tag_type.into(), fields_type.into()], false)
+    }
+
+    /// Allocate an ADT value with the given tag and arity.
+    fn alloc_adt(
+        &self,
+        tag: u32,
+        arity: u32,
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        let adt_ty = self.adt_type(arity);
+
+        // Calculate size: sizeof(i64) + arity * sizeof(ptr)
+        let size = 8 + (arity as u64) * 8;
+
+        // Call bhc_alloc
+        let alloc_fn = self.functions.get(&VarId::new(1005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+
+        let size_val = tm.i64_type().const_int(size, false);
+        let raw_ptr = self
+            .builder()
+            .build_call(*alloc_fn, &[size_val.into()], "adt_alloc")
+            .map_err(|e| CodegenError::Internal(format!("failed to call bhc_alloc: {:?}", e)))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::Internal("bhc_alloc returned void".to_string()))?;
+
+        let ptr = raw_ptr.into_pointer_value();
+
+        // Store the tag at offset 0
+        let tag_ptr = self
+            .builder()
+            .build_struct_gep(adt_ty, ptr, 0, "tag_ptr")
+            .map_err(|e| CodegenError::Internal(format!("failed to get tag ptr: {:?}", e)))?;
+
+        let tag_val = tm.i64_type().const_int(tag as u64, false);
+        self.builder()
+            .build_store(tag_ptr, tag_val)
+            .map_err(|e| CodegenError::Internal(format!("failed to store tag: {:?}", e)))?;
+
+        Ok(ptr)
+    }
+
+    /// Store a field value into an ADT at the given index.
+    fn store_adt_field(
+        &self,
+        adt_ptr: PointerValue<'ctx>,
+        arity: u32,
+        field_index: u32,
+        value: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<()> {
+        let adt_ty = self.adt_type(arity);
+        let tm = self.type_mapper();
+
+        // Get pointer to fields array
+        let fields_ptr = self
+            .builder()
+            .build_struct_gep(adt_ty, adt_ptr, 1, "fields_ptr")
+            .map_err(|e| CodegenError::Internal(format!("failed to get fields ptr: {:?}", e)))?;
+
+        // Get pointer to specific field
+        let field_ptr = unsafe {
+            self.builder()
+                .build_in_bounds_gep(
+                    tm.ptr_type().array_type(arity),
+                    fields_ptr,
+                    &[
+                        tm.i64_type().const_zero(),
+                        tm.i64_type().const_int(field_index as u64, false),
+                    ],
+                    &format!("field_{}", field_index),
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to get field ptr: {:?}", e)))?
+        };
+
+        // Convert value to pointer if needed
+        let ptr_val = self.value_to_ptr(value)?;
+        self.builder()
+            .build_store(field_ptr, ptr_val)
+            .map_err(|e| CodegenError::Internal(format!("failed to store field: {:?}", e)))?;
+
+        Ok(())
+    }
+
+    /// Convert a basic value to a pointer (boxing primitives if needed).
+    fn value_to_ptr(&self, value: BasicValueEnum<'ctx>) -> CodegenResult<PointerValue<'ctx>> {
+        match value {
+            BasicValueEnum::PointerValue(p) => Ok(p),
+            BasicValueEnum::IntValue(i) => {
+                // Box the integer: cast to pointer
+                self.builder()
+                    .build_int_to_ptr(i, self.type_mapper().ptr_type(), "box_int")
+                    .map_err(|e| CodegenError::Internal(format!("failed to box int: {:?}", e)))
+            }
+            BasicValueEnum::FloatValue(f) => {
+                // Box the float: cast bits to int, then to pointer
+                let bits = self
+                    .builder()
+                    .build_bit_cast(f, self.type_mapper().i64_type(), "float_bits")
+                    .map_err(|e| CodegenError::Internal(format!("failed to cast float: {:?}", e)))?
+                    .into_int_value();
+                self.builder()
+                    .build_int_to_ptr(bits, self.type_mapper().ptr_type(), "box_float")
+                    .map_err(|e| CodegenError::Internal(format!("failed to box float: {:?}", e)))
+            }
+            _ => Err(CodegenError::Unsupported(
+                "cannot box this value type".to_string(),
+            )),
+        }
+    }
+
+    /// Extract the tag from an ADT value.
+    fn extract_adt_tag(&self, adt_ptr: PointerValue<'ctx>) -> CodegenResult<IntValue<'ctx>> {
+        // We need to use a generic adt type for reading - use arity 0 since tag is always at offset 0
+        let adt_ty = self.adt_type(0);
+
+        let tag_ptr = self
+            .builder()
+            .build_struct_gep(adt_ty, adt_ptr, 0, "tag_ptr")
+            .map_err(|e| CodegenError::Internal(format!("failed to get tag ptr: {:?}", e)))?;
+
+        let tag = self
+            .builder()
+            .build_load(self.type_mapper().i64_type(), tag_ptr, "tag")
+            .map_err(|e| CodegenError::Internal(format!("failed to load tag: {:?}", e)))?;
+
+        Ok(tag.into_int_value())
+    }
+
+    /// Extract a field from an ADT value.
+    fn extract_adt_field(
+        &self,
+        adt_ptr: PointerValue<'ctx>,
+        arity: u32,
+        field_index: u32,
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let adt_ty = self.adt_type(arity);
+        let tm = self.type_mapper();
+
+        // Get pointer to fields array
+        let fields_ptr = self
+            .builder()
+            .build_struct_gep(adt_ty, adt_ptr, 1, "fields_ptr")
+            .map_err(|e| CodegenError::Internal(format!("failed to get fields ptr: {:?}", e)))?;
+
+        // Get pointer to specific field
+        let field_ptr = unsafe {
+            self.builder()
+                .build_in_bounds_gep(
+                    tm.ptr_type().array_type(arity),
+                    fields_ptr,
+                    &[
+                        tm.i64_type().const_zero(),
+                        tm.i64_type().const_int(field_index as u64, false),
+                    ],
+                    &format!("field_ptr_{}", field_index),
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to get field ptr: {:?}", e)))?
+        };
+
+        // Load the field value (which is a pointer)
+        let field_val = self
+            .builder()
+            .build_load(tm.ptr_type(), field_ptr, &format!("field_{}", field_index))
+            .map_err(|e| CodegenError::Internal(format!("failed to load field: {:?}", e)))?;
+
+        Ok(field_val.into_pointer_value())
     }
 
     /// Get the RTS function ID for a builtin name.
@@ -95,6 +299,79 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "putStr" => Some(VarId::new(1004)),     // bhc_print_string
             _ => None,
         }
+    }
+
+    /// Check if a name is a data constructor and return (tag, arity).
+    ///
+    /// Data constructors in Haskell start with uppercase letters.
+    /// For builtin types, we know the exact tags:
+    /// - Bool: False=0, True=1
+    /// - Maybe: Nothing=0, Just=1
+    /// - Either: Left=0, Right=1
+    /// - List: []=0, (:)=1
+    /// - Tuple: ()=0
+    fn constructor_info(&self, name: &str) -> Option<(u32, u32)> {
+        match name {
+            // Bool constructors
+            "False" => Some((0, 0)),  // tag=0, arity=0
+            "True" => Some((1, 0)),   // tag=1, arity=0
+
+            // Maybe constructors
+            "Nothing" => Some((0, 0)), // tag=0, arity=0
+            "Just" => Some((1, 1)),    // tag=1, arity=1
+
+            // Either constructors
+            "Left" => Some((0, 1)),   // tag=0, arity=1
+            "Right" => Some((1, 1)),  // tag=1, arity=1
+
+            // List constructors
+            "[]" => Some((0, 0)),     // tag=0, arity=0 (Nil)
+            ":" => Some((1, 2)),      // tag=1, arity=2 (Cons head tail)
+
+            // Unit constructor
+            "()" => Some((0, 0)),     // tag=0, arity=0
+
+            // User-defined constructors: check first character is uppercase
+            _ => {
+                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    // For user-defined constructors, we don't know the tag/arity
+                    // This would need to be passed from the type checker
+                    // For now, return None and fall back to function call
+                    None
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Check if an expression is a saturated constructor application.
+    ///
+    /// Returns Some((tag, collected_args)) if the expression is a fully-applied constructor.
+    fn is_saturated_constructor<'a>(
+        &self,
+        expr: &'a Expr,
+    ) -> Option<(u32, u32, Vec<&'a Expr>)> {
+        // Collect arguments while unwrapping applications
+        let mut args = Vec::new();
+        let mut current = expr;
+
+        while let Expr::App(func, arg, _) = current {
+            args.push(arg.as_ref());
+            current = func.as_ref();
+        }
+
+        // Check if the head is a constructor
+        if let Expr::Var(var, _) = current {
+            if let Some((tag, arity)) = self.constructor_info(var.name.as_str()) {
+                args.reverse();
+                if args.len() == arity as usize {
+                    return Some((tag, arity, args));
+                }
+            }
+        }
+
+        None
     }
 
     /// Lower a Core module to LLVM IR.
@@ -277,11 +554,24 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Lower a function application.
+    ///
+    /// Handles two cases:
+    /// 1. Constructor application (e.g., `Just 42`) - allocate ADT value
+    /// 2. Function call - generate call instruction
     fn lower_application(
         &mut self,
         func: &Expr,
         arg: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // First, reconstruct the full application to check for constructor
+        let full_app = Expr::App(Box::new(func.clone()), Box::new(arg.clone()), func.span());
+
+        // Check if this is a saturated constructor application
+        if let Some((tag, arity, con_args)) = self.is_saturated_constructor(&full_app) {
+            return self.lower_constructor_application(tag, arity, &con_args);
+        }
+
+        // Not a constructor - proceed with function call
         // Collect all arguments (for curried applications)
         let mut args = vec![arg];
         let mut current = func;
@@ -297,6 +587,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let fn_val = match current {
             Expr::Var(var, _) => {
                 let name = var.name.as_str();
+
+                // Check if this is a nullary constructor (no args, just a value)
+                if let Some((tag, arity)) = self.constructor_info(name) {
+                    if arity == 0 {
+                        // Nullary constructor like True, False, Nothing, ()
+                        return self.lower_constructor_application(tag, 0, &[]);
+                    }
+                }
 
                 // Check if this is an RTS builtin
                 if let Some(rts_id) = self.rts_function_id(name) {
@@ -334,6 +632,29 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(call.try_as_basic_value().left())
     }
 
+    /// Lower a constructor application to an ADT value.
+    ///
+    /// Allocates an ADT value with the given tag and stores the arguments as fields.
+    fn lower_constructor_application(
+        &mut self,
+        tag: u32,
+        arity: u32,
+        args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Allocate the ADT value
+        let adt_ptr = self.alloc_adt(tag, arity)?;
+
+        // Store each argument as a field
+        for (i, arg_expr) in args.iter().enumerate() {
+            if let Some(arg_val) = self.lower_expr(arg_expr)? {
+                self.store_adt_field(adt_ptr, arity, i as u32, arg_val)?;
+            }
+        }
+
+        // Return the pointer to the ADT value
+        Ok(Some(adt_ptr.into()))
+    }
+
     /// Lower a let binding.
     fn lower_let(&mut self, bind: &Bind, body: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         match bind {
@@ -364,6 +685,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Lower a case expression.
+    ///
+    /// Handles three cases:
+    /// 1. Literal patterns (Int, Char) - switch on the primitive value
+    /// 2. Constructor patterns (DataCon) - switch on the tag, extract fields
+    /// 3. Default pattern - catch-all fallback
     fn lower_case(
         &mut self,
         scrut: &Expr,
@@ -373,12 +699,28 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             CodegenError::Internal("scrutinee has no value".to_string())
         })?;
 
-        // For now, only handle integer/char case
+        // Determine if this is a constructor case or a literal case
+        let has_datacon = alts.iter().any(|alt| matches!(&alt.con, AltCon::DataCon(_)));
+
+        if has_datacon {
+            self.lower_case_datacon(scrut_val, alts)
+        } else {
+            self.lower_case_literal(scrut_val, alts)
+        }
+    }
+
+    /// Lower a case expression with literal patterns.
+    fn lower_case_literal(
+        &mut self,
+        scrut_val: BasicValueEnum<'ctx>,
+        alts: &[Alt],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For literal patterns, scrutinee must be an integer
         let scrut_int = match scrut_val {
             BasicValueEnum::IntValue(i) => i,
             _ => {
                 return Err(CodegenError::Unsupported(
-                    "case on non-integer values not yet supported".to_string(),
+                    "case on non-integer values requires constructor patterns".to_string(),
                 ))
             }
         };
@@ -412,7 +754,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 }
                 _ => {
                     return Err(CodegenError::Unsupported(
-                        "complex case patterns not yet supported".to_string(),
+                        format!("unsupported pattern in literal case: {:?}", alt.con),
                     ))
                 }
             }
@@ -426,6 +768,90 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("failed to build switch: {:?}", e)))?;
 
         // Generate code for each alternative
+        self.lower_case_alternatives(alts, &blocks, merge_block)
+    }
+
+    /// Lower a case expression with constructor patterns.
+    fn lower_case_datacon(
+        &mut self,
+        scrut_val: BasicValueEnum<'ctx>,
+        alts: &[Alt],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For constructor patterns, scrutinee must be a pointer (ADT value)
+        let scrut_ptr = match scrut_val {
+            BasicValueEnum::PointerValue(p) => p,
+            BasicValueEnum::IntValue(i) => {
+                // If it's an int, it might be a boxed value - try to interpret as ptr
+                self.builder()
+                    .build_int_to_ptr(i, self.type_mapper().ptr_type(), "scrut_ptr")
+                    .map_err(|e| CodegenError::Internal(format!("failed to cast scrutinee: {:?}", e)))?
+            }
+            _ => {
+                return Err(CodegenError::Unsupported(
+                    "case on non-pointer value with constructor patterns".to_string(),
+                ))
+            }
+        };
+
+        // Extract the tag from the ADT value
+        let tag = self.extract_adt_tag(scrut_ptr)?;
+
+        let current_fn = self.builder()
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+            .get_parent()
+            .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+
+        // Create blocks for each alternative
+        let mut blocks = Vec::new();
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "case_merge");
+
+        let mut default_block = None;
+        let mut cases = Vec::new();
+
+        // Collect DataCon info for field extraction later
+        let mut datacon_info: Vec<Option<&DataCon>> = Vec::new();
+
+        for alt in alts {
+            let block = self.llvm_context().append_basic_block(current_fn, "case_alt");
+            blocks.push(block);
+
+            match &alt.con {
+                AltCon::DataCon(con) => {
+                    let tag_val = self.type_mapper().i64_type().const_int(con.tag as u64, false);
+                    cases.push((tag_val, block));
+                    datacon_info.push(Some(con));
+                }
+                AltCon::Default => {
+                    default_block = Some(block);
+                    datacon_info.push(None);
+                }
+                AltCon::Lit(_) => {
+                    return Err(CodegenError::Unsupported(
+                        "mixed literal and constructor patterns".to_string(),
+                    ))
+                }
+            }
+        }
+
+        // Build switch on tag
+        let default = default_block.unwrap_or(merge_block);
+        let _switch = self
+            .builder()
+            .build_switch(tag, default, &cases)
+            .map_err(|e| CodegenError::Internal(format!("failed to build switch: {:?}", e)))?;
+
+        // Generate code for each alternative with field extraction
+        self.lower_case_datacon_alternatives(alts, &blocks, merge_block, scrut_ptr, &datacon_info)
+    }
+
+    /// Lower case alternatives (shared logic for RHS generation).
+    fn lower_case_alternatives(
+        &mut self,
+        alts: &[Alt],
+        blocks: &[inkwell::basic_block::BasicBlock<'ctx>],
+        merge_block: inkwell::basic_block::BasicBlock<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let mut phi_values = Vec::new();
 
         for (i, alt) in alts.iter().enumerate() {
@@ -458,6 +884,202 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
 
             Ok(Some(phi.as_basic_value()))
+        }
+    }
+
+    /// Lower case alternatives with DataCon patterns (extracts fields and binds variables).
+    fn lower_case_datacon_alternatives(
+        &mut self,
+        alts: &[Alt],
+        blocks: &[inkwell::basic_block::BasicBlock<'ctx>],
+        merge_block: inkwell::basic_block::BasicBlock<'ctx>,
+        scrut_ptr: PointerValue<'ctx>,
+        datacon_info: &[Option<&DataCon>],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let mut phi_values = Vec::new();
+
+        for (i, alt) in alts.iter().enumerate() {
+            self.builder().position_at_end(blocks[i]);
+
+            // Extract fields and bind to pattern variables
+            if let Some(con) = datacon_info[i] {
+                let arity = con.arity;
+
+                // Bind each field to its corresponding pattern variable
+                for (field_idx, binder) in alt.binders.iter().enumerate() {
+                    if field_idx < arity as usize {
+                        let field_ptr = self.extract_adt_field(scrut_ptr, arity, field_idx as u32)?;
+
+                        // Determine if we need to unbox the field
+                        let field_val = self.ptr_to_value(field_ptr, &binder.ty)?;
+                        self.env.insert(binder.id, field_val);
+                    }
+                }
+            }
+
+            // Lower the RHS with bound variables
+            let result = self.lower_expr(&alt.rhs)?;
+
+            // Remove bindings (for proper scoping)
+            for binder in &alt.binders {
+                self.env.remove(&binder.id);
+            }
+
+            if let Some(val) = result {
+                phi_values.push((val, blocks[i]));
+            }
+
+            // Jump to merge block
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        }
+
+        // Build phi node in merge block
+        self.builder().position_at_end(merge_block);
+
+        if phi_values.is_empty() {
+            Ok(None)
+        } else {
+            let first_val = phi_values[0].0;
+            let phi = self
+                .builder()
+                .build_phi(first_val.get_type(), "case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &phi_values {
+                phi.add_incoming(&[(val, *block)]);
+            }
+
+            Ok(Some(phi.as_basic_value()))
+        }
+    }
+
+    /// Convert a pointer to a basic value, unboxing if necessary based on type.
+    fn ptr_to_value(&self, ptr: PointerValue<'ctx>, ty: &Ty) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let tm = self.type_mapper();
+
+        match ty {
+            Ty::Con(con) => {
+                let name = con.name.as_str();
+                match name {
+                    "Int" | "Int#" | "Int64" => {
+                        // Unbox: ptr -> int
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_int")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox int: {:?}", e)))?;
+                        Ok(int_val.into())
+                    }
+                    "Int32" => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_int")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox int: {:?}", e)))?;
+                        let truncated = self.builder()
+                            .build_int_truncate(int_val, tm.i32_type(), "trunc_i32")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate: {:?}", e)))?;
+                        Ok(truncated.into())
+                    }
+                    "Bool" => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_bool")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox bool: {:?}", e)))?;
+                        let bool_val = self.builder()
+                            .build_int_truncate(int_val, tm.bool_type(), "to_bool")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate bool: {:?}", e)))?;
+                        Ok(bool_val.into())
+                    }
+                    "Char" | "Char#" => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_char")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox char: {:?}", e)))?;
+                        let char_val = self.builder()
+                            .build_int_truncate(int_val, tm.i32_type(), "to_char")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate char: {:?}", e)))?;
+                        Ok(char_val.into())
+                    }
+                    "Float" | "Float#" => {
+                        // Unbox: ptr -> bits -> float
+                        let bits = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_float_bits")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox float: {:?}", e)))?;
+                        let truncated = self.builder()
+                            .build_int_truncate(bits, tm.i32_type(), "float_bits_32")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate float bits: {:?}", e)))?;
+                        let float_val = self.builder()
+                            .build_bit_cast(truncated, tm.f32_type(), "to_float")
+                            .map_err(|e| CodegenError::Internal(format!("failed to cast to float: {:?}", e)))?;
+                        Ok(float_val)
+                    }
+                    "Double" | "Double#" => {
+                        let bits = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_double_bits")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox double: {:?}", e)))?;
+                        let double_val = self.builder()
+                            .build_bit_cast(bits, tm.f64_type(), "to_double")
+                            .map_err(|e| CodegenError::Internal(format!("failed to cast to double: {:?}", e)))?;
+                        Ok(double_val)
+                    }
+                    _ => {
+                        // For other types (ADTs), keep as pointer
+                        Ok(ptr.into())
+                    }
+                }
+            }
+            Ty::Prim(prim) => {
+                use bhc_types::PrimTy;
+                match prim {
+                    PrimTy::I64 | PrimTy::U64 => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_i64")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox i64: {:?}", e)))?;
+                        Ok(int_val.into())
+                    }
+                    PrimTy::I32 | PrimTy::U32 => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_int")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox int: {:?}", e)))?;
+                        let truncated = self.builder()
+                            .build_int_truncate(int_val, tm.i32_type(), "trunc_i32")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate: {:?}", e)))?;
+                        Ok(truncated.into())
+                    }
+                    PrimTy::F32 => {
+                        let bits = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_float_bits")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox float: {:?}", e)))?;
+                        let truncated = self.builder()
+                            .build_int_truncate(bits, tm.i32_type(), "float_bits_32")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate float bits: {:?}", e)))?;
+                        let float_val = self.builder()
+                            .build_bit_cast(truncated, tm.f32_type(), "to_float")
+                            .map_err(|e| CodegenError::Internal(format!("failed to cast to float: {:?}", e)))?;
+                        Ok(float_val)
+                    }
+                    PrimTy::F64 => {
+                        let bits = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_double_bits")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox double: {:?}", e)))?;
+                        let double_val = self.builder()
+                            .build_bit_cast(bits, tm.f64_type(), "to_double")
+                            .map_err(|e| CodegenError::Internal(format!("failed to cast to double: {:?}", e)))?;
+                        Ok(double_val)
+                    }
+                    PrimTy::Char => {
+                        let int_val = self.builder()
+                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_char")
+                            .map_err(|e| CodegenError::Internal(format!("failed to unbox char: {:?}", e)))?;
+                        let char_val = self.builder()
+                            .build_int_truncate(int_val, tm.i32_type(), "to_char")
+                            .map_err(|e| CodegenError::Internal(format!("failed to truncate char: {:?}", e)))?;
+                        Ok(char_val.into())
+                    }
+                    PrimTy::Addr => Ok(ptr.into()),
+                }
+            }
+            _ => {
+                // For function types, type variables, etc., keep as pointer
+                Ok(ptr.into())
+            }
         }
     }
 
