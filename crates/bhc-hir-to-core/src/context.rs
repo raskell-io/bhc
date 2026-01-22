@@ -14,6 +14,7 @@ use bhc_span::Span;
 use bhc_types::{Constraint, Scheme, Ty};
 use rustc_hash::FxHashMap;
 
+use crate::deriving::DerivingContext;
 use crate::dictionary::{ClassInfo, ClassRegistry, DictContext, InstanceInfo};
 
 /// Metadata about a data constructor.
@@ -867,11 +868,43 @@ impl LowerContext {
                             arity,
                         });
                     }
+
+                    // Process deriving clauses
+                    if !data_def.deriving.is_empty() {
+                        let mut deriv_ctx = DerivingContext::new();
+                        let derived_instances: Vec<_> = data_def
+                            .deriving
+                            .iter()
+                            .filter_map(|class_name| {
+                                deriv_ctx.derive_for_data(data_def, *class_name)
+                            })
+                            .collect();
+                        for derived in derived_instances {
+                            self.class_registry.register_instance(derived.instance);
+                            bindings.extend(derived.bindings);
+                        }
+                    }
                 }
                 Item::Newtype(newtype_def) => {
                     // Register the newtype constructor
                     let var = self.named_var(newtype_def.con.name, Ty::Error);
                     self.register_var(newtype_def.con.id, var);
+
+                    // Process deriving clauses
+                    if !newtype_def.deriving.is_empty() {
+                        let mut deriv_ctx = DerivingContext::new();
+                        let derived_instances: Vec<_> = newtype_def
+                            .deriving
+                            .iter()
+                            .filter_map(|class_name| {
+                                deriv_ctx.derive_for_newtype(newtype_def, *class_name)
+                            })
+                            .collect();
+                        for derived in derived_instances {
+                            self.class_registry.register_instance(derived.instance);
+                            bindings.extend(derived.bindings);
+                        }
+                    }
                 }
                 Item::TypeAlias(_) => {
                     // Type aliases don't produce bindings

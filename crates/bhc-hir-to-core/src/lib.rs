@@ -17,6 +17,7 @@
 
 mod binding;
 mod context;
+pub mod deriving;
 pub mod dictionary;
 mod expr;
 mod pattern;
