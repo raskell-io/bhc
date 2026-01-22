@@ -96,18 +96,49 @@ fn lower_lit(lit: &Lit, span: Span) -> LowerResult<core::Expr> {
 
 /// Lower a variable reference to Core.
 ///
-/// If the referenced function has type class constraints, this applies
-/// dictionary arguments from the current scope. For example, if we're
-/// inside a constrained function `f :: Num a => a -> a` and we reference
-/// another constrained function `g :: Num a => a -> a`, we pass the
-/// dictionary `$dNum` that `f` received to `g`.
+/// This handles several cases:
+///
+/// 1. **Class methods**: If the variable is a class method (like `==` from `Eq`),
+///    and we're inside a constrained function, select the method from the
+///    appropriate dictionary.
+///
+/// 2. **Constrained functions**: If the referenced function has type class
+///    constraints, apply dictionary arguments from the current scope or
+///    resolve instances for concrete types.
+///
+/// 3. **Regular variables**: Just return a variable reference.
 fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr> {
+    // First, check if this is a class method reference
+    let var_name = ctx.lookup_var(def_ref.def_id)
+        .map(|v| v.name);
+
+    if let Some(name) = var_name {
+        // Check if this is a class method
+        if let Some(class_name) = ctx.is_class_method(name) {
+            // This is a class method - we need to select it from a dictionary
+            // Look for an in-scope dictionary for this class
+            if let Some(dict_var) = ctx.lookup_dict(class_name) {
+                // Select the method from the dictionary
+                if let Some(method_expr) = ctx.select_method_from_dict(
+                    dict_var,
+                    class_name,
+                    name,
+                    def_ref.span,
+                ) {
+                    return Ok(method_expr);
+                }
+            }
+            // No dictionary in scope - fall through to regular handling
+            // This might happen at top-level where instance resolution is needed
+        }
+    }
+
+    // Regular variable handling
     let base_expr = if let Some(var) = ctx.lookup_var(def_ref.def_id) {
         core::Expr::Var(var.clone(), def_ref.span)
     } else {
         // Variable not found - this could be a builtin or external reference
         // Create a placeholder variable
-        eprintln!("DEBUG: lower_var could not find DefId({:?})", def_ref.def_id);
         let placeholder = Var {
             name: Symbol::intern("unknown"),
             id: VarId::new(def_ref.def_id.index()),
@@ -119,24 +150,21 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
     // Check if the referenced function has constraints that need dictionary arguments
     if let Some(scheme) = ctx.lookup_scheme(def_ref.def_id) {
         if !scheme.constraints.is_empty() {
-            // Look up dictionaries for each constraint from the current scope
-            let dicts = ctx.lookup_dicts_for_constraints(&scheme.constraints);
+            let constraints = scheme.constraints.clone();
 
-            // Apply all available dictionaries
+            // Apply dictionaries for each constraint
             let mut result = base_expr;
-            for (i, maybe_dict) in dicts.into_iter().enumerate() {
-                if let Some(dict_var) = maybe_dict {
+            for constraint in &constraints {
+                // Try to resolve the dictionary
+                if let Some(dict_expr) = ctx.resolve_dictionary(constraint, def_ref.span) {
                     result = core::Expr::App(
                         Box::new(result),
-                        Box::new(core::Expr::Var(dict_var, def_ref.span)),
+                        Box::new(dict_expr),
                         def_ref.span,
                     );
                 } else {
-                    // Dictionary not in scope - this could happen for:
-                    // 1. Top-level calls with concrete types (need instance resolution)
-                    // 2. Missing instances (type error, should have been caught)
-                    // For now, create a placeholder dictionary variable
-                    let constraint = &scheme.constraints[i];
+                    // Dictionary not available - create a placeholder
+                    // This could be a type error or an unresolved polymorphic context
                     let placeholder_name = format!("$dict_{}", constraint.class.as_str());
                     let placeholder_var = Var {
                         name: Symbol::intern(&placeholder_name),

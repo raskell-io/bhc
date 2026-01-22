@@ -17,6 +17,7 @@
 
 mod binding;
 mod context;
+pub mod dictionary;
 mod expr;
 mod pattern;
 
@@ -246,6 +247,163 @@ mod tests {
             }
             _ => panic!("Expected NonRec binding"),
         }
+    }
+
+    #[test]
+    fn test_class_and_instance_registration() {
+        // Create a class definition:
+        // class MyEq a where
+        //   myEq :: a -> a -> Bool
+        //   myNeq :: a -> a -> Bool
+
+        let class_def_id = DefId::new(300);
+        let my_eq_method_id = DefId::new(301);
+        let my_neq_method_id = DefId::new(302);
+        let a_var = TyVar::new(0, Kind::Star);
+
+        let class_def = bhc_hir::ClassDef {
+            id: class_def_id,
+            name: Symbol::intern("MyEq"),
+            params: vec![a_var.clone()],
+            supers: vec![], // No superclasses
+            methods: vec![
+                bhc_hir::MethodSig {
+                    name: Symbol::intern("myEq"),
+                    ty: Scheme {
+                        vars: vec![],
+                        constraints: vec![],
+                        ty: Ty::Fun(
+                            Box::new(Ty::Var(a_var.clone())),
+                            Box::new(Ty::Fun(
+                                Box::new(Ty::Var(a_var.clone())),
+                                Box::new(Ty::Con(bhc_types::TyCon::new(
+                                    Symbol::intern("Bool"),
+                                    Kind::Star,
+                                ))),
+                            )),
+                        ),
+                    },
+                    span: Span::default(),
+                },
+                bhc_hir::MethodSig {
+                    name: Symbol::intern("myNeq"),
+                    ty: Scheme {
+                        vars: vec![],
+                        constraints: vec![],
+                        ty: Ty::Fun(
+                            Box::new(Ty::Var(a_var.clone())),
+                            Box::new(Ty::Fun(
+                                Box::new(Ty::Var(a_var)),
+                                Box::new(Ty::Con(bhc_types::TyCon::new(
+                                    Symbol::intern("Bool"),
+                                    Kind::Star,
+                                ))),
+                            )),
+                        ),
+                    },
+                    span: Span::default(),
+                },
+            ],
+            defaults: vec![],
+            span: Span::default(),
+        };
+
+        // Create an instance:
+        // instance MyEq Int where
+        //   myEq x y = ...
+        //   myNeq x y = ...
+
+        let my_eq_impl_id = DefId::new(310);
+        let my_neq_impl_id = DefId::new(311);
+        let x_def_id = DefId::new(312);
+        let y_def_id = DefId::new(313);
+
+        let int_ty = Ty::Con(bhc_types::TyCon::new(Symbol::intern("Int"), Kind::Star));
+
+        let instance_def = bhc_hir::InstanceDef {
+            class: Symbol::intern("MyEq"),
+            types: vec![int_ty.clone()],
+            constraints: vec![],
+            methods: vec![
+                ValueDef {
+                    id: my_eq_impl_id,
+                    name: Symbol::intern("myEq"),
+                    sig: None,
+                    equations: vec![Equation {
+                        pats: vec![
+                            Pat::Var(Symbol::intern("x"), x_def_id, Span::default()),
+                            Pat::Var(Symbol::intern("y"), y_def_id, Span::default()),
+                        ],
+                        guards: vec![],
+                        rhs: Expr::Con(bhc_hir::DefRef {
+                            def_id: DefId::new(9), // True
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    }],
+                    span: Span::default(),
+                },
+                ValueDef {
+                    id: my_neq_impl_id,
+                    name: Symbol::intern("myNeq"),
+                    sig: None,
+                    equations: vec![Equation {
+                        pats: vec![
+                            Pat::Var(Symbol::intern("x"), DefId::new(314), Span::default()),
+                            Pat::Var(Symbol::intern("y"), DefId::new(315), Span::default()),
+                        ],
+                        guards: vec![],
+                        rhs: Expr::Con(bhc_hir::DefRef {
+                            def_id: DefId::new(10), // False
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    }],
+                    span: Span::default(),
+                },
+            ],
+            span: Span::default(),
+        };
+
+        let module = HirModule {
+            name: Symbol::intern("Test"),
+            exports: None,
+            imports: vec![],
+            items: vec![
+                Item::Class(class_def),
+                Item::Instance(instance_def),
+            ],
+            span: Span::default(),
+        };
+
+        // Lower the module
+        let result = lower_module(&module);
+        assert!(result.is_ok());
+
+        // Create a new context and lower the module to check the registry
+        let mut ctx = LowerContext::new();
+        let _ = ctx.lower_module(&module);
+
+        // Verify the class is registered
+        let registry = ctx.class_registry();
+        let class_info = registry.lookup_class(Symbol::intern("MyEq"));
+        assert!(class_info.is_some(), "MyEq class should be registered");
+
+        let class_info = class_info.unwrap();
+        assert_eq!(class_info.methods.len(), 2, "Should have 2 methods");
+        assert!(class_info.methods.contains(&Symbol::intern("myEq")));
+        assert!(class_info.methods.contains(&Symbol::intern("myNeq")));
+        assert!(class_info.superclasses.is_empty(), "No superclasses");
+
+        // Verify the instance is registered
+        let instance_info = registry.resolve_instance(Symbol::intern("MyEq"), &int_ty);
+        assert!(instance_info.is_some(), "MyEq Int instance should be registered");
+
+        let instance_info = instance_info.unwrap();
+        assert_eq!(instance_info.class, Symbol::intern("MyEq"));
+        assert_eq!(instance_info.methods.len(), 2);
+        assert!(instance_info.methods.contains_key(&Symbol::intern("myEq")));
+        assert!(instance_info.methods.contains_key(&Symbol::intern("myNeq")));
     }
 
     #[test]

@@ -14,6 +14,8 @@ use bhc_span::Span;
 use bhc_types::{Constraint, Scheme, Ty};
 use rustc_hash::FxHashMap;
 
+use crate::dictionary::{ClassInfo, ClassRegistry, DictContext, InstanceInfo};
+
 /// Metadata about a data constructor.
 ///
 /// This stores information needed to generate correct pattern matching code,
@@ -58,6 +60,9 @@ pub struct LowerContext {
     /// Each entry maps constraint class names to their dictionary variables.
     dict_scope: Vec<FxHashMap<Symbol, Var>>,
 
+    /// Registry of type classes and instances for dictionary construction.
+    class_registry: ClassRegistry,
+
     /// Accumulated errors.
     errors: Vec<LowerError>,
 }
@@ -73,6 +78,7 @@ impl LowerContext {
             type_schemes: FxHashMap::default(),
             constructor_map: FxHashMap::default(),
             dict_scope: vec![FxHashMap::default()], // Start with empty root scope
+            class_registry: ClassRegistry::new(),
             errors: Vec::new(),
         };
         ctx.register_builtins();
@@ -393,6 +399,142 @@ impl LowerContext {
             .collect()
     }
 
+    /// Set the class registry for dictionary construction.
+    pub fn set_class_registry(&mut self, registry: ClassRegistry) {
+        self.class_registry = registry;
+    }
+
+    /// Get a reference to the class registry.
+    #[must_use]
+    pub fn class_registry(&self) -> &ClassRegistry {
+        &self.class_registry
+    }
+
+    /// Try to resolve a dictionary for a constraint with a concrete type.
+    ///
+    /// This first checks the in-scope dictionaries (for polymorphic contexts),
+    /// then falls back to constructing a dictionary from an instance.
+    pub fn resolve_dictionary(
+        &mut self,
+        constraint: &Constraint,
+        span: Span,
+    ) -> Option<core::Expr> {
+        // First, try to find an in-scope dictionary variable
+        if let Some(dict_var) = self.lookup_dict(constraint.class) {
+            return Some(core::Expr::Var(dict_var.clone(), span));
+        }
+
+        // If not in scope, try to construct from an instance
+        // (only works for concrete types)
+        if let Some(ty) = constraint.args.first() {
+            if !has_type_variables(ty) {
+                // Create a DictContext to construct the dictionary
+                let mut dict_ctx = DictContext::new(&self.class_registry);
+                return dict_ctx.get_dictionary(constraint, span);
+            }
+        }
+
+        None
+    }
+
+    /// Select a method from a dictionary.
+    ///
+    /// Given a dictionary variable and a method name, returns an expression
+    /// that extracts that method from the dictionary.
+    pub fn select_method_from_dict(
+        &self,
+        dict_var: &Var,
+        class: Symbol,
+        method_name: Symbol,
+        span: Span,
+    ) -> Option<core::Expr> {
+        crate::dictionary::select_method(
+            dict_var,
+            class,
+            method_name,
+            &self.class_registry,
+            span,
+        )
+    }
+
+    /// Check if a symbol is a class method.
+    ///
+    /// Returns the class name if the symbol is a method of some class.
+    #[must_use]
+    pub fn is_class_method(&self, method_name: Symbol) -> Option<Symbol> {
+        for (class_name, class_info) in &self.class_registry.classes {
+            if class_info.methods.contains(&method_name) {
+                return Some(*class_name);
+            }
+        }
+        None
+    }
+
+    /// Register a type class definition in the class registry.
+    fn register_class_def(&mut self, class_def: &bhc_hir::ClassDef) {
+        let mut method_types = FxHashMap::default();
+        let mut method_names = Vec::new();
+
+        // Collect method signatures
+        for method_sig in &class_def.methods {
+            method_names.push(method_sig.name);
+            method_types.insert(method_sig.name, method_sig.ty.clone());
+        }
+
+        // Collect default method DefIds
+        let mut defaults = FxHashMap::default();
+        for default_def in &class_def.defaults {
+            defaults.insert(default_def.name, default_def.id);
+        }
+
+        let class_info = ClassInfo {
+            name: class_def.name,
+            methods: method_names,
+            method_types,
+            superclasses: class_def.supers.clone(),
+            defaults,
+        };
+
+        self.class_registry.register_class(class_info);
+    }
+
+    /// Register a type class instance definition in the class registry.
+    fn register_instance_def(&mut self, instance_def: &bhc_hir::InstanceDef) {
+        // Collect method implementations
+        let mut methods = FxHashMap::default();
+        for method_def in &instance_def.methods {
+            methods.insert(method_def.name, method_def.id);
+
+            // Also register the method implementation as a variable
+            let var = self.named_var(method_def.name, Ty::Error);
+            self.register_var(method_def.id, var);
+        }
+
+        // Get the instance type (first type in the types list)
+        let instance_type = instance_def
+            .types
+            .first()
+            .cloned()
+            .unwrap_or(Ty::Error);
+
+        // For superclass instances, we need to figure out what types satisfy
+        // the superclass constraints. For now, we assume the same instance type.
+        let superclass_instances = instance_def
+            .constraints
+            .iter()
+            .map(|_| instance_type.clone())
+            .collect();
+
+        let instance_info = InstanceInfo {
+            class: instance_def.class,
+            instance_type,
+            methods,
+            superclass_instances,
+        };
+
+        self.class_registry.register_instance(instance_info);
+    }
+
     /// Lower a HIR module to Core.
     pub fn lower_module(&mut self, module: &HirModule) -> LowerResult<CoreModule> {
         // First pass: collect all top-level definitions and create Core variables
@@ -446,9 +588,13 @@ impl LowerContext {
                 Item::TypeAlias(_) => {
                     // Type aliases don't produce bindings
                 }
-                Item::Class(_) | Item::Instance(_) => {
-                    // Type classes are handled by the type checker;
-                    // dictionary passing is inserted there
+                Item::Class(class_def) => {
+                    // Register the class in the class registry for dictionary construction
+                    self.register_class_def(class_def);
+                }
+                Item::Instance(instance_def) => {
+                    // Register the instance in the class registry for dictionary construction
+                    self.register_instance_def(instance_def);
                 }
                 Item::Fixity(_) => {
                     // Fixity declarations are only used during parsing
@@ -720,6 +866,19 @@ impl LowerContext {
 impl Default for LowerContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Check if a type contains type variables.
+fn has_type_variables(ty: &Ty) -> bool {
+    match ty {
+        Ty::Var(_) => true,
+        Ty::Con(_) | Ty::Prim(_) | Ty::Error => false,
+        Ty::App(f, a) | Ty::Fun(f, a) => has_type_variables(f) || has_type_variables(a),
+        Ty::Tuple(tys) => tys.iter().any(has_type_variables),
+        Ty::List(elem) => has_type_variables(elem),
+        Ty::Forall(_, body) => has_type_variables(body),
+        Ty::Nat(_) | Ty::TyList(_) => false,
     }
 }
 
