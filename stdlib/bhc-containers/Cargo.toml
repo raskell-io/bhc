@@ -1,0 +1,20 @@
+[package]
+name = "bhc-containers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Efficient container types for BHC: Map, Set, IntMap, Sequence"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+bhc-prelude = { path = "../bhc-prelude" }
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true

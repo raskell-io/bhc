@@ -1,0 +1,20 @@
+[package]
+name = "bhc-prelude"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Core types and functions for BHC standard library"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+# No external dependencies - this is the foundation
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true

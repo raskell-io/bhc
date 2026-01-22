@@ -1,0 +1,20 @@
+[package]
+name = "bhc-transformers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Monad transformers for BHC: Reader, Writer, State, Except"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+bhc-prelude = { path = "../bhc-prelude" }
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true

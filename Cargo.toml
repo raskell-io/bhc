@@ -65,6 +65,15 @@ members = [
     # Tools
     "tools/bhci",
     "tools/bhi",
+
+    # Standard library
+    "stdlib/bhc-prelude",
+    "stdlib/bhc-base",
+    "stdlib/bhc-containers",
+    "stdlib/bhc-text",
+    "stdlib/bhc-transformers",
+    "stdlib/bhc-numeric",
+    "stdlib/bhc-concurrent",
 ]
 
 [workspace.package]
@@ -114,6 +123,15 @@ bhc-rts-gc = { path = "rts/bhc-rts-gc" }
 bhc-rts-arena = { path = "rts/bhc-rts-arena" }
 bhc-rts-scheduler = { path = "rts/bhc-rts-scheduler" }
 bhc-rts-alloc = { path = "rts/bhc-rts-alloc" }
+
+# Standard library crates
+bhc-prelude = { path = "stdlib/bhc-prelude" }
+bhc-base = { path = "stdlib/bhc-base" }
+bhc-containers = { path = "stdlib/bhc-containers" }
+bhc-text = { path = "stdlib/bhc-text" }
+bhc-transformers = { path = "stdlib/bhc-transformers" }
+bhc-numeric = { path = "stdlib/bhc-numeric" }
+bhc-concurrent = { path = "stdlib/bhc-concurrent" }
 
 # External dependencies
 thiserror = "1.0"

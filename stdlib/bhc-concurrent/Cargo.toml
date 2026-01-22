@@ -1,0 +1,23 @@
+[package]
+name = "bhc-concurrent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Structured concurrency for BHC: Scope, Task, Channel, STM"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+bhc-prelude = { path = "../bhc-prelude" }
+crossbeam.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true

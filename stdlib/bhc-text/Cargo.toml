@@ -1,0 +1,20 @@
+[package]
+name = "bhc-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Text and ByteString types for BHC with SIMD acceleration"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+bhc-prelude = { path = "../bhc-prelude" }
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
