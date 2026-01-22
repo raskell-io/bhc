@@ -72,6 +72,10 @@ pub struct ConstructorInfo {
     pub def_id: DefId,
     /// The number of fields/arguments the constructor takes.
     pub arity: usize,
+    /// The name of the type constructor this belongs to.
+    pub type_con_name: Symbol,
+    /// The number of type parameters the type has.
+    pub type_param_count: usize,
 }
 
 /// Exports collected from a loaded module.
@@ -283,6 +287,8 @@ fn collect_decl_exports(
                 let export_constructors = export_all || should_export_constructors(type_name, explicit_exports);
 
                 if export_constructors {
+                    let type_param_count = data_decl.params.len();
+
                     for con in &data_decl.constrs {
                         let con_name = con.name.name;
                         let con_def_id = ctx.fresh_def_id();
@@ -292,8 +298,13 @@ fn collect_decl_exports(
                             ast::ConFields::Positional(fields) => fields.len(),
                             ast::ConFields::Record(fields) => fields.len(),
                         };
-                        ctx.define_constructor(con_def_id, con_name, con.span, arity);
-                        exports.constructors.insert(con_name, ConstructorInfo { def_id: con_def_id, arity });
+                        ctx.define_constructor_with_type(con_def_id, con_name, con.span, arity, type_name, type_param_count);
+                        exports.constructors.insert(con_name, ConstructorInfo {
+                            def_id: con_def_id,
+                            arity,
+                            type_con_name: type_name,
+                            type_param_count,
+                        });
 
                         // Export record field accessors
                         if let ast::ConFields::Record(fields) = &con.fields {
@@ -323,9 +334,15 @@ fn collect_decl_exports(
                 if export_constructors {
                     let con_name = newtype_decl.constr.name.name;
                     let con_def_id = ctx.fresh_def_id();
+                    let type_param_count = newtype_decl.params.len();
                     // Newtypes always have arity 1
-                    ctx.define_constructor(con_def_id, con_name, newtype_decl.constr.span, 1);
-                    exports.constructors.insert(con_name, ConstructorInfo { def_id: con_def_id, arity: 1 });
+                    ctx.define_constructor_with_type(con_def_id, con_name, newtype_decl.constr.span, 1, type_name, type_param_count);
+                    exports.constructors.insert(con_name, ConstructorInfo {
+                        def_id: con_def_id,
+                        arity: 1,
+                        type_con_name: type_name,
+                        type_param_count,
+                    });
 
                     // Export record field if present
                     if let ast::ConFields::Record(fields) = &newtype_decl.constr.fields {

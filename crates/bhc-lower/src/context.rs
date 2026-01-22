@@ -76,6 +76,10 @@ pub struct DefInfo {
     pub span: Span,
     /// For constructors, the number of fields/arguments. None for non-constructors.
     pub arity: Option<usize>,
+    /// For constructors, the name of the type constructor. None for non-constructors.
+    pub type_con_name: Option<Symbol>,
+    /// For constructors, the number of type parameters the type has. None for non-constructors.
+    pub type_param_count: Option<usize>,
 }
 
 /// A scope containing name bindings.
@@ -1141,6 +1145,8 @@ impl LowerContext {
                 kind,
                 span,
                 arity: None,
+                type_con_name: None,
+                type_param_count: None,
             },
         );
     }
@@ -1155,6 +1161,32 @@ impl LowerContext {
                 kind: DefKind::Constructor,
                 span,
                 arity: Some(arity),
+                type_con_name: None,
+                type_param_count: None,
+            },
+        );
+    }
+
+    /// Records a constructor definition with full type information.
+    pub fn define_constructor_with_type(
+        &mut self,
+        id: DefId,
+        name: Symbol,
+        span: Span,
+        arity: usize,
+        type_con_name: Symbol,
+        type_param_count: usize,
+    ) {
+        self.defs.insert(
+            id,
+            DefInfo {
+                id,
+                name,
+                kind: DefKind::Constructor,
+                span,
+                arity: Some(arity),
+                type_con_name: Some(type_con_name),
+                type_param_count: Some(type_param_count),
             },
         );
     }

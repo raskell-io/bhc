@@ -292,9 +292,33 @@ impl TyCtxt {
                 // For imported constructors that aren't known builtins,
                 // create a function type based on the constructor's arity.
                 _ => {
-                    if let Some(arity) = def_info.arity {
-                        // Build: a1 -> a2 -> ... -> aN -> Result
-                        // where all are fresh type variables
+                    if let (Some(arity), Some(type_con_name), Some(type_param_count)) =
+                        (def_info.arity, def_info.type_con_name, def_info.type_param_count)
+                    {
+                        // Build proper polymorphic type: forall a1 .. an. T1 -> T2 -> ... -> Tm -> TypeCon a1 .. an
+                        // Create type parameters
+                        let type_params: Vec<TyVar> = (0..type_param_count)
+                            .map(|i| TyVar::new_star(0xFFFE_0000 + i as u32))
+                            .collect();
+
+                        // Build the result type: TypeCon a1 a2 ... an
+                        let kind = Self::compute_type_con_kind(type_param_count);
+                        let type_con = TyCon::new(type_con_name, kind);
+                        let result_ty = type_params.iter().fold(Ty::Con(type_con), |acc, param| {
+                            Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
+                        });
+
+                        // Build the constructor type: Arg1 -> Arg2 -> ... -> ResultType
+                        // For now, field types are fresh type variables
+                        let mut con_ty = result_ty;
+                        for _ in 0..arity {
+                            let arg = self.fresh_ty();
+                            con_ty = Ty::fun(arg, con_ty);
+                        }
+
+                        Scheme::poly(type_params, con_ty)
+                    } else if let Some(arity) = def_info.arity {
+                        // No type info, fall back to fresh type variables
                         let result = self.fresh_ty();
                         let mut con_ty = result;
                         for _ in 0..arity {

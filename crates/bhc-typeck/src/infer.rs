@@ -230,7 +230,7 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
             Ty::List(Box::new(elem_ty))
         }
 
-        Expr::Record(con_ref, _fields, span) => {
+        Expr::Record(con_ref, fields, span) => {
             // Look up constructor
             let scheme = ctx
                 .env
@@ -238,9 +238,30 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
                 .map(|i| i.scheme.clone());
             if let Some(s) = scheme {
                 let con_ty = ctx.instantiate(&s);
-                // For now, just return the result type
-                // A full implementation would check field types
-                extract_result_type(&con_ty)
+
+                // Extract the expected field types from the constructor type
+                // Con type is: T1 -> T2 -> ... -> Tn -> Result
+                let mut expected_field_types = Vec::new();
+                let mut current = &con_ty;
+                while let Ty::Fun(arg, ret) = current {
+                    expected_field_types.push(arg.as_ref().clone());
+                    current = ret.as_ref();
+                }
+                let result_ty = current.clone();
+
+                // For each field in the record construction, infer its type and unify
+                // with the corresponding expected type.
+                // Note: This assumes fields are in declaration order. A proper
+                // implementation would look up field names in the constructor definition.
+                for (i, field) in fields.iter().enumerate() {
+                    let field_val_ty = infer_expr(ctx, &field.value);
+                    if let Some(expected) = expected_field_types.get(i) {
+                        // Unify the field value type with expected type
+                        ctx.unify(&field_val_ty, expected, field.span);
+                    }
+                }
+
+                result_ty
             } else {
                 diagnostics::emit_unbound_constructor(ctx, con_ref.def_id, *span);
                 Ty::Error
