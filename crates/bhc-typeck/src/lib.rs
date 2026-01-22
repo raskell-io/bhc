@@ -172,6 +172,9 @@ pub fn type_check_module_with_defs(
         ctx.check_binding_group(&group);
     }
 
+    // Solve type class constraints (defaults ambiguous type variables)
+    ctx.solve_constraints();
+
     if ctx.has_errors() {
         Err(ctx.take_diagnostics())
     } else {

@@ -260,6 +260,24 @@ pub fn emit_kind_mismatch(
     ctx.emit_error(diag);
 }
 
+/// Emit a "no instance" error when type class constraint cannot be satisfied.
+pub fn emit_no_instance(ctx: &mut TyCtxt, class: Symbol, ty: &Ty, span: Span) {
+    let class_name = class.as_str();
+    let ty_str = pretty_ty(ty);
+
+    let diag = Diagnostic::error(format!(
+        "no instance for `{class_name} {ty_str}`"
+    ))
+    .with_code("E0040")
+    .with_label(ctx.full_span(span), format!("no `{class_name}` instance for `{ty_str}`"))
+    .with_note(format!(
+        "To use this operation, `{ty_str}` must be an instance of `{class_name}`.\n\
+         Consider adding a type annotation or instance declaration."
+    ));
+
+    ctx.emit_error(diag);
+}
+
 // === M10 Phase 2: Function arity errors (E0008-E0010) ===
 
 /// Emit a function arity mismatch error.

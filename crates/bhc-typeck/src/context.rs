@@ -15,11 +15,12 @@ use bhc_hir::{
 };
 use bhc_intern::Symbol;
 use bhc_span::{FileId, Span};
-use bhc_types::{Kind, Scheme, Subst, Ty, TyCon, TyVar};
+use bhc_types::{Constraint, Kind, Scheme, Subst, Ty, TyCon, TyVar};
 use rustc_hash::FxHashMap;
 
 use crate::binding_groups::BindingGroup;
 use crate::builtins::Builtins;
+use crate::diagnostics;
 use crate::env::{ClassInfo, InstanceInfo, TypeEnv};
 use crate::TypedModule;
 
@@ -89,6 +90,10 @@ pub struct TyCtxt {
     /// Maps constructor DefId to named field definitions (name, type) pairs.
     /// Used for record construction type checking with out-of-order fields.
     pub(crate) con_field_defs: FxHashMap<DefId, Vec<(Symbol, Ty)>>,
+
+    /// Collected type class constraints during inference.
+    /// These are solved after inference completes or defaulted if ambiguous.
+    pub(crate) constraints: Vec<Constraint>,
 }
 
 impl TyCtxt {
@@ -105,6 +110,7 @@ impl TyCtxt {
             expr_types: FxHashMap::default(),
             def_schemes: FxHashMap::default(),
             con_field_defs: FxHashMap::default(),
+            constraints: Vec::new(),
         }
     }
 
@@ -127,6 +133,141 @@ impl TyCtxt {
     #[must_use]
     pub fn apply_subst(&self, ty: &Ty) -> Ty {
         self.subst.apply(ty)
+    }
+
+    /// Emit a type class constraint.
+    ///
+    /// Constraints are collected during type inference and solved later.
+    /// For example, `emit_constraint("Num", ty, span)` records that `ty`
+    /// must have a `Num` instance.
+    pub fn emit_constraint(&mut self, class: Symbol, ty: Ty, span: bhc_span::Span) {
+        self.constraints.push(Constraint::new(class, ty, span));
+    }
+
+    /// Apply the current substitution to all collected constraints.
+    pub fn apply_subst_to_constraints(&mut self) {
+        self.constraints = self
+            .constraints
+            .iter()
+            .map(|c| Constraint {
+                class: c.class,
+                args: c.args.iter().map(|t| self.subst.apply(t)).collect(),
+                span: c.span,
+            })
+            .collect();
+    }
+
+    /// Solve collected constraints using instance resolution.
+    ///
+    /// For each constraint:
+    /// 1. Apply current substitution to get the concrete type
+    /// 2. Look up an instance for the class and type
+    /// 3. If found, the constraint is satisfied
+    /// 4. If not found and type is a variable, try defaulting
+    /// 5. If not found and type is concrete, emit an error
+    pub fn solve_constraints(&mut self) {
+        // First apply substitution to all constraints
+        self.apply_subst_to_constraints();
+
+        // Take constraints to avoid borrow conflicts
+        let constraints = std::mem::take(&mut self.constraints);
+
+        // Collect results: (constraint, needs_error)
+        let mut results: Vec<(Constraint, bool)> = Vec::new();
+
+        for constraint in constraints {
+            if constraint.args.is_empty() {
+                continue;
+            }
+
+            let ty = self.subst.apply(&constraint.args[0]);
+
+            // Check if we have an instance
+            if self.env.resolve_instance(constraint.class, &ty).is_some() {
+                // Constraint satisfied by instance
+                continue;
+            }
+
+            // Check for built-in numeric types that satisfy common classes
+            if self.is_builtin_instance(constraint.class, &ty) {
+                continue;
+            }
+
+            // If it's a type variable, try defaulting
+            if let Ty::Var(ref v) = ty {
+                if self.try_default_constraint(constraint.class, v) {
+                    continue;
+                }
+            }
+
+            // Could not solve - record for later error reporting
+            results.push((constraint, true));
+        }
+
+        // Emit errors for unsolved constraints
+        for (constraint, _needs_error) in results {
+            let ty = self.subst.apply(&constraint.args[0]);
+            diagnostics::emit_no_instance(self, constraint.class, &ty, constraint.span);
+        }
+    }
+
+    /// Check if a type has a built-in instance for a class.
+    fn is_builtin_instance(&self, class: Symbol, ty: &Ty) -> bool {
+        let class_name = class.as_str();
+
+        match ty {
+            Ty::Con(tycon) => {
+                let type_name = tycon.name.as_str();
+                matches!(
+                    (class_name, type_name),
+                    // Num instances
+                    ("Num", "Int") | ("Num", "Float") | ("Num", "Double") | ("Num", "Integer") |
+                    // Eq instances
+                    ("Eq", "Int") | ("Eq", "Float") | ("Eq", "Double") | ("Eq", "Bool") |
+                    ("Eq", "Char") | ("Eq", "String") |
+                    // Ord instances
+                    ("Ord", "Int") | ("Ord", "Float") | ("Ord", "Double") | ("Ord", "Char") |
+                    // Show instances
+                    ("Show", "Int") | ("Show", "Float") | ("Show", "Double") | ("Show", "Bool") |
+                    ("Show", "Char") | ("Show", "String") |
+                    // Fractional instances
+                    ("Fractional", "Float") | ("Fractional", "Double")
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Try to default a type variable to satisfy a constraint.
+    ///
+    /// Following Haskell's defaulting rules:
+    /// - Num defaults to Int (or Integer in standard Haskell)
+    /// - Fractional defaults to Double
+    fn try_default_constraint(&mut self, class: Symbol, var: &TyVar) -> bool {
+        let class_name = class.as_str();
+
+        let default_ty = match class_name {
+            "Num" | "Integral" | "Enum" | "Bounded" => {
+                // Default to Int
+                Some(self.builtins.int_ty.clone())
+            }
+            "Fractional" | "Floating" | "RealFrac" | "RealFloat" => {
+                // Default to Double/Float
+                Some(self.builtins.float_ty.clone())
+            }
+            "Eq" | "Ord" | "Show" | "Read" => {
+                // These don't have defaults - leave ambiguous
+                None
+            }
+            _ => None,
+        };
+
+        if let Some(ty) = default_ty {
+            self.subst.insert(var, ty);
+            true
+        } else {
+            false
+        }
     }
 
     /// Register built-in types in the environment.
@@ -1001,14 +1142,35 @@ impl TyCtxt {
             .collect();
 
         // Apply final substitution to all definition schemes
+        // Also clean up quantified variables that have been resolved
         let def_schemes = self
             .def_schemes
             .into_iter()
             .map(|(id, scheme)| {
                 let applied_ty = self.subst.apply(&scheme.ty);
+                // Only keep quantified variables that are still free in the type
+                let remaining_free_vars = applied_ty.free_vars();
+                let remaining_free_var_ids: std::collections::HashSet<u32> =
+                    remaining_free_vars.iter().map(|v| v.id).collect();
+                let remaining_vars: Vec<_> = scheme
+                    .vars
+                    .into_iter()
+                    .filter(|v| remaining_free_var_ids.contains(&v.id))
+                    .collect();
+                // Filter constraints to only those relevant to remaining variables
+                let remaining_constraints: Vec<_> = scheme
+                    .constraints
+                    .into_iter()
+                    .filter(|c| {
+                        c.args.iter().any(|arg| {
+                            let arg_ty = self.subst.apply(arg);
+                            arg_ty.free_vars().iter().any(|v| remaining_free_var_ids.contains(&v.id))
+                        })
+                    })
+                    .collect();
                 (id, Scheme {
-                    vars: scheme.vars,
-                    constraints: scheme.constraints,
+                    vars: remaining_vars,
+                    constraints: remaining_constraints,
                     ty: applied_ty,
                 })
             })

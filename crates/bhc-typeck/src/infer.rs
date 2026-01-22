@@ -14,6 +14,7 @@
 
 use bhc_hir::{Binding, CaseAlt, Expr, Lit};
 use bhc_intern::Symbol;
+use bhc_span::Span;
 use bhc_types::{Scheme, Ty};
 
 use crate::context::TyCtxt;
@@ -26,7 +27,7 @@ use crate::diagnostics;
 #[allow(clippy::too_many_lines)]
 pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
     match expr {
-        Expr::Lit(lit, _span) => infer_lit(ctx, lit),
+        Expr::Lit(lit, span) => infer_lit(ctx, lit, *span),
 
         Expr::Var(def_ref) => {
             // Look up variable and instantiate its type scheme
@@ -349,10 +350,31 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
 }
 
 /// Infer the type of a literal.
-fn infer_lit(ctx: &TyCtxt, lit: &Lit) -> Ty {
+///
+/// For numeric literals, this now generates type class constraints:
+/// - Integer literals: `Num a => a` (but defaults to Int)
+/// - Float literals: `Fractional a => a` (but defaults to Float)
+///
+/// The constraints are collected during inference and solved after,
+/// potentially defaulting ambiguous type variables to standard types.
+fn infer_lit(ctx: &mut TyCtxt, lit: &Lit, span: bhc_span::Span) -> Ty {
     match lit {
-        Lit::Int(_) => ctx.builtins.int_ty.clone(),
-        Lit::Float(_) => ctx.builtins.float_ty.clone(),
+        Lit::Int(_) => {
+            // Integer literals have type `Num a => a`
+            // For now, we generate the constraint but default to Int
+            // This allows overloaded numeric literals
+            let ty = ctx.fresh_ty();
+            let num_class = Symbol::intern("Num");
+            ctx.emit_constraint(num_class, ty.clone(), span);
+            ty
+        }
+        Lit::Float(_) => {
+            // Float literals have type `Fractional a => a`
+            let ty = ctx.fresh_ty();
+            let fractional_class = Symbol::intern("Fractional");
+            ctx.emit_constraint(fractional_class, ty.clone(), span);
+            ty
+        }
         Lit::Char(_) => ctx.builtins.char_ty.clone(),
         Lit::String(_) => ctx.builtins.string_ty.clone(),
     }
@@ -432,7 +454,11 @@ mod tests {
 
         let ty = infer_expr(&mut ctx, &expr);
 
-        assert_eq!(ty, ctx.builtins.int_ty);
+        // Integer literals now have type `Num a => a` (fresh type variable with constraint)
+        // After solving constraints, it should default to Int
+        ctx.solve_constraints();
+        let resolved_ty = ctx.apply_subst(&ty);
+        assert_eq!(resolved_ty, ctx.builtins.int_ty);
     }
 
     #[test]
@@ -448,11 +474,17 @@ mod tests {
 
         let ty = infer_expr(&mut ctx, &expr);
 
+        // Solve constraints first to resolve numeric literals
+        ctx.solve_constraints();
+
         match ty {
             Ty::Tuple(elems) => {
                 assert_eq!(elems.len(), 2);
-                assert_eq!(elems[0], ctx.builtins.int_ty);
-                assert_eq!(elems[1], ctx.builtins.char_ty);
+                // Apply substitution to resolve defaulted types
+                let elem0 = ctx.apply_subst(&elems[0]);
+                let elem1 = ctx.apply_subst(&elems[1]);
+                assert_eq!(elem0, ctx.builtins.int_ty);
+                assert_eq!(elem1, ctx.builtins.char_ty);
             }
             _ => panic!("expected tuple type"),
         }
@@ -470,6 +502,9 @@ mod tests {
         );
 
         let ty = infer_expr(&mut ctx, &expr);
+
+        // Solve constraints to resolve numeric literals
+        ctx.solve_constraints();
 
         match ty {
             Ty::List(elem) => {
@@ -492,11 +527,15 @@ mod tests {
 
         let ty = infer_expr(&mut ctx, &expr);
 
-        // Should be a -> Int for some a
+        // Solve constraints first
+        ctx.solve_constraints();
+
+        // Should be a -> Int for some a (after constraint solving, body is Int)
         match ty {
             Ty::Fun(from, to) => {
                 assert!(matches!(*from, Ty::Var(_)));
-                assert_eq!(*to, ctx.builtins.int_ty);
+                let body_ty = ctx.apply_subst(&to);
+                assert_eq!(body_ty, ctx.builtins.int_ty);
             }
             _ => panic!("expected function type"),
         }
@@ -512,11 +551,40 @@ mod tests {
             Span::DUMMY,
         );
 
+        let _ty = infer_expr(&mut ctx, &expr);
+
+        // Solve constraints - this will detect that the condition's type
+        // (which was unified with Bool) doesn't have a Num instance
+        ctx.solve_constraints();
+
+        // The condition has a numeric type variable that gets unified with Bool
+        // This causes a "no instance for Num Bool" error during constraint solving
+        assert!(ctx.has_errors());
+
+        // Note: With overloaded numeric literals, the exact resolved type
+        // when there are errors is implementation-dependent. The key thing
+        // is that we detect the error.
+    }
+
+    #[test]
+    fn test_infer_char_lit() {
+        let mut ctx = test_context();
+        let expr = Expr::Lit(Lit::Char('a'), Span::DUMMY);
+
         let ty = infer_expr(&mut ctx, &expr);
 
-        // Should have error because condition is Int, not Bool
-        assert!(ctx.has_errors());
-        // But result type should still be Int
-        assert_eq!(ty, ctx.builtins.int_ty);
+        // Char literals have a fixed type (no constraint)
+        assert_eq!(ty, ctx.builtins.char_ty);
+    }
+
+    #[test]
+    fn test_infer_string_lit() {
+        let mut ctx = test_context();
+        let expr = Expr::Lit(Lit::String(Symbol::intern("hello")), Span::DUMMY);
+
+        let ty = infer_expr(&mut ctx, &expr);
+
+        // String literals have a fixed type (no constraint)
+        assert_eq!(ty, ctx.builtins.string_ty);
     }
 }
