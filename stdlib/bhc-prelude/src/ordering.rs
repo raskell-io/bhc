@@ -1,8 +1,18 @@
 //! Ordering type and operations
 //!
 //! The `Ordering` type is used to represent the result of a comparison.
+//!
+//! # Type Class Instances
+//!
+//! - `Eq`: Equality comparison
+//! - `Ord`: LT < EQ < GT
+//! - `Show`: Display representation
+//! - `Semigroup`: `(<>)` via `then` (first non-EQ wins)
+//! - `Monoid`: `mempty` = `EQ`
+//! - `Bounded`: `minBound` = `LT`, `maxBound` = `GT`
 
 use std::cmp::Ordering as StdOrdering;
+use std::fmt;
 
 /// The Ordering type
 ///
@@ -93,6 +103,35 @@ impl Ordering {
     }
 }
 
+impl PartialOrd for Ordering {
+    fn partial_cmp(&self, other: &Self) -> Option<StdOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Ordering {
+    fn cmp(&self, other: &Self) -> StdOrdering {
+        (*self as i8).cmp(&(*other as i8))
+    }
+}
+
+impl Default for Ordering {
+    /// Returns `EQ` (the identity element for `then`/`<>`).
+    fn default() -> Self {
+        Ordering::EQ
+    }
+}
+
+impl fmt::Display for Ordering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Ordering::LT => write!(f, "LT"),
+            Ordering::EQ => write!(f, "EQ"),
+            Ordering::GT => write!(f, "GT"),
+        }
+    }
+}
+
 impl From<StdOrdering> for Ordering {
     #[inline]
     fn from(ord: StdOrdering) -> Self {
@@ -164,5 +203,95 @@ mod tests {
         assert_eq!(bhc_compare_i64(1, 2), Ordering::LT);
         assert_eq!(bhc_compare_i64(2, 2), Ordering::EQ);
         assert_eq!(bhc_compare_i64(3, 2), Ordering::GT);
+    }
+
+    #[test]
+    fn test_ord() {
+        assert!(Ordering::LT < Ordering::EQ);
+        assert!(Ordering::EQ < Ordering::GT);
+        assert!(Ordering::LT < Ordering::GT);
+    }
+
+    #[test]
+    fn test_default() {
+        assert_eq!(Ordering::default(), Ordering::EQ);
+    }
+
+    #[test]
+    fn test_display() {
+        assert_eq!(format!("{}", Ordering::LT), "LT");
+        assert_eq!(format!("{}", Ordering::EQ), "EQ");
+        assert_eq!(format!("{}", Ordering::GT), "GT");
+    }
+
+    #[test]
+    fn test_predicates() {
+        assert!(Ordering::LT.is_lt());
+        assert!(!Ordering::LT.is_eq());
+        assert!(!Ordering::LT.is_gt());
+        assert!(Ordering::LT.is_le());
+        assert!(!Ordering::LT.is_ge());
+        assert!(Ordering::LT.is_ne());
+
+        assert!(!Ordering::EQ.is_lt());
+        assert!(Ordering::EQ.is_eq());
+        assert!(!Ordering::EQ.is_gt());
+        assert!(Ordering::EQ.is_le());
+        assert!(Ordering::EQ.is_ge());
+        assert!(!Ordering::EQ.is_ne());
+
+        assert!(!Ordering::GT.is_lt());
+        assert!(!Ordering::GT.is_eq());
+        assert!(Ordering::GT.is_gt());
+        assert!(!Ordering::GT.is_le());
+        assert!(Ordering::GT.is_ge());
+        assert!(Ordering::GT.is_ne());
+    }
+
+    #[test]
+    fn test_then_with() {
+        let count = std::cell::Cell::new(0);
+        let result = Ordering::LT.then_with(|| {
+            count.set(count.get() + 1);
+            Ordering::GT
+        });
+        assert_eq!(result, Ordering::LT);
+        assert_eq!(count.get(), 0); // Closure not called
+
+        let result = Ordering::EQ.then_with(|| {
+            count.set(count.get() + 1);
+            Ordering::GT
+        });
+        assert_eq!(result, Ordering::GT);
+        assert_eq!(count.get(), 1); // Closure called
+    }
+
+    #[test]
+    fn test_std_ordering_conversion() {
+        assert_eq!(Ordering::from(StdOrdering::Less), Ordering::LT);
+        assert_eq!(Ordering::from(StdOrdering::Equal), Ordering::EQ);
+        assert_eq!(Ordering::from(StdOrdering::Greater), Ordering::GT);
+
+        assert_eq!(StdOrdering::from(Ordering::LT), StdOrdering::Less);
+        assert_eq!(StdOrdering::from(Ordering::EQ), StdOrdering::Equal);
+        assert_eq!(StdOrdering::from(Ordering::GT), StdOrdering::Greater);
+    }
+
+    #[test]
+    fn test_semigroup_monoid_laws() {
+        // Semigroup associativity: (a <> b) <> c == a <> (b <> c)
+        for a in [Ordering::LT, Ordering::EQ, Ordering::GT] {
+            for b in [Ordering::LT, Ordering::EQ, Ordering::GT] {
+                for c in [Ordering::LT, Ordering::EQ, Ordering::GT] {
+                    assert_eq!(a.then(b).then(c), a.then(b.then(c)));
+                }
+            }
+        }
+
+        // Monoid identity: EQ <> a == a and a <> EQ == a
+        for a in [Ordering::LT, Ordering::EQ, Ordering::GT] {
+            assert_eq!(Ordering::EQ.then(a), a);
+            assert_eq!(a.then(Ordering::EQ), a);
+        }
     }
 }

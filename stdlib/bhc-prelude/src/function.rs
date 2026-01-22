@@ -141,9 +141,9 @@ mod tests {
 
     #[test]
     fn test_const() {
-        let always_5 = const_(5);
+        let always_5 = const_::<i32, i32>(5);
         assert_eq!(always_5(10), 5);
-        assert_eq!(always_5("ignored"), 5);
+        assert_eq!(always_5(999), 5);
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_on() {
-        let compare_length = on(i32::cmp, |s: &str| s.len() as i32);
+        let compare_length = on(|a: usize, b: usize| a.cmp(&b), |s: &str| s.len());
         assert_eq!(compare_length("hello", "hi"), std::cmp::Ordering::Greater);
     }
 
