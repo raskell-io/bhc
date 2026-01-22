@@ -864,6 +864,151 @@ mod tests {
     }
 
     #[test]
+    fn test_default_method_lowering() {
+        // Test that default methods in class definitions are lowered correctly
+        // with the class constraint (dictionary lambda).
+        //
+        // class MyEq a where
+        //   myEq :: a -> a -> Bool
+        //   myNeq :: a -> a -> Bool
+        //   myNeq x y = not (myEq x y)  -- default implementation
+
+        use bhc_types::{Kind, TyVar};
+
+        let class_def_id = DefId::new(500);
+        let my_eq_method_def_id = DefId::new(501);
+        let my_neq_method_def_id = DefId::new(502);
+        let my_neq_default_def_id = DefId::new(503);
+        let x_def_id = DefId::new(504);
+        let y_def_id = DefId::new(505);
+
+        let a_var = TyVar::new(0, Kind::Star);
+
+        // Create the class definition with a default method
+        let class_def = bhc_hir::ClassDef {
+            id: class_def_id,
+            name: Symbol::intern("MyEq"),
+            params: vec![a_var.clone()],
+            supers: vec![],
+            methods: vec![
+                bhc_hir::MethodSig {
+                    name: Symbol::intern("myEq"),
+                    ty: Scheme {
+                        vars: vec![a_var.clone()],
+                        constraints: vec![],
+                        ty: Ty::Fun(
+                            Box::new(Ty::Var(a_var.clone())),
+                            Box::new(Ty::Fun(
+                                Box::new(Ty::Var(a_var.clone())),
+                                Box::new(Ty::Con(bhc_types::TyCon::new(
+                                    Symbol::intern("Bool"),
+                                    Kind::Star,
+                                ))),
+                            )),
+                        ),
+                    },
+                    span: Span::default(),
+                },
+                bhc_hir::MethodSig {
+                    name: Symbol::intern("myNeq"),
+                    ty: Scheme {
+                        vars: vec![a_var.clone()],
+                        constraints: vec![],
+                        ty: Ty::Fun(
+                            Box::new(Ty::Var(a_var.clone())),
+                            Box::new(Ty::Fun(
+                                Box::new(Ty::Var(a_var.clone())),
+                                Box::new(Ty::Con(bhc_types::TyCon::new(
+                                    Symbol::intern("Bool"),
+                                    Kind::Star,
+                                ))),
+                            )),
+                        ),
+                    },
+                    span: Span::default(),
+                },
+            ],
+            // Default implementation for myNeq
+            defaults: vec![ValueDef {
+                id: my_neq_default_def_id,
+                name: Symbol::intern("myNeq"),
+                sig: None,
+                equations: vec![Equation {
+                    pats: vec![
+                        Pat::Var(Symbol::intern("x"), x_def_id, Span::default()),
+                        Pat::Var(Symbol::intern("y"), y_def_id, Span::default()),
+                    ],
+                    guards: vec![],
+                    // Simplified: just return False (real impl would call not(myEq x y))
+                    rhs: Expr::Con(bhc_hir::DefRef {
+                        def_id: DefId::new(10), // False
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                }],
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        };
+
+        let module = HirModule {
+            name: Symbol::intern("Test"),
+            exports: None,
+            imports: vec![],
+            items: vec![Item::Class(class_def)],
+            span: Span::default(),
+        };
+
+        // Lower the module
+        let mut ctx = LowerContext::new();
+        let result = ctx.lower_module(&module);
+        assert!(result.is_ok(), "Module lowering should succeed");
+
+        let core_module = result.unwrap();
+
+        // We should have a binding for the default method
+        assert!(
+            !core_module.bindings.is_empty(),
+            "Should have bindings for default methods"
+        );
+
+        // Find the myNeq default binding
+        let my_neq_bind = core_module.bindings.iter().find(|b| match b {
+            bhc_core::Bind::NonRec(var, _) => var.name.as_str() == "myNeq",
+            _ => false,
+        });
+
+        assert!(my_neq_bind.is_some(), "Should have myNeq default binding");
+
+        // The default method should have a dictionary lambda as the outermost lambda
+        if let bhc_core::Bind::NonRec(_, expr) = my_neq_bind.unwrap() {
+            if let bhc_core::Expr::Lam(dict_var, _, _) = expr.as_ref() {
+                assert!(
+                    dict_var.name.as_str().starts_with("$dMyEq"),
+                    "Outermost lambda should be for MyEq dictionary, got: {}",
+                    dict_var.name.as_str()
+                );
+            } else {
+                panic!(
+                    "Default method should have dictionary lambda as outermost, got: {:?}",
+                    expr
+                );
+            }
+        }
+
+        // Verify the class is registered with the default
+        let registry = ctx.class_registry();
+        let class_info = registry.lookup_class(Symbol::intern("MyEq"));
+        assert!(class_info.is_some(), "MyEq class should be registered");
+
+        let class_info = class_info.unwrap();
+        assert!(
+            class_info.defaults.contains_key(&Symbol::intern("myNeq")),
+            "MyEq should have myNeq as a default method"
+        );
+    }
+
+    #[test]
     fn test_superclass_dictionary_extraction() {
         // Test that when we have an Ord dictionary in scope but need an Eq dictionary,
         // we can extract Eq from Ord (since Ord has Eq as a superclass).

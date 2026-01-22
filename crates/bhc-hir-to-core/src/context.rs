@@ -817,11 +817,22 @@ impl LowerContext {
         // First pass: collect all top-level definitions and create Core variables
         // We use named_var here to preserve the original names for external visibility
         for item in &module.items {
-            if let Item::Value(value_def) = item {
-                // Look up the type from the type checker
-                let ty = self.lookup_type(value_def.id);
-                let var = self.named_var(value_def.name, ty);
-                self.register_var(value_def.id, var);
+            match item {
+                Item::Value(value_def) => {
+                    // Look up the type from the type checker
+                    let ty = self.lookup_type(value_def.id);
+                    let var = self.named_var(value_def.name, ty);
+                    self.register_var(value_def.id, var);
+                }
+                Item::Class(class_def) => {
+                    // Also register variables for default method implementations
+                    for default_def in &class_def.defaults {
+                        let ty = self.lookup_type(default_def.id);
+                        let var = self.named_var(default_def.name, ty);
+                        self.register_var(default_def.id, var);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -868,6 +879,14 @@ impl LowerContext {
                 Item::Class(class_def) => {
                     // Register the class in the class registry for dictionary construction
                     self.register_class_def(class_def);
+
+                    // Lower default method implementations
+                    // Default methods need the class constraint, so we lower them specially
+                    for default_def in &class_def.defaults {
+                        if let Some(bind) = self.lower_default_method(class_def, default_def)? {
+                            bindings.push(bind);
+                        }
+                    }
                 }
                 Item::Instance(instance_def) => {
                     // Register the instance in the class registry for dictionary construction
@@ -951,6 +970,65 @@ impl LowerContext {
                 body = core::Expr::Lam(dict_var, Box::new(body), value_def.span);
             }
         }
+
+        Ok(Some(Bind::NonRec(var, Box::new(body))))
+    }
+
+    /// Lower a default method implementation from a class definition.
+    ///
+    /// Default methods are special because they implicitly have the class constraint.
+    /// For example, in:
+    /// ```text
+    /// class Eq a where
+    ///   (==) :: a -> a -> Bool
+    ///   (/=) :: a -> a -> Bool
+    ///   x /= y = not (x == y)  -- default
+    /// ```
+    ///
+    /// The default `/=` has an implicit `Eq a` constraint. When lowered, it becomes:
+    /// ```text
+    /// $default_neq = \$dEq -> \x -> \y -> not (($sel_0 $dEq) x y)
+    /// ```
+    /// where `$sel_0` selects `(==)` from the Eq dictionary.
+    fn lower_default_method(
+        &mut self,
+        class_def: &bhc_hir::ClassDef,
+        default_def: &ValueDef,
+    ) -> LowerResult<Option<Bind>> {
+        let var = self
+            .lookup_var(default_def.id)
+            .cloned()
+            .ok_or_else(|| LowerError::Internal("missing variable for default method".into()))?;
+
+        // Default methods have the class constraint.
+        // Create a constraint for the class with its type parameter.
+        // The type parameter is from the class definition.
+        let class_constraint = if let Some(type_param) = class_def.params.first() {
+            Constraint::new(
+                class_def.name,
+                Ty::Var(type_param.clone()),
+                default_def.span,
+            )
+        } else {
+            // Class with no type parameters - unusual but handle it
+            Constraint::new(class_def.name, Ty::Error, default_def.span)
+        };
+
+        // Create dictionary variable for the class constraint
+        let dict_var = self.make_dict_var(&class_constraint);
+
+        // Push dictionary scope and register the class dictionary
+        self.push_dict_scope();
+        self.register_dict(class_def.name, dict_var.clone());
+
+        // Compile the default method body (now with class dictionary in scope)
+        let mut body = self.compile_equations(default_def)?;
+
+        // Pop the dictionary scope
+        self.pop_dict_scope();
+
+        // Wrap body in dictionary lambda
+        body = core::Expr::Lam(dict_var, Box::new(body), default_def.span);
 
         Ok(Some(Bind::NonRec(var, Box::new(body))))
     }
