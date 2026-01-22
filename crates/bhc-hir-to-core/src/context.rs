@@ -428,7 +428,7 @@ impl LowerContext {
 
         let instance_info = InstanceInfo {
             class: Symbol::intern(class_name),
-            instance_type: instance_type.clone(),
+            instance_types: vec![instance_type.clone()],
             methods: method_map,
             superclass_instances,
         };
@@ -805,7 +805,7 @@ impl LowerContext {
 
         let instance_info = InstanceInfo {
             class: instance_def.class,
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances,
         };

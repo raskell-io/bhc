@@ -130,7 +130,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Eq"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -414,7 +414,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Eq"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -450,7 +450,7 @@ impl DerivingContext {
         // Ord requires Eq as superclass
         let instance = InstanceInfo {
             class: Symbol::intern("Ord"),
-            instance_type: instance_type.clone(),
+            instance_types: vec![instance_type.clone()],
             methods,
             superclass_instances: vec![instance_type],
         };
@@ -776,7 +776,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Ord"),
-            instance_type: instance_type.clone(),
+            instance_types: vec![instance_type.clone()],
             methods,
             superclass_instances: vec![instance_type],
         };
@@ -811,7 +811,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Show"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -969,7 +969,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Show"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1028,7 +1028,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Enum"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1169,7 +1169,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Bounded"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1217,7 +1217,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Functor"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1360,7 +1360,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Functor"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1401,7 +1401,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Foldable"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1547,7 +1547,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Foldable"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1588,7 +1588,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Traversable"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };
@@ -1774,7 +1774,7 @@ impl DerivingContext {
 
         let instance = InstanceInfo {
             class: Symbol::intern("Traversable"),
-            instance_type,
+            instance_types: vec![instance_type],
             methods,
             superclass_instances: vec![],
         };

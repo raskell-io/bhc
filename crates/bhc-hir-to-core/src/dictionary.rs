@@ -58,12 +58,40 @@ pub struct ClassInfo {
 pub struct InstanceInfo {
     /// The class being instantiated.
     pub class: Symbol,
-    /// The instance type (e.g., `Int` for `instance Eq Int`).
-    pub instance_type: Ty,
+    /// The instance types (e.g., `[Int]` for `instance Eq Int`,
+    /// or `[Int, String]` for `instance Convert Int String`).
+    pub instance_types: Vec<Ty>,
     /// Method implementations (method name -> DefId).
     pub methods: FxHashMap<Symbol, DefId>,
     /// Superclass instance types for resolving superclass dictionaries.
     pub superclass_instances: Vec<Ty>,
+}
+
+impl InstanceInfo {
+    /// Create a new single-parameter instance (most common case).
+    pub fn new_single(class: Symbol, instance_type: Ty, methods: FxHashMap<Symbol, DefId>) -> Self {
+        Self {
+            class,
+            instance_types: vec![instance_type],
+            methods,
+            superclass_instances: vec![],
+        }
+    }
+
+    /// Create a new multi-parameter instance.
+    pub fn new_multi(class: Symbol, instance_types: Vec<Ty>, methods: FxHashMap<Symbol, DefId>) -> Self {
+        Self {
+            class,
+            instance_types,
+            methods,
+            superclass_instances: vec![],
+        }
+    }
+
+    /// Get the first instance type (for backward compatibility with single-param classes).
+    pub fn first_type(&self) -> Option<&Ty> {
+        self.instance_types.first()
+    }
 }
 
 /// Registry of classes and instances for dictionary construction.
@@ -102,15 +130,25 @@ impl ClassRegistry {
         self.classes.get(&name)
     }
 
-    /// Resolve an instance for a class and concrete type.
+    /// Resolve an instance for a class and a single concrete type.
     ///
+    /// This is a convenience method for single-parameter type classes.
     /// Returns the instance info if found.
     #[must_use]
     pub fn resolve_instance(&self, class: Symbol, ty: &Ty) -> Option<&InstanceInfo> {
+        self.resolve_instance_multi(class, &[ty.clone()])
+    }
+
+    /// Resolve an instance for a class with multiple type arguments.
+    ///
+    /// For example, `resolve_instance_multi("Convert", &[Int, String])` would
+    /// find `instance Convert Int String`.
+    #[must_use]
+    pub fn resolve_instance_multi(&self, class: Symbol, types: &[Ty]) -> Option<&InstanceInfo> {
         let instances = self.instances.get(&class)?;
 
         for inst in instances {
-            if types_match(&inst.instance_type, ty) {
+            if types_match_multi(&inst.instance_types, types) {
                 return Some(inst);
             }
         }
@@ -158,6 +196,19 @@ fn types_match(pattern: &Ty, target: &Ty) -> bool {
     }
 }
 
+/// Check if two type lists match for multi-parameter instance resolution.
+///
+/// Both lists must have the same length, and each corresponding pair must match.
+fn types_match_multi(patterns: &[Ty], targets: &[Ty]) -> bool {
+    if patterns.len() != targets.len() {
+        return false;
+    }
+    patterns
+        .iter()
+        .zip(targets.iter())
+        .all(|(p, t)| types_match(p, t))
+}
+
 /// Context for dictionary construction during lowering.
 pub struct DictContext<'a> {
     /// The class registry.
@@ -201,34 +252,40 @@ impl<'a> DictContext<'a> {
         }
     }
 
-    /// Get or create a dictionary for a constraint with a concrete type.
+    /// Get or create a dictionary for a constraint with concrete type(s).
     ///
-    /// For example, for `Num Int`, this returns a variable bound to the
-    /// `Num Int` dictionary instance.
+    /// For single-parameter classes like `Num Int`, this returns a variable
+    /// bound to the `Num Int` dictionary instance.
+    ///
+    /// For multi-parameter classes like `Convert Int String`, all type
+    /// arguments are used to resolve the instance.
     pub fn get_dictionary(
         &mut self,
         constraint: &Constraint,
         span: Span,
     ) -> Option<core::Expr> {
-        // Check if we have a concrete type
-        let ty = constraint.args.first()?;
+        // Need at least one type argument
+        if constraint.args.is_empty() {
+            return None;
+        }
 
-        // Check cache first
-        let cache_key = (constraint.class, format!("{:?}", ty));
+        // Check cache first - use all type args for the key
+        let cache_key = (constraint.class, format!("{:?}", constraint.args));
         if let Some(var) = self.dict_cache.get(&cache_key) {
             return Some(core::Expr::Var(var.clone(), span));
         }
 
-        // Try to resolve the instance
-        let instance = self.registry.resolve_instance(constraint.class, ty)?;
+        // Try to resolve the instance using all type arguments
+        let instance = self.registry.resolve_instance_multi(constraint.class, &constraint.args)?;
         let class = self.registry.lookup_class(constraint.class)?;
 
         // Construct the dictionary
         let dict_expr = self.construct_dictionary(class, instance, span)?;
 
         // Create a variable for this dictionary and cache it
+        let type_names: Vec<String> = constraint.args.iter().map(type_name).collect();
         let dict_var = self.fresh_var(
-            &format!("$dict{}_{}", constraint.class.as_str(), type_name(ty)),
+            &format!("$dict{}_{}", constraint.class.as_str(), type_names.join("_")),
             Ty::Error, // Dictionary type
             span,
         );
@@ -463,7 +520,7 @@ mod tests {
 
         let eq_int = InstanceInfo {
             class: Symbol::intern("Eq"),
-            instance_type: Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star)),
+            instance_types: vec![Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star))],
             methods,
             superclass_instances: vec![],
         };
@@ -477,5 +534,127 @@ mod tests {
         let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
         let no_instance = registry.resolve_instance(Symbol::intern("Eq"), &bool_ty);
         assert!(no_instance.is_none());
+    }
+
+    #[test]
+    fn test_multi_param_type_class() {
+        let mut registry = ClassRegistry::new();
+
+        // Register Convert class (multi-parameter: class Convert a b where convert :: a -> b)
+        let convert_class = ClassInfo {
+            name: Symbol::intern("Convert"),
+            methods: vec![Symbol::intern("convert")],
+            method_types: FxHashMap::default(),
+            superclasses: vec![],
+            defaults: FxHashMap::default(),
+        };
+        registry.register_class(convert_class);
+
+        // Register instance Convert Int String
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+        let string_ty = Ty::Con(TyCon::new(Symbol::intern("String"), Kind::Star));
+
+        let mut methods = FxHashMap::default();
+        methods.insert(Symbol::intern("convert"), DefId::new(200));
+
+        let convert_int_string = InstanceInfo::new_multi(
+            Symbol::intern("Convert"),
+            vec![int_ty.clone(), string_ty.clone()],
+            methods.clone(),
+        );
+        registry.register_instance(convert_int_string);
+
+        // Register instance Convert Int Bool
+        let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+        methods.insert(Symbol::intern("convert"), DefId::new(201));
+
+        let convert_int_bool = InstanceInfo::new_multi(
+            Symbol::intern("Convert"),
+            vec![int_ty.clone(), bool_ty.clone()],
+            methods,
+        );
+        registry.register_instance(convert_int_bool);
+
+        // Test multi-param lookup: Convert Int String should resolve
+        let instance = registry.resolve_instance_multi(
+            Symbol::intern("Convert"),
+            &[int_ty.clone(), string_ty.clone()],
+        );
+        assert!(instance.is_some());
+        assert_eq!(instance.unwrap().instance_types.len(), 2);
+
+        // Test multi-param lookup: Convert Int Bool should resolve
+        let instance2 = registry.resolve_instance_multi(
+            Symbol::intern("Convert"),
+            &[int_ty.clone(), bool_ty.clone()],
+        );
+        assert!(instance2.is_some());
+
+        // Test multi-param lookup: Convert String Int should NOT resolve
+        let no_instance = registry.resolve_instance_multi(
+            Symbol::intern("Convert"),
+            &[string_ty.clone(), int_ty.clone()],
+        );
+        assert!(no_instance.is_none());
+
+        // Test that wrong number of args fails
+        let wrong_arity = registry.resolve_instance_multi(
+            Symbol::intern("Convert"),
+            &[int_ty.clone()],  // Only one arg instead of two
+        );
+        assert!(wrong_arity.is_none());
+    }
+
+    #[test]
+    fn test_types_match_multi() {
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+        let string_ty = Ty::Con(TyCon::new(Symbol::intern("String"), Kind::Star));
+        let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+
+        // Same types match
+        assert!(types_match_multi(
+            &[int_ty.clone(), string_ty.clone()],
+            &[int_ty.clone(), string_ty.clone()]
+        ));
+
+        // Different types don't match
+        assert!(!types_match_multi(
+            &[int_ty.clone(), string_ty.clone()],
+            &[int_ty.clone(), bool_ty.clone()]
+        ));
+
+        // Different lengths don't match
+        assert!(!types_match_multi(
+            &[int_ty.clone(), string_ty.clone()],
+            &[int_ty.clone()]
+        ));
+
+        // Empty matches empty
+        assert!(types_match_multi(&[], &[]));
+    }
+
+    #[test]
+    fn test_instance_info_constructors() {
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+        let string_ty = Ty::Con(TyCon::new(Symbol::intern("String"), Kind::Star));
+        let methods = FxHashMap::default();
+
+        // Test single constructor
+        let single = InstanceInfo::new_single(
+            Symbol::intern("Eq"),
+            int_ty.clone(),
+            methods.clone(),
+        );
+        assert_eq!(single.instance_types.len(), 1);
+        assert!(single.first_type().is_some());
+
+        // Test multi constructor
+        let multi = InstanceInfo::new_multi(
+            Symbol::intern("Convert"),
+            vec![int_ty.clone(), string_ty.clone()],
+            methods,
+        );
+        assert_eq!(multi.instance_types.len(), 2);
+        assert!(multi.first_type().is_some());
     }
 }
