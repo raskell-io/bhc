@@ -11,7 +11,7 @@ use bhc_hir::{DefId, Item, Module as HirModule, ValueDef};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_span::Span;
-use bhc_types::{Scheme, Ty};
+use bhc_types::{Constraint, Scheme, Ty};
 use rustc_hash::FxHashMap;
 
 /// Metadata about a data constructor.
@@ -48,6 +48,16 @@ pub struct LowerContext {
     /// This maps constructor DefIds to their metadata including tag and type.
     constructor_map: FxHashMap<DefId, ConstructorInfo>,
 
+    /// Stack of in-scope dictionary variables.
+    ///
+    /// When lowering a constrained function like `f :: Num a => a -> a`,
+    /// we push the dictionary variable `$dNum` onto this stack before lowering
+    /// the body. When we encounter a reference to another constrained function
+    /// that requires the same constraint, we can look up the dictionary here.
+    ///
+    /// Each entry maps constraint class names to their dictionary variables.
+    dict_scope: Vec<FxHashMap<Symbol, Var>>,
+
     /// Accumulated errors.
     errors: Vec<LowerError>,
 }
@@ -62,6 +72,7 @@ impl LowerContext {
             var_map: FxHashMap::default(),
             type_schemes: FxHashMap::default(),
             constructor_map: FxHashMap::default(),
+            dict_scope: vec![FxHashMap::default()], // Start with empty root scope
             errors: Vec::new(),
         };
         ctx.register_builtins();
@@ -82,6 +93,14 @@ impl LowerContext {
             .get(&def_id)
             .map(|scheme| scheme.ty.clone())
             .unwrap_or(Ty::Error)
+    }
+
+    /// Look up the full type scheme for a definition, including constraints.
+    ///
+    /// Returns the complete scheme if found, or None if not found.
+    #[must_use]
+    pub fn lookup_scheme(&self, def_id: DefId) -> Option<&Scheme> {
+        self.type_schemes.get(&def_id)
     }
 
     /// Register builtin constructor metadata.
@@ -332,6 +351,48 @@ impl LowerContext {
         self.constructor_map.get(&def_id)
     }
 
+    /// Push a new dictionary scope.
+    pub fn push_dict_scope(&mut self) {
+        self.dict_scope.push(FxHashMap::default());
+    }
+
+    /// Pop the current dictionary scope.
+    pub fn pop_dict_scope(&mut self) {
+        if self.dict_scope.len() > 1 {
+            self.dict_scope.pop();
+        }
+    }
+
+    /// Register a dictionary variable for a constraint in the current scope.
+    pub fn register_dict(&mut self, class_name: Symbol, dict_var: Var) {
+        if let Some(scope) = self.dict_scope.last_mut() {
+            scope.insert(class_name, dict_var);
+        }
+    }
+
+    /// Look up a dictionary variable for a constraint class.
+    ///
+    /// Searches from innermost to outermost scope.
+    #[must_use]
+    pub fn lookup_dict(&self, class_name: Symbol) -> Option<&Var> {
+        for scope in self.dict_scope.iter().rev() {
+            if let Some(var) = scope.get(&class_name) {
+                return Some(var);
+            }
+        }
+        None
+    }
+
+    /// Get all dictionary variables that match the given constraints.
+    ///
+    /// Returns dictionary variables in the same order as the constraints.
+    pub fn lookup_dicts_for_constraints(&self, constraints: &[Constraint]) -> Vec<Option<Var>> {
+        constraints
+            .iter()
+            .map(|c| self.lookup_dict(c.class).cloned())
+            .collect()
+    }
+
     /// Lower a HIR module to Core.
     pub fn lower_module(&mut self, module: &HirModule) -> LowerResult<CoreModule> {
         // First pass: collect all top-level definitions and create Core variables
@@ -425,10 +486,59 @@ impl LowerContext {
             .cloned()
             .ok_or_else(|| LowerError::Internal("missing variable for value def".into()))?;
 
-        // Compile equations to a single expression
-        let body = self.compile_equations(value_def)?;
+        // Check if the definition has type class constraints
+        let constraints = self
+            .lookup_scheme(value_def.id)
+            .map(|s| s.constraints.clone())
+            .unwrap_or_default();
+
+        // If there are constraints, create dictionary variables and push them into scope
+        // BEFORE compiling the body, so references in the body can use them.
+        let dict_vars: Vec<(Symbol, Var)> = constraints
+            .iter()
+            .map(|c| {
+                let dict_var = self.make_dict_var(c);
+                (c.class, dict_var)
+            })
+            .collect();
+
+        // Push a new dictionary scope and register all dictionaries
+        if !dict_vars.is_empty() {
+            self.push_dict_scope();
+            for (class_name, dict_var) in &dict_vars {
+                self.register_dict(*class_name, dict_var.clone());
+            }
+        }
+
+        // Compile equations to a single expression (now with dictionaries in scope)
+        let mut body = self.compile_equations(value_def)?;
+
+        // Pop the dictionary scope
+        if !dict_vars.is_empty() {
+            self.pop_dict_scope();
+        }
+
+        // If there are constraints, wrap the body in dictionary lambdas.
+        // For example, a function `f :: Num a => a -> a` becomes:
+        //   f = \$dNum -> \x -> ... (using $dNum for Num operations)
+        if !dict_vars.is_empty() {
+            // Add dictionary parameters in reverse order so the first
+            // constraint gets the outermost lambda
+            for (_, dict_var) in dict_vars.into_iter().rev() {
+                body = core::Expr::Lam(dict_var, Box::new(body), value_def.span);
+            }
+        }
 
         Ok(Some(Bind::NonRec(var, Box::new(body))))
+    }
+
+    /// Create a dictionary variable for a type class constraint.
+    ///
+    /// The naming convention is `$d<ClassName>` to avoid conflicts with
+    /// user-defined variables.
+    fn make_dict_var(&mut self, constraint: &bhc_types::Constraint) -> Var {
+        let dict_name = format!("$d{}", constraint.class.as_str());
+        self.fresh_var(&dict_name, Ty::Error, constraint.span)
     }
 
     /// Compile multiple equations into a single Core expression.

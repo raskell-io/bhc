@@ -95,9 +95,15 @@ fn lower_lit(lit: &Lit, span: Span) -> LowerResult<core::Expr> {
 }
 
 /// Lower a variable reference to Core.
+///
+/// If the referenced function has type class constraints, this applies
+/// dictionary arguments from the current scope. For example, if we're
+/// inside a constrained function `f :: Num a => a -> a` and we reference
+/// another constrained function `g :: Num a => a -> a`, we pass the
+/// dictionary `$dNum` that `f` received to `g`.
 fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr> {
-    if let Some(var) = ctx.lookup_var(def_ref.def_id) {
-        Ok(core::Expr::Var(var.clone(), def_ref.span))
+    let base_expr = if let Some(var) = ctx.lookup_var(def_ref.def_id) {
+        core::Expr::Var(var.clone(), def_ref.span)
     } else {
         // Variable not found - this could be a builtin or external reference
         // Create a placeholder variable
@@ -107,8 +113,48 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
             id: VarId::new(def_ref.def_id.index()),
             ty: Ty::Error,
         };
-        Ok(core::Expr::Var(placeholder, def_ref.span))
+        core::Expr::Var(placeholder, def_ref.span)
+    };
+
+    // Check if the referenced function has constraints that need dictionary arguments
+    if let Some(scheme) = ctx.lookup_scheme(def_ref.def_id) {
+        if !scheme.constraints.is_empty() {
+            // Look up dictionaries for each constraint from the current scope
+            let dicts = ctx.lookup_dicts_for_constraints(&scheme.constraints);
+
+            // Apply all available dictionaries
+            let mut result = base_expr;
+            for (i, maybe_dict) in dicts.into_iter().enumerate() {
+                if let Some(dict_var) = maybe_dict {
+                    result = core::Expr::App(
+                        Box::new(result),
+                        Box::new(core::Expr::Var(dict_var, def_ref.span)),
+                        def_ref.span,
+                    );
+                } else {
+                    // Dictionary not in scope - this could happen for:
+                    // 1. Top-level calls with concrete types (need instance resolution)
+                    // 2. Missing instances (type error, should have been caught)
+                    // For now, create a placeholder dictionary variable
+                    let constraint = &scheme.constraints[i];
+                    let placeholder_name = format!("$dict_{}", constraint.class.as_str());
+                    let placeholder_var = Var {
+                        name: Symbol::intern(&placeholder_name),
+                        id: VarId::new(0),
+                        ty: Ty::Error,
+                    };
+                    result = core::Expr::App(
+                        Box::new(result),
+                        Box::new(core::Expr::Var(placeholder_var, def_ref.span)),
+                        def_ref.span,
+                    );
+                }
+            }
+            return Ok(result);
+        }
     }
+
+    Ok(base_expr)
 }
 
 /// Lower a constructor reference to Core.
