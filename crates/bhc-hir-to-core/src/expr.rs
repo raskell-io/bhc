@@ -227,6 +227,11 @@ fn register_pattern_vars(ctx: &mut LowerContext, pat: &hir::Pat, vars: &mut Vec<
                 register_pattern_vars(ctx, sub, vars);
             }
         }
+        hir::Pat::RecordCon(_, field_pats, _) => {
+            for fp in field_pats {
+                register_pattern_vars(ctx, &fp.pat, vars);
+            }
+        }
         hir::Pat::Or(left, right, _) => {
             register_pattern_vars(ctx, left, vars);
             register_pattern_vars(ctx, right, vars);

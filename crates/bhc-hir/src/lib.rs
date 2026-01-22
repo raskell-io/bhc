@@ -221,6 +221,17 @@ pub struct FieldExpr {
     pub span: Span,
 }
 
+/// A record field pattern.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FieldPat {
+    /// The field name.
+    pub name: Symbol,
+    /// The pattern for this field.
+    pub pat: Pat,
+    /// Source span.
+    pub span: Span,
+}
+
 /// A let binding.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Binding {
@@ -274,6 +285,11 @@ pub enum Pat {
     /// Constructor pattern: `Just x`, `(a, b)`.
     Con(DefRef, Vec<Pat>, Span),
 
+    /// Record constructor pattern: `XConfig { modMask = m, borderWidth = b }`.
+    /// Contains the constructor reference and named field patterns.
+    /// Unlike positional `Con`, this matches fields by name, not position.
+    RecordCon(DefRef, Vec<FieldPat>, Span),
+
     /// As-pattern: `x@pat`.
     /// The DefId is the definition ID assigned during lowering for the bound variable.
     As(Symbol, DefId, Box<Pat>, Span),
@@ -297,6 +313,7 @@ impl Pat {
             | Self::Var(_, _, span)
             | Self::Lit(_, span)
             | Self::Con(_, _, span)
+            | Self::RecordCon(_, _, span)
             | Self::As(_, _, _, span)
             | Self::Or(_, _, span)
             | Self::Ann(_, _, span)
@@ -319,6 +336,11 @@ impl Pat {
             Self::Con(_, pats, _) => {
                 for p in pats {
                     p.collect_vars(vars);
+                }
+            }
+            Self::RecordCon(_, field_pats, _) => {
+                for fp in field_pats {
+                    fp.pat.collect_vars(vars);
                 }
             }
             Self::As(name, _, inner, _) => {

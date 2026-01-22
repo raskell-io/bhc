@@ -13,6 +13,7 @@ use bhc_hir::{
     Binding, ClassDef, ConFields, DataDef, DefId, Equation, HirId, InstanceDef, Item, Module,
     NewtypeDef, Pat, ValueDef,
 };
+use bhc_intern::Symbol;
 use bhc_span::{FileId, Span};
 use bhc_types::{Kind, Scheme, Subst, Ty, TyCon, TyVar};
 use rustc_hash::FxHashMap;
@@ -84,6 +85,10 @@ pub struct TyCtxt {
 
     /// Type schemes for definitions (`DefId` -> Scheme).
     pub(crate) def_schemes: FxHashMap<DefId, Scheme>,
+
+    /// Maps constructor DefId to named field definitions (name, type) pairs.
+    /// Used for record construction type checking with out-of-order fields.
+    pub(crate) con_field_defs: FxHashMap<DefId, Vec<(Symbol, Ty)>>,
 }
 
 impl TyCtxt {
@@ -99,6 +104,7 @@ impl TyCtxt {
             file_id,
             expr_types: FxHashMap::default(),
             def_schemes: FxHashMap::default(),
+            con_field_defs: FxHashMap::default(),
         }
     }
 
@@ -295,28 +301,55 @@ impl TyCtxt {
                     if let (Some(arity), Some(type_con_name), Some(type_param_count)) =
                         (def_info.arity, def_info.type_con_name, def_info.type_param_count)
                     {
-                        // Build proper polymorphic type: forall a1 .. an. T1 -> T2 -> ... -> Tm -> TypeCon a1 .. an
-                        // Create type parameters
-                        let type_params: Vec<TyVar> = (0..type_param_count)
+                        // Build proper polymorphic type: forall a1 .. an b1 .. bm. b1 -> b2 -> ... -> bm -> TypeCon a1 .. an
+                        // where a1..an are result type params and b1..bm are field type params
+
+                        // Create result type parameters (a1 .. an)
+                        let result_type_params: Vec<TyVar> = (0..type_param_count)
                             .map(|i| TyVar::new_star(0xFFFE_0000 + i as u32))
+                            .collect();
+
+                        // Create field type parameters (b1 .. bm) - these must also be quantified
+                        let field_type_params: Vec<TyVar> = (0..arity)
+                            .map(|i| TyVar::new_star(0xFFFF_0000 + i as u32))
                             .collect();
 
                         // Build the result type: TypeCon a1 a2 ... an
                         let kind = Self::compute_type_con_kind(type_param_count);
                         let type_con = TyCon::new(type_con_name, kind);
-                        let result_ty = type_params.iter().fold(Ty::Con(type_con), |acc, param| {
+                        let result_ty = result_type_params.iter().fold(Ty::Con(type_con), |acc, param| {
                             Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
                         });
 
-                        // Build the constructor type: Arg1 -> Arg2 -> ... -> ResultType
-                        // For now, field types are fresh type variables
+                        // Build the constructor type: b1 -> b2 -> ... -> bm -> ResultType
+                        // Build from inside out: result <- bm <- bm-1 <- ... <- b1
+                        let mut field_types: Vec<Ty> = field_type_params.iter()
+                            .map(|tv| Ty::Var(tv.clone()))
+                            .collect();
+
                         let mut con_ty = result_ty;
-                        for _ in 0..arity {
-                            let arg = self.fresh_ty();
-                            con_ty = Ty::fun(arg, con_ty);
+                        for field_ty in field_types.iter().rev() {
+                            con_ty = Ty::fun(field_ty.clone(), con_ty);
                         }
 
-                        Scheme::poly(type_params, con_ty)
+                        // If we have field names, register field definitions for record construction
+                        // Note: we don't store the field types here since they're quantified
+                        // and will be instantiated fresh each time. We only need the names.
+                        if let Some(ref field_names) = def_info.field_names {
+                            let field_defs: Vec<(Symbol, Ty)> = field_names
+                                .iter()
+                                .zip(field_types.iter())
+                                .map(|(name, ty)| (*name, ty.clone()))
+                                .collect();
+                            self.con_field_defs.insert(def_info.id, field_defs);
+                        }
+
+                        // Combine all type parameters: result params + field params
+                        let all_params: Vec<TyVar> = result_type_params.into_iter()
+                            .chain(field_type_params.into_iter())
+                            .collect();
+
+                        Scheme::poly(all_params, con_ty)
                     } else if let Some(arity) = def_info.arity {
                         // No type info, fall back to fresh type variables
                         let result = self.fresh_ty();
@@ -599,6 +632,13 @@ impl TyCtxt {
                 // Build the data type: T a1 a2 ... an
                 let data_ty = Self::build_applied_type(data.name, &data.params);
 
+                // Store field definitions for record type checking
+                let field_defs: Vec<(Symbol, Ty)> = fields
+                    .iter()
+                    .map(|f| (f.name, f.ty.clone()))
+                    .collect();
+                self.con_field_defs.insert(con.id, field_defs);
+
                 for field in fields {
                     // Field accessor type: T a1 ... an -> FieldType
                     let accessor_ty = Ty::fun(data_ty.clone(), field.ty.clone());
@@ -624,6 +664,13 @@ impl TyCtxt {
 
         // Register field accessor if this is a record-style newtype
         if let ConFields::Named(fields) = &newtype.con.fields {
+            // Store field definitions for record construction type checking
+            let field_defs: Vec<(Symbol, Ty)> = fields
+                .iter()
+                .map(|f| (f.name, f.ty.clone()))
+                .collect();
+            self.con_field_defs.insert(newtype.con.id, field_defs);
+
             // Build the newtype: T a1 a2 ... an
             let newtype_ty = Self::build_applied_type(newtype.name, &newtype.params);
 
@@ -635,6 +682,15 @@ impl TyCtxt {
                 self.env.insert_global(field.id, accessor_scheme);
             }
         }
+    }
+
+    /// Look up the named fields for a record constructor.
+    ///
+    /// Returns the fields as (name, type) pairs if the constructor is a record type,
+    /// or None if it's a positional constructor.
+    #[must_use]
+    pub fn get_con_fields(&self, def_id: DefId) -> Option<&[(Symbol, Ty)]> {
+        self.con_field_defs.get(&def_id).map(|v: &Vec<(Symbol, Ty)>| v.as_slice())
     }
 
     /// Register a type class definition.

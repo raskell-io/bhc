@@ -113,6 +113,11 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
                             extract_var_ids(p, out);
                         }
                     }
+                    Pat::RecordCon(_, field_pats, _) => {
+                        for fp in field_pats {
+                            extract_var_ids(&fp.pat, out);
+                        }
+                    }
                     Pat::Ann(inner, _, _) => extract_var_ids(inner, out),
                     Pat::Or(left, _, _) => extract_var_ids(left, out),
                     Pat::Wild(_) | Pat::Lit(_, _) | Pat::Error(_) => {}
@@ -239,25 +244,58 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
             if let Some(s) = scheme {
                 let con_ty = ctx.instantiate(&s);
 
-                // Extract the expected field types from the constructor type
+                // Extract the result type from the constructor type
                 // Con type is: T1 -> T2 -> ... -> Tn -> Result
-                let mut expected_field_types = Vec::new();
                 let mut current = &con_ty;
-                while let Ty::Fun(arg, ret) = current {
-                    expected_field_types.push(arg.as_ref().clone());
+                while let Ty::Fun(_, ret) = current {
                     current = ret.as_ref();
                 }
                 let result_ty = current.clone();
 
-                // For each field in the record construction, infer its type and unify
-                // with the corresponding expected type.
-                // Note: This assumes fields are in declaration order. A proper
-                // implementation would look up field names in the constructor definition.
-                for (i, field) in fields.iter().enumerate() {
-                    let field_val_ty = infer_expr(ctx, &field.value);
-                    if let Some(expected) = expected_field_types.get(i) {
-                        // Unify the field value type with expected type
-                        ctx.unify(&field_val_ty, expected, field.span);
+                // Try to use named field definitions for proper field matching
+                if let Some(field_defs) = ctx.get_con_fields(con_ref.def_id) {
+                    // Build a map from field name to expected type
+                    // We need to instantiate the field types with the same substitution
+                    // as the constructor type. Since we already instantiated the con_ty,
+                    // the field types from field_defs need to be instantiated consistently.
+                    // For now, we extract types from the instantiated constructor function type.
+                    let mut expected_field_types = Vec::new();
+                    let mut current = &con_ty;
+                    while let Ty::Fun(arg, ret) = current {
+                        expected_field_types.push(arg.as_ref().clone());
+                        current = ret.as_ref();
+                    }
+
+                    // Build name -> type map using field definitions for names
+                    // and instantiated types from expected_field_types
+                    let field_type_map: std::collections::HashMap<Symbol, Ty> = field_defs
+                        .iter()
+                        .zip(expected_field_types.iter())
+                        .map(|((name, _), ty): (&(Symbol, Ty), &Ty)| (*name, ty.clone()))
+                        .collect();
+
+                    // For each field in the record construction, look up by name
+                    for field in fields {
+                        let field_val_ty = infer_expr(ctx, &field.value);
+                        if let Some(expected) = field_type_map.get(&field.name) {
+                            ctx.unify(&field_val_ty, expected, field.span);
+                        }
+                        // If field name not found, that's an error but we continue
+                    }
+                } else {
+                    // Fallback: positional matching for constructors without named fields
+                    let mut expected_field_types = Vec::new();
+                    let mut current = &con_ty;
+                    while let Ty::Fun(arg, ret) = current {
+                        expected_field_types.push(arg.as_ref().clone());
+                        current = ret.as_ref();
+                    }
+
+                    for (i, field) in fields.iter().enumerate() {
+                        let field_val_ty = infer_expr(ctx, &field.value);
+                        if let Some(expected) = expected_field_types.get(i) {
+                            ctx.unify(&field_val_ty, expected, field.span);
+                        }
                     }
                 }
 

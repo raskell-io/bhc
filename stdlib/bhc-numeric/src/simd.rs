@@ -4,52 +4,165 @@
 //!
 //! # Vector Types
 //!
+//! ## Float vectors
+//! - `Vec2F32` - 2 x f32 (64-bit)
 //! - `Vec4F32` - 4 x f32 (128-bit, SSE)
 //! - `Vec8F32` - 8 x f32 (256-bit, AVX)
+//! - `Vec2F64` - 2 x f64 (128-bit, SSE2)
 //! - `Vec4F64` - 4 x f64 (256-bit, AVX)
+//!
+//! ## Integer vectors
+//! - `Vec4I32` - 4 x i32 (128-bit, SSE2)
+//! - `Vec8I32` - 8 x i32 (256-bit, AVX2)
+//! - `Vec2I64` - 2 x i64 (128-bit, SSE2)
+//! - `Vec4I64` - 4 x i64 (256-bit, AVX2)
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-/// 4 x f32 SIMD vector (128-bit)
-#[repr(C, align(16))]
-#[derive(Clone, Copy)]
-pub struct Vec4F32 {
-    data: [f32; 4],
+// ============================================================
+// Vec2F32 - 2 x f32 (64-bit)
+// ============================================================
+
+/// 2 x f32 vector.
+#[repr(C, align(8))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Vec2F32 {
+    /// The underlying data.
+    pub data: [f32; 2],
 }
 
-impl Vec4F32 {
-    /// Create a new vector with all elements set to the same value
+impl Vec2F32 {
+    /// Create a new vector with all elements set to the same value.
     #[inline]
     pub fn splat(x: f32) -> Self {
-        Self { data: [x, x, x, x] }
+        Self { data: [x, x] }
     }
 
-    /// Create a new vector from 4 values
+    /// Create a new vector from values.
     #[inline]
-    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
-        Self { data: [x, y, z, w] }
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { data: [x, y] }
     }
 
-    /// Create a zero vector
+    /// Create a zero vector.
     #[inline]
     pub fn zero() -> Self {
         Self::splat(0.0)
     }
 
-    /// Get element at index
+    /// Get element at index.
     #[inline]
     pub fn get(&self, idx: usize) -> f32 {
         self.data[idx]
     }
 
-    /// Set element at index
+    /// Element-wise addition.
+    #[inline]
+    pub fn add(self, other: Self) -> Self {
+        Self {
+            data: [self.data[0] + other.data[0], self.data[1] + other.data[1]],
+        }
+    }
+
+    /// Element-wise subtraction.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        Self {
+            data: [self.data[0] - other.data[0], self.data[1] - other.data[1]],
+        }
+    }
+
+    /// Element-wise multiplication.
+    #[inline]
+    pub fn mul(self, other: Self) -> Self {
+        Self {
+            data: [self.data[0] * other.data[0], self.data[1] * other.data[1]],
+        }
+    }
+
+    /// Element-wise division.
+    #[inline]
+    pub fn div(self, other: Self) -> Self {
+        Self {
+            data: [self.data[0] / other.data[0], self.data[1] / other.data[1]],
+        }
+    }
+
+    /// Horizontal sum.
+    #[inline]
+    pub fn sum(self) -> f32 {
+        self.data[0] + self.data[1]
+    }
+
+    /// Dot product.
+    #[inline]
+    pub fn dot(self, other: Self) -> f32 {
+        self.mul(other).sum()
+    }
+}
+
+// ============================================================
+// Vec4F32 - 4 x f32 (128-bit, SSE)
+// ============================================================
+
+/// 4 x f32 SIMD vector (128-bit).
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Vec4F32 {
+    /// The underlying data.
+    pub data: [f32; 4],
+}
+
+impl Vec4F32 {
+    /// Create a new vector with all elements set to the same value.
+    #[inline]
+    pub fn splat(x: f32) -> Self {
+        Self { data: [x, x, x, x] }
+    }
+
+    /// Create a new vector from 4 values.
+    #[inline]
+    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+        Self { data: [x, y, z, w] }
+    }
+
+    /// Create a zero vector.
+    #[inline]
+    pub fn zero() -> Self {
+        Self::splat(0.0)
+    }
+
+    /// Load from a slice (must have at least 4 elements).
+    #[inline]
+    pub fn load(slice: &[f32]) -> Self {
+        Self {
+            data: [slice[0], slice[1], slice[2], slice[3]],
+        }
+    }
+
+    /// Store to a mutable slice.
+    #[inline]
+    pub fn store(&self, slice: &mut [f32]) {
+        slice[0] = self.data[0];
+        slice[1] = self.data[1];
+        slice[2] = self.data[2];
+        slice[3] = self.data[3];
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> f32 {
+        self.data[idx]
+    }
+
+    /// Set element at index.
     #[inline]
     pub fn set(&mut self, idx: usize, val: f32) {
         self.data[idx] = val;
     }
 
-    /// Add two vectors
+    /// Add two vectors.
     #[inline]
     pub fn add(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -63,7 +176,6 @@ impl Vec4F32 {
                 return result;
             }
         }
-
         Self {
             data: [
                 self.data[0] + other.data[0],
@@ -74,7 +186,7 @@ impl Vec4F32 {
         }
     }
 
-    /// Subtract two vectors
+    /// Subtract two vectors.
     #[inline]
     pub fn sub(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -88,7 +200,6 @@ impl Vec4F32 {
                 return result;
             }
         }
-
         Self {
             data: [
                 self.data[0] - other.data[0],
@@ -99,7 +210,7 @@ impl Vec4F32 {
         }
     }
 
-    /// Multiply two vectors element-wise
+    /// Multiply two vectors element-wise.
     #[inline]
     pub fn mul(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -113,7 +224,6 @@ impl Vec4F32 {
                 return result;
             }
         }
-
         Self {
             data: [
                 self.data[0] * other.data[0],
@@ -124,7 +234,7 @@ impl Vec4F32 {
         }
     }
 
-    /// Divide two vectors element-wise
+    /// Divide two vectors element-wise.
     #[inline]
     pub fn div(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -138,7 +248,6 @@ impl Vec4F32 {
                 return result;
             }
         }
-
         Self {
             data: [
                 self.data[0] / other.data[0],
@@ -149,52 +258,198 @@ impl Vec4F32 {
         }
     }
 
-    /// Horizontal sum of all elements
+    /// Element-wise minimum.
+    #[inline]
+    pub fn min(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse") {
+                let a = _mm_loadu_ps(self.data.as_ptr());
+                let b = _mm_loadu_ps(other.data.as_ptr());
+                let r = _mm_min_ps(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0].min(other.data[0]),
+                self.data[1].min(other.data[1]),
+                self.data[2].min(other.data[2]),
+                self.data[3].min(other.data[3]),
+            ],
+        }
+    }
+
+    /// Element-wise maximum.
+    #[inline]
+    pub fn max(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse") {
+                let a = _mm_loadu_ps(self.data.as_ptr());
+                let b = _mm_loadu_ps(other.data.as_ptr());
+                let r = _mm_max_ps(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0].max(other.data[0]),
+                self.data[1].max(other.data[1]),
+                self.data[2].max(other.data[2]),
+                self.data[3].max(other.data[3]),
+            ],
+        }
+    }
+
+    /// Element-wise square root.
+    #[inline]
+    pub fn sqrt(self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse") {
+                let a = _mm_loadu_ps(self.data.as_ptr());
+                let r = _mm_sqrt_ps(a);
+                let mut result = Self::zero();
+                _mm_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0].sqrt(),
+                self.data[1].sqrt(),
+                self.data[2].sqrt(),
+                self.data[3].sqrt(),
+            ],
+        }
+    }
+
+    /// Element-wise absolute value.
+    #[inline]
+    pub fn abs(self) -> Self {
+        Self {
+            data: [
+                self.data[0].abs(),
+                self.data[1].abs(),
+                self.data[2].abs(),
+                self.data[3].abs(),
+            ],
+        }
+    }
+
+    /// Element-wise negation.
+    #[inline]
+    pub fn neg(self) -> Self {
+        Self {
+            data: [
+                -self.data[0],
+                -self.data[1],
+                -self.data[2],
+                -self.data[3],
+            ],
+        }
+    }
+
+    /// Fused multiply-add: a * b + c.
+    #[inline]
+    pub fn fma(self, b: Self, c: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("fma") {
+                let av = _mm_loadu_ps(self.data.as_ptr());
+                let bv = _mm_loadu_ps(b.data.as_ptr());
+                let cv = _mm_loadu_ps(c.data.as_ptr());
+                let r = _mm_fmadd_ps(av, bv, cv);
+                let mut result = Self::zero();
+                _mm_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        self.mul(b).add(c)
+    }
+
+    /// Horizontal sum of all elements.
     #[inline]
     pub fn sum(self) -> f32 {
         self.data[0] + self.data[1] + self.data[2] + self.data[3]
     }
 
-    /// Horizontal product of all elements
+    /// Horizontal product of all elements.
     #[inline]
     pub fn product(self) -> f32 {
         self.data[0] * self.data[1] * self.data[2] * self.data[3]
     }
 
-    /// Minimum element
+    /// Minimum element.
     #[inline]
     pub fn min_elem(self) -> f32 {
         self.data.iter().cloned().fold(f32::INFINITY, f32::min)
     }
 
-    /// Maximum element
+    /// Maximum element.
     #[inline]
     pub fn max_elem(self) -> f32 {
         self.data.iter().cloned().fold(f32::NEG_INFINITY, f32::max)
     }
+
+    /// Dot product.
+    #[inline]
+    pub fn dot(self, other: Self) -> f32 {
+        self.mul(other).sum()
+    }
 }
 
-/// 8 x f32 SIMD vector (256-bit, AVX)
+// ============================================================
+// Vec8F32 - 8 x f32 (256-bit, AVX)
+// ============================================================
+
+/// 8 x f32 SIMD vector (256-bit, AVX).
 #[repr(C, align(32))]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vec8F32 {
-    data: [f32; 8],
+    /// The underlying data.
+    pub data: [f32; 8],
 }
 
 impl Vec8F32 {
-    /// Create a new vector with all elements set to the same value
+    /// Create a new vector with all elements set to the same value.
     #[inline]
     pub fn splat(x: f32) -> Self {
         Self { data: [x; 8] }
     }
 
-    /// Create a zero vector
+    /// Create a zero vector.
     #[inline]
     pub fn zero() -> Self {
         Self::splat(0.0)
     }
 
-    /// Add two vectors
+    /// Load from a slice.
+    #[inline]
+    pub fn load(slice: &[f32]) -> Self {
+        Self {
+            data: slice[..8].try_into().unwrap(),
+        }
+    }
+
+    /// Store to a mutable slice.
+    #[inline]
+    pub fn store(&self, slice: &mut [f32]) {
+        slice[..8].copy_from_slice(&self.data);
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> f32 {
+        self.data[idx]
+    }
+
+    /// Add two vectors.
     #[inline]
     pub fn add(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -208,7 +463,6 @@ impl Vec8F32 {
                 return result;
             }
         }
-
         let mut result = Self::zero();
         for i in 0..8 {
             result.data[i] = self.data[i] + other.data[i];
@@ -216,7 +470,28 @@ impl Vec8F32 {
         result
     }
 
-    /// Multiply two vectors element-wise
+    /// Subtract two vectors.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx") {
+                let a = _mm256_loadu_ps(self.data.as_ptr());
+                let b = _mm256_loadu_ps(other.data.as_ptr());
+                let r = _mm256_sub_ps(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        let mut result = Self::zero();
+        for i in 0..8 {
+            result.data[i] = self.data[i] - other.data[i];
+        }
+        result
+    }
+
+    /// Multiply two vectors element-wise.
     #[inline]
     pub fn mul(self, other: Self) -> Self {
         #[cfg(target_arch = "x86_64")]
@@ -230,7 +505,6 @@ impl Vec8F32 {
                 return result;
             }
         }
-
         let mut result = Self::zero();
         for i in 0..8 {
             result.data[i] = self.data[i] * other.data[i];
@@ -238,37 +512,512 @@ impl Vec8F32 {
         result
     }
 
-    /// Horizontal sum
+    /// Divide two vectors element-wise.
+    #[inline]
+    pub fn div(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx") {
+                let a = _mm256_loadu_ps(self.data.as_ptr());
+                let b = _mm256_loadu_ps(other.data.as_ptr());
+                let r = _mm256_div_ps(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        let mut result = Self::zero();
+        for i in 0..8 {
+            result.data[i] = self.data[i] / other.data[i];
+        }
+        result
+    }
+
+    /// Fused multiply-add: a * b + c.
+    #[inline]
+    pub fn fma(self, b: Self, c: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("fma") {
+                let av = _mm256_loadu_ps(self.data.as_ptr());
+                let bv = _mm256_loadu_ps(b.data.as_ptr());
+                let cv = _mm256_loadu_ps(c.data.as_ptr());
+                let r = _mm256_fmadd_ps(av, bv, cv);
+                let mut result = Self::zero();
+                _mm256_storeu_ps(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        self.mul(b).add(c)
+    }
+
+    /// Horizontal sum.
     #[inline]
     pub fn sum(self) -> f32 {
         self.data.iter().sum()
     }
+
+    /// Dot product.
+    #[inline]
+    pub fn dot(self, other: Self) -> f32 {
+        self.mul(other).sum()
+    }
 }
 
-// FFI exports
+// ============================================================
+// Vec2F64 - 2 x f64 (128-bit, SSE2)
+// ============================================================
 
-/// Dot product of two float arrays using SIMD
+/// 2 x f64 SIMD vector (128-bit).
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Vec2F64 {
+    /// The underlying data.
+    pub data: [f64; 2],
+}
+
+impl Vec2F64 {
+    /// Create a new vector with all elements set to the same value.
+    #[inline]
+    pub fn splat(x: f64) -> Self {
+        Self { data: [x, x] }
+    }
+
+    /// Create a new vector from values.
+    #[inline]
+    pub fn new(x: f64, y: f64) -> Self {
+        Self { data: [x, y] }
+    }
+
+    /// Create a zero vector.
+    #[inline]
+    pub fn zero() -> Self {
+        Self::splat(0.0)
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> f64 {
+        self.data[idx]
+    }
+
+    /// Add two vectors.
+    #[inline]
+    pub fn add(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_pd(self.data.as_ptr());
+                let b = _mm_loadu_pd(other.data.as_ptr());
+                let r = _mm_add_pd(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [self.data[0] + other.data[0], self.data[1] + other.data[1]],
+        }
+    }
+
+    /// Subtract two vectors.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_pd(self.data.as_ptr());
+                let b = _mm_loadu_pd(other.data.as_ptr());
+                let r = _mm_sub_pd(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [self.data[0] - other.data[0], self.data[1] - other.data[1]],
+        }
+    }
+
+    /// Multiply two vectors.
+    #[inline]
+    pub fn mul(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_pd(self.data.as_ptr());
+                let b = _mm_loadu_pd(other.data.as_ptr());
+                let r = _mm_mul_pd(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [self.data[0] * other.data[0], self.data[1] * other.data[1]],
+        }
+    }
+
+    /// Divide two vectors.
+    #[inline]
+    pub fn div(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_pd(self.data.as_ptr());
+                let b = _mm_loadu_pd(other.data.as_ptr());
+                let r = _mm_div_pd(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [self.data[0] / other.data[0], self.data[1] / other.data[1]],
+        }
+    }
+
+    /// Horizontal sum.
+    #[inline]
+    pub fn sum(self) -> f64 {
+        self.data[0] + self.data[1]
+    }
+
+    /// Dot product.
+    #[inline]
+    pub fn dot(self, other: Self) -> f64 {
+        self.mul(other).sum()
+    }
+}
+
+// ============================================================
+// Vec4F64 - 4 x f64 (256-bit, AVX)
+// ============================================================
+
+/// 4 x f64 SIMD vector (256-bit).
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Vec4F64 {
+    /// The underlying data.
+    pub data: [f64; 4],
+}
+
+impl Vec4F64 {
+    /// Create a new vector with all elements set to the same value.
+    #[inline]
+    pub fn splat(x: f64) -> Self {
+        Self { data: [x; 4] }
+    }
+
+    /// Create a new vector from values.
+    #[inline]
+    pub fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
+        Self { data: [x, y, z, w] }
+    }
+
+    /// Create a zero vector.
+    #[inline]
+    pub fn zero() -> Self {
+        Self::splat(0.0)
+    }
+
+    /// Load from a slice.
+    #[inline]
+    pub fn load(slice: &[f64]) -> Self {
+        Self {
+            data: slice[..4].try_into().unwrap(),
+        }
+    }
+
+    /// Store to a mutable slice.
+    #[inline]
+    pub fn store(&self, slice: &mut [f64]) {
+        slice[..4].copy_from_slice(&self.data);
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> f64 {
+        self.data[idx]
+    }
+
+    /// Add two vectors.
+    #[inline]
+    pub fn add(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx") {
+                let a = _mm256_loadu_pd(self.data.as_ptr());
+                let b = _mm256_loadu_pd(other.data.as_ptr());
+                let r = _mm256_add_pd(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0] + other.data[0],
+                self.data[1] + other.data[1],
+                self.data[2] + other.data[2],
+                self.data[3] + other.data[3],
+            ],
+        }
+    }
+
+    /// Subtract two vectors.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx") {
+                let a = _mm256_loadu_pd(self.data.as_ptr());
+                let b = _mm256_loadu_pd(other.data.as_ptr());
+                let r = _mm256_sub_pd(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0] - other.data[0],
+                self.data[1] - other.data[1],
+                self.data[2] - other.data[2],
+                self.data[3] - other.data[3],
+            ],
+        }
+    }
+
+    /// Multiply two vectors.
+    #[inline]
+    pub fn mul(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx") {
+                let a = _mm256_loadu_pd(self.data.as_ptr());
+                let b = _mm256_loadu_pd(other.data.as_ptr());
+                let r = _mm256_mul_pd(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_pd(result.data.as_mut_ptr(), r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0] * other.data[0],
+                self.data[1] * other.data[1],
+                self.data[2] * other.data[2],
+                self.data[3] * other.data[3],
+            ],
+        }
+    }
+
+    /// Horizontal sum.
+    #[inline]
+    pub fn sum(self) -> f64 {
+        self.data.iter().sum()
+    }
+
+    /// Dot product.
+    #[inline]
+    pub fn dot(self, other: Self) -> f64 {
+        self.mul(other).sum()
+    }
+}
+
+// ============================================================
+// Vec4I32 - 4 x i32 (128-bit, SSE2)
+// ============================================================
+
+/// 4 x i32 SIMD vector (128-bit).
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Vec4I32 {
+    /// The underlying data.
+    pub data: [i32; 4],
+}
+
+impl Vec4I32 {
+    /// Create a new vector with all elements set to the same value.
+    #[inline]
+    pub fn splat(x: i32) -> Self {
+        Self { data: [x; 4] }
+    }
+
+    /// Create a new vector from values.
+    #[inline]
+    pub fn new(x: i32, y: i32, z: i32, w: i32) -> Self {
+        Self { data: [x, y, z, w] }
+    }
+
+    /// Create a zero vector.
+    #[inline]
+    pub fn zero() -> Self {
+        Self::splat(0)
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> i32 {
+        self.data[idx]
+    }
+
+    /// Add two vectors.
+    #[inline]
+    pub fn add(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_si128(self.data.as_ptr() as *const __m128i);
+                let b = _mm_loadu_si128(other.data.as_ptr() as *const __m128i);
+                let r = _mm_add_epi32(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_si128(result.data.as_mut_ptr() as *mut __m128i, r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0].wrapping_add(other.data[0]),
+                self.data[1].wrapping_add(other.data[1]),
+                self.data[2].wrapping_add(other.data[2]),
+                self.data[3].wrapping_add(other.data[3]),
+            ],
+        }
+    }
+
+    /// Subtract two vectors.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("sse2") {
+                let a = _mm_loadu_si128(self.data.as_ptr() as *const __m128i);
+                let b = _mm_loadu_si128(other.data.as_ptr() as *const __m128i);
+                let r = _mm_sub_epi32(a, b);
+                let mut result = Self::zero();
+                _mm_storeu_si128(result.data.as_mut_ptr() as *mut __m128i, r);
+                return result;
+            }
+        }
+        Self {
+            data: [
+                self.data[0].wrapping_sub(other.data[0]),
+                self.data[1].wrapping_sub(other.data[1]),
+                self.data[2].wrapping_sub(other.data[2]),
+                self.data[3].wrapping_sub(other.data[3]),
+            ],
+        }
+    }
+
+    /// Horizontal sum.
+    #[inline]
+    pub fn sum(self) -> i32 {
+        self.data.iter().sum()
+    }
+}
+
+// ============================================================
+// Vec8I32 - 8 x i32 (256-bit, AVX2)
+// ============================================================
+
+/// 8 x i32 SIMD vector (256-bit).
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Vec8I32 {
+    /// The underlying data.
+    pub data: [i32; 8],
+}
+
+impl Vec8I32 {
+    /// Create a new vector with all elements set to the same value.
+    #[inline]
+    pub fn splat(x: i32) -> Self {
+        Self { data: [x; 8] }
+    }
+
+    /// Create a zero vector.
+    #[inline]
+    pub fn zero() -> Self {
+        Self::splat(0)
+    }
+
+    /// Get element at index.
+    #[inline]
+    pub fn get(&self, idx: usize) -> i32 {
+        self.data[idx]
+    }
+
+    /// Add two vectors.
+    #[inline]
+    pub fn add(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx2") {
+                let a = _mm256_loadu_si256(self.data.as_ptr() as *const __m256i);
+                let b = _mm256_loadu_si256(other.data.as_ptr() as *const __m256i);
+                let r = _mm256_add_epi32(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_si256(result.data.as_mut_ptr() as *mut __m256i, r);
+                return result;
+            }
+        }
+        let mut result = Self::zero();
+        for i in 0..8 {
+            result.data[i] = self.data[i].wrapping_add(other.data[i]);
+        }
+        result
+    }
+
+    /// Subtract two vectors.
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            if is_x86_feature_detected!("avx2") {
+                let a = _mm256_loadu_si256(self.data.as_ptr() as *const __m256i);
+                let b = _mm256_loadu_si256(other.data.as_ptr() as *const __m256i);
+                let r = _mm256_sub_epi32(a, b);
+                let mut result = Self::zero();
+                _mm256_storeu_si256(result.data.as_mut_ptr() as *mut __m256i, r);
+                return result;
+            }
+        }
+        let mut result = Self::zero();
+        for i in 0..8 {
+            result.data[i] = self.data[i].wrapping_sub(other.data[i]);
+        }
+        result
+    }
+
+    /// Horizontal sum.
+    #[inline]
+    pub fn sum(self) -> i32 {
+        self.data.iter().sum()
+    }
+}
+
+// ============================================================
+// FFI Exports
+// ============================================================
+
+/// Dot product of two float arrays using SIMD.
 #[no_mangle]
 pub extern "C" fn bhc_simd_dot_f32(a: *const f32, b: *const f32, len: usize) -> f32 {
     if a.is_null() || b.is_null() || len == 0 {
         return 0.0;
     }
-
     let a_slice = unsafe { std::slice::from_raw_parts(a, len) };
     let b_slice = unsafe { std::slice::from_raw_parts(b, len) };
 
     let chunks = len / 8;
     let remainder = len % 8;
-
     let mut sum = Vec8F32::zero();
 
     for i in 0..chunks {
-        let av = Vec8F32 {
-            data: a_slice[i * 8..][..8].try_into().unwrap(),
-        };
-        let bv = Vec8F32 {
-            data: b_slice[i * 8..][..8].try_into().unwrap(),
-        };
+        let av = Vec8F32::load(&a_slice[i * 8..]);
+        let bv = Vec8F32::load(&b_slice[i * 8..]);
         sum = sum.add(av.mul(bv));
     }
 
@@ -282,22 +1031,46 @@ pub extern "C" fn bhc_simd_dot_f32(a: *const f32, b: *const f32, len: usize) -> 
     result
 }
 
-/// Sum of float array using SIMD
+/// Dot product of two double arrays using SIMD.
+#[no_mangle]
+pub extern "C" fn bhc_simd_dot_f64(a: *const f64, b: *const f64, len: usize) -> f64 {
+    if a.is_null() || b.is_null() || len == 0 {
+        return 0.0;
+    }
+    let a_slice = unsafe { std::slice::from_raw_parts(a, len) };
+    let b_slice = unsafe { std::slice::from_raw_parts(b, len) };
+
+    let chunks = len / 4;
+    let mut sum = Vec4F64::zero();
+
+    for i in 0..chunks {
+        let av = Vec4F64::load(&a_slice[i * 4..]);
+        let bv = Vec4F64::load(&b_slice[i * 4..]);
+        sum = sum.add(av.mul(bv));
+    }
+
+    let mut result = sum.sum();
+
+    for i in (chunks * 4)..len {
+        result += a_slice[i] * b_slice[i];
+    }
+
+    result
+}
+
+/// Sum of float array using SIMD.
 #[no_mangle]
 pub extern "C" fn bhc_simd_sum_f32(ptr: *const f32, len: usize) -> f32 {
     if ptr.is_null() || len == 0 {
         return 0.0;
     }
-
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
 
     let chunks = len / 8;
     let mut sum = Vec8F32::zero();
 
     for i in 0..chunks {
-        let v = Vec8F32 {
-            data: slice[i * 8..][..8].try_into().unwrap(),
-        };
+        let v = Vec8F32::load(&slice[i * 8..]);
         sum = sum.add(v);
     }
 
@@ -310,12 +1083,74 @@ pub extern "C" fn bhc_simd_sum_f32(ptr: *const f32, len: usize) -> f32 {
     result
 }
 
+/// Sum of double array using SIMD.
+#[no_mangle]
+pub extern "C" fn bhc_simd_sum_f64(ptr: *const f64, len: usize) -> f64 {
+    if ptr.is_null() || len == 0 {
+        return 0.0;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+
+    let chunks = len / 4;
+    let mut sum = Vec4F64::zero();
+
+    for i in 0..chunks {
+        let v = Vec4F64::load(&slice[i * 4..]);
+        sum = sum.add(v);
+    }
+
+    let mut result = sum.sum();
+
+    for i in (chunks * 4)..len {
+        result += slice[i];
+    }
+
+    result
+}
+
+/// SAXPY: y = a*x + y.
+#[no_mangle]
+pub extern "C" fn bhc_simd_saxpy(a: f32, x: *const f32, y: *mut f32, len: usize) {
+    if x.is_null() || y.is_null() || len == 0 {
+        return;
+    }
+    let x_slice = unsafe { std::slice::from_raw_parts(x, len) };
+    let y_slice = unsafe { std::slice::from_raw_parts_mut(y, len) };
+
+    let av = Vec8F32::splat(a);
+    let chunks = len / 8;
+
+    for i in 0..chunks {
+        let xv = Vec8F32::load(&x_slice[i * 8..]);
+        let yv = Vec8F32::load(&y_slice[i * 8..]);
+        let rv = xv.fma(av, yv);
+        rv.store(&mut y_slice[i * 8..]);
+    }
+
+    for i in (chunks * 8)..len {
+        y_slice[i] = a * x_slice[i] + y_slice[i];
+    }
+}
+
+// ============================================================
+// Tests
+// ============================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_vec4_add() {
+    fn test_vec2f32() {
+        let a = Vec2F32::new(1.0, 2.0);
+        let b = Vec2F32::new(3.0, 4.0);
+        assert_eq!(a.add(b).data, [4.0, 6.0]);
+        assert_eq!(a.mul(b).data, [3.0, 8.0]);
+        assert_eq!(a.dot(b), 11.0);
+    }
+
+    #[test]
+    fn test_vec4f32_add() {
         let a = Vec4F32::new(1.0, 2.0, 3.0, 4.0);
         let b = Vec4F32::new(5.0, 6.0, 7.0, 8.0);
         let c = a.add(b);
@@ -323,16 +1158,109 @@ mod tests {
     }
 
     #[test]
-    fn test_vec4_sum() {
+    fn test_vec4f32_mul() {
+        let a = Vec4F32::new(1.0, 2.0, 3.0, 4.0);
+        let b = Vec4F32::new(2.0, 2.0, 2.0, 2.0);
+        let c = a.mul(b);
+        assert_eq!(c.data, [2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn test_vec4f32_sum() {
         let v = Vec4F32::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(v.sum(), 10.0);
     }
 
     #[test]
-    fn test_dot_product() {
+    fn test_vec4f32_dot() {
+        let a = Vec4F32::new(1.0, 2.0, 3.0, 4.0);
+        let b = Vec4F32::new(1.0, 1.0, 1.0, 1.0);
+        assert_eq!(a.dot(b), 10.0);
+    }
+
+    #[test]
+    fn test_vec4f32_min_max() {
+        let a = Vec4F32::new(1.0, 4.0, 2.0, 3.0);
+        let b = Vec4F32::new(2.0, 1.0, 5.0, 3.0);
+        assert_eq!(a.min(b).data, [1.0, 1.0, 2.0, 3.0]);
+        assert_eq!(a.max(b).data, [2.0, 4.0, 5.0, 3.0]);
+    }
+
+    #[test]
+    fn test_vec4f32_sqrt() {
+        let v = Vec4F32::new(4.0, 9.0, 16.0, 25.0);
+        let s = v.sqrt();
+        assert_eq!(s.data, [2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_vec8f32_add() {
+        let a = Vec8F32::splat(1.0);
+        let b = Vec8F32::splat(2.0);
+        let c = a.add(b);
+        assert_eq!(c.data, [3.0; 8]);
+    }
+
+    #[test]
+    fn test_vec2f64() {
+        let a = Vec2F64::new(1.0, 2.0);
+        let b = Vec2F64::new(3.0, 4.0);
+        assert_eq!(a.add(b).data, [4.0, 6.0]);
+        assert_eq!(a.dot(b), 11.0);
+    }
+
+    #[test]
+    fn test_vec4f64() {
+        let a = Vec4F64::new(1.0, 2.0, 3.0, 4.0);
+        let b = Vec4F64::splat(1.0);
+        assert_eq!(a.dot(b), 10.0);
+    }
+
+    #[test]
+    fn test_vec4i32() {
+        let a = Vec4I32::new(1, 2, 3, 4);
+        let b = Vec4I32::new(5, 6, 7, 8);
+        assert_eq!(a.add(b).data, [6, 8, 10, 12]);
+        assert_eq!(a.sum(), 10);
+    }
+
+    #[test]
+    fn test_vec8i32() {
+        let a = Vec8I32::splat(1);
+        let b = Vec8I32::splat(2);
+        assert_eq!(a.add(b).data, [3; 8]);
+        assert_eq!(a.sum(), 8);
+    }
+
+    #[test]
+    fn test_ffi_dot_f32() {
         let a = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let b = [1.0f32, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+        let b = [1.0f32; 8];
         let dot = bhc_simd_dot_f32(a.as_ptr(), b.as_ptr(), a.len());
         assert_eq!(dot, 36.0);
+    }
+
+    #[test]
+    fn test_ffi_dot_f64() {
+        let a = [1.0f64, 2.0, 3.0, 4.0];
+        let b = [1.0f64; 4];
+        let dot = bhc_simd_dot_f64(a.as_ptr(), b.as_ptr(), a.len());
+        assert_eq!(dot, 10.0);
+    }
+
+    #[test]
+    fn test_ffi_sum_f32() {
+        let a = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let sum = bhc_simd_sum_f32(a.as_ptr(), a.len());
+        assert_eq!(sum, 55.0);
+    }
+
+    #[test]
+    fn test_ffi_saxpy() {
+        let a = 2.0f32;
+        let x = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let mut y = [1.0f32; 8];
+        bhc_simd_saxpy(a, x.as_ptr(), y.as_mut_ptr(), x.len());
+        assert_eq!(y, [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]);
     }
 }

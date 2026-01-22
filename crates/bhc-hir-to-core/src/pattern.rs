@@ -154,6 +154,75 @@ pub fn lower_pat_to_alt(
             })
         }
 
+        Pat::RecordCon(def_ref, field_pats, _) => {
+            // Record constructor pattern
+            // For now, treat field patterns similarly to sub-patterns
+            // TODO: Properly handle out-of-order fields by looking up field indices
+            let mut binders = Vec::with_capacity(field_pats.len());
+            let mut inner_rhs = rhs;
+
+            // Process field patterns from right to left
+            for (i, fp) in field_pats.iter().enumerate().rev() {
+                let binder_name = format!("field_{}", i);
+                let binder = ctx.fresh_var(&binder_name, Ty::Error, span);
+
+                match &fp.pat {
+                    Pat::Var(name, def_id, _) => {
+                        let var = if let Some(registered) = ctx.lookup_var(*def_id) {
+                            registered.clone()
+                        } else {
+                            Var {
+                                name: *name,
+                                id: ctx.fresh_id(),
+                                ty: Ty::Error,
+                            }
+                        };
+                        binders.push(var);
+                    }
+                    Pat::Wild(_) => {
+                        binders.push(binder);
+                    }
+                    _ => {
+                        let sub_alt = lower_pat_to_alt(ctx, &fp.pat, inner_rhs.clone(), span)?;
+                        let default_alt = Alt {
+                            con: AltCon::Default,
+                            binders: vec![],
+                            rhs: make_pattern_error(span),
+                        };
+                        inner_rhs = core::Expr::Case(
+                            Box::new(core::Expr::Var(binder.clone(), span)),
+                            vec![sub_alt, default_alt],
+                            Ty::Error,
+                            span,
+                        );
+                        binders.push(binder);
+                    }
+                }
+            }
+
+            binders.reverse();
+
+            // Create the data constructor
+            let con_name = if let Some(var) = ctx.lookup_var(def_ref.def_id) {
+                var.name
+            } else {
+                Symbol::intern("Con")
+            };
+            let placeholder_tycon = TyCon::new(Symbol::intern("DataType"), Kind::Star);
+            let con = DataCon {
+                name: con_name,
+                ty_con: placeholder_tycon,
+                tag: def_ref.def_id.index() as u32,
+                arity: field_pats.len() as u32,
+            };
+
+            Ok(Alt {
+                con: AltCon::DataCon(con),
+                binders,
+                rhs: inner_rhs,
+            })
+        }
+
         Pat::As(name, _def_id, inner_pat, inner_span) => {
             // As-pattern: bind the value and also match the inner pattern
             let var = Var {
@@ -305,6 +374,12 @@ pub fn bind_pattern_vars(ctx: &mut LowerContext, pat: &hir::Pat, arg_var: Option
             // Each sub-pattern will need its own fresh variable
             for sub_pat in sub_pats {
                 bind_pattern_vars(ctx, sub_pat, None);
+            }
+        }
+        Pat::RecordCon(_, field_pats, _) => {
+            // Recursively bind field pattern variables
+            for fp in field_pats {
+                bind_pattern_vars(ctx, &fp.pat, None);
             }
         }
         Pat::As(name, def_id, inner_pat, _) => {

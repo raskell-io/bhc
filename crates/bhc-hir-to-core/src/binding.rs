@@ -66,6 +66,14 @@ fn preregister_pattern(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<Var> {
             let var = ctx.fresh_var("_pat", Ty::Error, *span);
             Ok(var)
         }
+        Pat::RecordCon(_, field_pats, span) => {
+            // Pre-register all field pattern variables
+            for fp in field_pats {
+                preregister_pattern_nested(ctx, &fp.pat)?;
+            }
+            let var = ctx.fresh_var("_rec", Ty::Error, *span);
+            Ok(var)
+        }
         Pat::As(name, def_id, inner, _span) => {
             // Also pre-register inner pattern variables
             preregister_pattern_nested(ctx, inner)?;
@@ -107,6 +115,12 @@ fn preregister_pattern_nested(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<
         Pat::Con(_, sub_pats, _) => {
             for sub_pat in sub_pats {
                 preregister_pattern_nested(ctx, sub_pat)?;
+            }
+            Ok(())
+        }
+        Pat::RecordCon(_, field_pats, _) => {
+            for fp in field_pats {
+                preregister_pattern_nested(ctx, &fp.pat)?;
             }
             Ok(())
         }

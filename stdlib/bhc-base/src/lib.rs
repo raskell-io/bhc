@@ -24,6 +24,8 @@
 #![warn(missing_docs)]
 #![warn(unsafe_code)]
 
+pub mod applicative;
+pub mod category;
 pub mod char;
 pub mod function;
 pub mod io;

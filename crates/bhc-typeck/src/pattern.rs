@@ -64,6 +64,63 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
             }
         }
 
+        Pat::RecordCon(def_ref, field_pats, span) => {
+            // Record constructor pattern: look up constructor type and unify by field name
+            let scheme = ctx
+                .env
+                .lookup_data_con_by_id(def_ref.def_id)
+                .map(|i| i.scheme.clone());
+            if let Some(s) = scheme {
+                // Instantiate the constructor's type scheme
+                let con_ty = ctx.instantiate(&s);
+
+                // Extract the result type from the constructor type
+                // Con type is: T1 -> T2 -> ... -> Tn -> Result
+                let mut result_ty = con_ty.clone();
+                while let Ty::Fun(_, ret) = result_ty {
+                    result_ty = (*ret).clone();
+                }
+
+                // Try to get field definitions for name-based matching
+                if let Some(field_defs) = ctx.get_con_fields(def_ref.def_id) {
+                    // Extract field types from the instantiated constructor type
+                    let mut expected_field_types = Vec::new();
+                    let mut current = &con_ty;
+                    while let Ty::Fun(arg, ret) = current {
+                        expected_field_types.push(arg.as_ref().clone());
+                        current = ret.as_ref();
+                    }
+
+                    // Build name -> type map
+                    let field_type_map: std::collections::HashMap<bhc_intern::Symbol, Ty> = field_defs
+                        .iter()
+                        .zip(expected_field_types.iter())
+                        .map(|((name, _), ty)| (*name, ty.clone()))
+                        .collect();
+
+                    // Check each field pattern against its expected type
+                    for fp in field_pats {
+                        let pat_ty = infer_pattern(ctx, &fp.pat);
+                        if let Some(expected) = field_type_map.get(&fp.name) {
+                            ctx.unify(&pat_ty, expected, fp.span);
+                        }
+                        // If field name not found, we silently accept it (could be a record wildcard)
+                    }
+                } else {
+                    // No field definitions available, just infer types for patterns
+                    for fp in field_pats {
+                        infer_pattern(ctx, &fp.pat);
+                    }
+                }
+
+                result_ty
+            } else {
+                // Constructor not found, return error type
+                crate::diagnostics::emit_unbound_constructor(ctx, def_ref.def_id, *span);
+                Ty::Error
+            }
+        }
+
         Pat::As(name, def_id, inner, _span) => {
             // As-pattern: bind name and check inner pattern
             let ty = infer_pattern(ctx, inner);

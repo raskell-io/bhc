@@ -1389,7 +1389,7 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
             let con_name = con.name;
             if let Some(def_id) = resolve_constructor(ctx, con_name, *span) {
                 let con_ref = ctx.def_ref(def_id, *span);
-                let mut hir_pats: Vec<hir::Pat> = Vec::with_capacity(fields.len());
+                let mut hir_field_pats: Vec<hir::FieldPat> = Vec::with_capacity(fields.len());
                 for f in fields {
                     let pat = match &f.pat {
                         Some(p) => lower_pat(ctx, p),
@@ -1400,9 +1400,13 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
                     };
-                    hir_pats.push(pat);
+                    hir_field_pats.push(hir::FieldPat {
+                        name: f.name.name,
+                        pat,
+                        span: f.span,
+                    });
                 }
-                hir::Pat::Con(con_ref, hir_pats, *span)
+                hir::Pat::RecordCon(con_ref, hir_field_pats, *span)
             } else {
                 hir::Pat::Error(*span)
             }
@@ -1433,12 +1437,12 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
         }
 
         ast::Pat::QualRecord(module_name, con, fields, span) => {
-            // Qualified record pattern like W.StackSet { focus = f }
+            // Qualified record pattern like XMonad.XConfig { modMask = m }
             let qualifier = Symbol::intern(&module_name.to_string());
             let con_name = con.name;
             if let Some(def_id) = ctx.resolve_qualified_constructor(qualifier, con_name) {
                 let con_ref = ctx.def_ref(def_id, *span);
-                let mut hir_pats: Vec<hir::Pat> = Vec::with_capacity(fields.len());
+                let mut hir_field_pats: Vec<hir::FieldPat> = Vec::with_capacity(fields.len());
                 for f in fields {
                     let pat = match &f.pat {
                         Some(p) => lower_pat(ctx, p),
@@ -1449,9 +1453,13 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
                     };
-                    hir_pats.push(pat);
+                    hir_field_pats.push(hir::FieldPat {
+                        name: f.name.name,
+                        pat,
+                        span: f.span,
+                    });
                 }
-                hir::Pat::Con(con_ref, hir_pats, *span)
+                hir::Pat::RecordCon(con_ref, hir_field_pats, *span)
             } else {
                 // Fall back to creating a placeholder with the full qualified name
                 let qual_name = format!("{}.{}", module_name.to_string(), con_name.as_str());
@@ -1463,7 +1471,7 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                 let def_id = ctx.fresh_def_id();
                 ctx.define(def_id, qual_sym, DefKind::Constructor, *span);
                 let con_ref = ctx.def_ref(def_id, *span);
-                let mut hir_pats: Vec<hir::Pat> = Vec::with_capacity(fields.len());
+                let mut hir_field_pats: Vec<hir::FieldPat> = Vec::with_capacity(fields.len());
                 for f in fields {
                     let pat = match &f.pat {
                         Some(p) => lower_pat(ctx, p),
@@ -1473,9 +1481,13 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
                     };
-                    hir_pats.push(pat);
+                    hir_field_pats.push(hir::FieldPat {
+                        name: f.name.name,
+                        pat,
+                        span: f.span,
+                    });
                 }
-                hir::Pat::Con(con_ref, hir_pats, *span)
+                hir::Pat::RecordCon(con_ref, hir_field_pats, *span)
             }
         }
 

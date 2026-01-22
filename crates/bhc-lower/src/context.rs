@@ -80,6 +80,8 @@ pub struct DefInfo {
     pub type_con_name: Option<Symbol>,
     /// For constructors, the number of type parameters the type has. None for non-constructors.
     pub type_param_count: Option<usize>,
+    /// For record constructors, the ordered list of field names. None for positional constructors.
+    pub field_names: Option<Vec<Symbol>>,
 }
 
 /// A scope containing name bindings.
@@ -1147,6 +1149,7 @@ impl LowerContext {
                 arity: None,
                 type_con_name: None,
                 type_param_count: None,
+                field_names: None,
             },
         );
     }
@@ -1163,6 +1166,7 @@ impl LowerContext {
                 arity: Some(arity),
                 type_con_name: None,
                 type_param_count: None,
+                field_names: None,
             },
         );
     }
@@ -1176,6 +1180,7 @@ impl LowerContext {
         arity: usize,
         type_con_name: Symbol,
         type_param_count: usize,
+        field_names: Option<Vec<Symbol>>,
     ) {
         self.defs.insert(
             id,
@@ -1187,6 +1192,7 @@ impl LowerContext {
                 arity: Some(arity),
                 type_con_name: Some(type_con_name),
                 type_param_count: Some(type_param_count),
+                field_names,
             },
         );
     }
