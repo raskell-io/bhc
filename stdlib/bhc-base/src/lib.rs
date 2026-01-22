@@ -16,6 +16,7 @@
 //! - `monad` - Extended monad operations
 //! - `applicative` - Extended applicative operations
 //! - `category` - Category theory abstractions
+//! - `arrow` - Arrow combinators
 //!
 //! ## System modules
 //! - `io` - Input/output operations
@@ -25,6 +26,7 @@
 #![warn(unsafe_code)]
 
 pub mod applicative;
+pub mod arrow;
 pub mod category;
 pub mod char;
 pub mod function;

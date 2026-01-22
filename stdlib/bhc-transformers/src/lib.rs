@@ -16,6 +16,7 @@
 //! - [`state`] - StateT for mutable state
 //! - [`except`] - ExceptT for error handling
 //! - [`maybe`] - MaybeT for optional/failure semantics
+//! - [`rws`] - RWS combined Reader/Writer/State
 //!
 //! # Example
 //!
@@ -39,6 +40,7 @@ pub mod except;
 pub mod identity;
 pub mod maybe;
 pub mod reader;
+pub mod rws;
 pub mod state;
 pub mod writer;
 
@@ -49,3 +51,4 @@ pub use maybe::MaybeT;
 pub use reader::{Reader, ReaderT};
 pub use state::{State, StateT};
 pub use writer::{Monoid, Product, Sum, Writer, WriterT};
+pub use rws::{RWS, RWST};
