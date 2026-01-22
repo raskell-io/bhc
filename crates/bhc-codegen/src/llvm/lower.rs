@@ -133,6 +133,32 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let alloc_type = i8_ptr_type.fn_type(&[i64_type.into()], false);
         let alloc_fn = self.module.llvm_module().add_function("bhc_alloc", alloc_type, None);
         self.functions.insert(VarId::new(1005), alloc_fn);
+
+        // bhc_error(*i8) -> void - runtime error (does not return)
+        let error_type = void_type.fn_type(&[i8_ptr_type.into()], false);
+        let error_fn = self.module.llvm_module().add_function("bhc_error", error_type, None);
+        self.functions.insert(VarId::new(1006), error_fn);
+
+        // bhc_print_bool(i64) -> void - print True/False
+        let print_bool_type = void_type.fn_type(&[i64_type.into()], false);
+        let print_bool = self.module.llvm_module().add_function("bhc_print_bool", print_bool_type, None);
+        self.functions.insert(VarId::new(1007), print_bool);
+
+        // bhc_print_bool_ln(i64) -> void - print True/False with newline
+        let print_bool_ln_type = void_type.fn_type(&[i64_type.into()], false);
+        let print_bool_ln = self.module.llvm_module().add_function("bhc_print_bool_ln", print_bool_ln_type, None);
+        self.functions.insert(VarId::new(1008), print_bool_ln);
+
+        // bhc_print_char(i32) -> void - print a character
+        let i32_type = tm.i32_type();
+        let print_char_type = void_type.fn_type(&[i32_type.into()], false);
+        let print_char = self.module.llvm_module().add_function("bhc_print_char", print_char_type, None);
+        self.functions.insert(VarId::new(1009), print_char);
+
+        // bhc_print_newline() -> void
+        let print_newline_type = void_type.fn_type(&[], false);
+        let print_newline = self.module.llvm_module().add_function("bhc_print_newline", print_newline_type, None);
+        self.functions.insert(VarId::new(1010), print_newline);
     }
 
     // ========================================================================
@@ -342,6 +368,578 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "putStr" => Some(VarId::new(1004)),     // bhc_print_string
             _ => None,
         }
+    }
+
+    // ========================================================================
+    // Builtin Functions
+    // ========================================================================
+    //
+    // These are common Haskell functions that we implement directly in LLVM
+    // for performance (avoiding function call overhead) or because they need
+    // special handling.
+    // ========================================================================
+
+    /// Check if a name is a builtin function and return its arity.
+    fn builtin_info(&self, name: &str) -> Option<u32> {
+        match name {
+            // List operations
+            "head" => Some(1),
+            "tail" => Some(1),
+            "null" => Some(1),
+            "length" => Some(1),
+
+            // Tuple operations
+            "fst" => Some(1),
+            "snd" => Some(1),
+
+            // Maybe operations
+            "fromJust" => Some(1),
+            "isJust" => Some(1),
+            "isNothing" => Some(1),
+
+            // Either operations
+            "isLeft" => Some(1),
+            "isRight" => Some(1),
+
+            // Error
+            "error" => Some(1),
+            "undefined" => Some(0),
+
+            // Misc
+            "seq" => Some(2),
+            "id" => Some(1),
+            "const" => Some(2),
+
+            _ => None,
+        }
+    }
+
+    /// Check if an expression is a saturated builtin function application.
+    fn is_saturated_builtin<'a>(&self, expr: &'a Expr) -> Option<(&'a str, Vec<&'a Expr>)> {
+        // Collect arguments while unwrapping applications
+        let mut args = Vec::new();
+        let mut current = expr;
+
+        while let Expr::App(func, arg, _) = current {
+            args.push(arg.as_ref());
+            current = func.as_ref();
+        }
+
+        // Check if the head is a builtin function
+        if let Expr::Var(var, _) = current {
+            let name = var.name.as_str();
+            if let Some(arity) = self.builtin_info(name) {
+                args.reverse();
+                if args.len() == arity as usize {
+                    return Some((name, args));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Lower a builtin function application.
+    fn lower_builtin(
+        &mut self,
+        name: &str,
+        args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        match name {
+            // List operations
+            "head" => self.lower_builtin_head(args[0]),
+            "tail" => self.lower_builtin_tail(args[0]),
+            "null" => self.lower_builtin_null(args[0]),
+            "length" => self.lower_builtin_length(args[0]),
+
+            // Tuple operations
+            "fst" => self.lower_builtin_fst(args[0]),
+            "snd" => self.lower_builtin_snd(args[0]),
+
+            // Maybe operations
+            "fromJust" => self.lower_builtin_from_just(args[0]),
+            "isJust" => self.lower_builtin_is_just(args[0]),
+            "isNothing" => self.lower_builtin_is_nothing(args[0]),
+
+            // Either operations
+            "isLeft" => self.lower_builtin_is_left(args[0]),
+            "isRight" => self.lower_builtin_is_right(args[0]),
+
+            // Error
+            "error" => self.lower_builtin_error(args[0]),
+            "undefined" => self.lower_builtin_undefined(),
+
+            // Misc
+            "seq" => self.lower_builtin_seq(args[0], args[1]),
+            "id" => self.lower_expr(args[0]),
+            "const" => self.lower_expr(args[0]),
+
+            _ => Err(CodegenError::Internal(format!("unknown builtin: {}", name))),
+        }
+    }
+
+    /// Lower `head` - extract first element of a list.
+    /// head [] = error "empty list"
+    /// head (x:_) = x
+    fn lower_builtin_head(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("head: list has no value".to_string())
+        })?;
+
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("head expects a list".to_string())),
+        };
+
+        // Extract tag to check if empty
+        let tag = self.extract_adt_tag(list_ptr)?;
+        let tm = self.type_mapper();
+
+        // Create blocks for empty check
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let empty_block = self.llvm_context().append_basic_block(current_fn, "head_empty");
+        let cons_block = self.llvm_context().append_basic_block(current_fn, "head_cons");
+
+        // Branch on tag (0 = [], 1 = :)
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare tag: {:?}", e)))?;
+
+        self.builder()
+            .build_conditional_branch(is_empty, empty_block, cons_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Empty case: call error
+        self.builder().position_at_end(empty_block);
+        let error_msg = self.module.add_global_string("head_empty_error", "head: empty list");
+        let error_fn = self.functions.get(&VarId::new(1006)).ok_or_else(|| {
+            CodegenError::Internal("bhc_error not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*error_fn, &[error_msg.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call error: {:?}", e)))?;
+        self.builder()
+            .build_unreachable()
+            .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+
+        // Cons case: extract head (field 0)
+        self.builder().position_at_end(cons_block);
+        let head_ptr = self.extract_adt_field(list_ptr, 2, 0)?; // arity=2 for (:)
+        Ok(Some(head_ptr.into()))
+    }
+
+    /// Lower `tail` - extract rest of a list.
+    /// tail [] = error "empty list"
+    /// tail (_:xs) = xs
+    fn lower_builtin_tail(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("tail: list has no value".to_string())
+        })?;
+
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("tail expects a list".to_string())),
+        };
+
+        // Extract tag to check if empty
+        let tag = self.extract_adt_tag(list_ptr)?;
+        let tm = self.type_mapper();
+
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let empty_block = self.llvm_context().append_basic_block(current_fn, "tail_empty");
+        let cons_block = self.llvm_context().append_basic_block(current_fn, "tail_cons");
+
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare tag: {:?}", e)))?;
+
+        self.builder()
+            .build_conditional_branch(is_empty, empty_block, cons_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Empty case: call error
+        self.builder().position_at_end(empty_block);
+        let error_msg = self.module.add_global_string("tail_empty_error", "tail: empty list");
+        let error_fn = self.functions.get(&VarId::new(1006)).ok_or_else(|| {
+            CodegenError::Internal("bhc_error not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*error_fn, &[error_msg.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call error: {:?}", e)))?;
+        self.builder()
+            .build_unreachable()
+            .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+
+        // Cons case: extract tail (field 1)
+        self.builder().position_at_end(cons_block);
+        let tail_ptr = self.extract_adt_field(list_ptr, 2, 1)?;
+        Ok(Some(tail_ptr.into()))
+    }
+
+    /// Lower `null` - check if list is empty.
+    /// null [] = True
+    /// null (_:_) = False
+    fn lower_builtin_null(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("null: list has no value".to_string())
+        })?;
+
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("null expects a list".to_string())),
+        };
+
+        // Extract tag: 0 = [], 1 = (:)
+        let tag = self.extract_adt_tag(list_ptr)?;
+        let tm = self.type_mapper();
+
+        // null = (tag == 0)
+        let is_null = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_null")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        // Extend i1 to i64 for Bool representation
+        let result = self.builder()
+            .build_int_z_extend(is_null, tm.i64_type(), "null_result")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend: {:?}", e)))?;
+
+        Ok(Some(result.into()))
+    }
+
+    /// Lower `length` - compute list length.
+    /// This generates a loop to count elements.
+    fn lower_builtin_length(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("length: list has no value".to_string())
+        })?;
+
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("length expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Create loop blocks
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "length_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "length_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "length_exit");
+
+        // Initialize count to 0 and branch to header
+        let init_count = tm.i64_type().const_zero();
+        self.builder()
+            .build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop header: phi nodes for count and current list pointer
+        self.builder().position_at_end(loop_header);
+
+        let count_phi = self.builder()
+            .build_phi(tm.i64_type(), "count")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        let list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Get the entry block for phi incoming
+        let entry_block = current_fn.get_first_basic_block()
+            .ok_or_else(|| CodegenError::Internal("no entry block".to_string()))?;
+
+        // Check if current list is empty
+        let current_list = list_phi.as_basic_value().into_pointer_value();
+        let tag = self.extract_adt_tag(current_list)?;
+
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        self.builder()
+            .build_conditional_branch(is_empty, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop body: increment count, get tail
+        self.builder().position_at_end(loop_body);
+
+        let new_count = self.builder()
+            .build_int_add(count_phi.as_basic_value().into_int_value(), tm.i64_type().const_int(1, false), "new_count")
+            .map_err(|e| CodegenError::Internal(format!("failed to add: {:?}", e)))?;
+
+        let tail_ptr = self.extract_adt_field(current_list, 2, 1)?;
+
+        self.builder()
+            .build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Add phi incoming edges
+        // Note: We need to find the block that had the initial branch to loop_header
+        // This is tricky because we already positioned at loop_body
+        count_phi.add_incoming(&[
+            (&init_count, entry_block),
+            (&new_count, loop_body),
+        ]);
+        list_phi.add_incoming(&[
+            (&list_ptr, entry_block),
+            (&tail_ptr, loop_body),
+        ]);
+
+        // Loop exit: return final count
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(count_phi.as_basic_value()))
+    }
+
+    /// Lower `fst` - extract first element of a pair.
+    fn lower_builtin_fst(&mut self, pair_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let pair_val = self.lower_expr(pair_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fst: pair has no value".to_string())
+        })?;
+
+        let pair_ptr = match pair_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("fst expects a tuple".to_string())),
+        };
+
+        // Extract field 0 (first element)
+        let fst_ptr = self.extract_adt_field(pair_ptr, 2, 0)?;
+        Ok(Some(fst_ptr.into()))
+    }
+
+    /// Lower `snd` - extract second element of a pair.
+    fn lower_builtin_snd(&mut self, pair_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let pair_val = self.lower_expr(pair_expr)?.ok_or_else(|| {
+            CodegenError::Internal("snd: pair has no value".to_string())
+        })?;
+
+        let pair_ptr = match pair_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("snd expects a tuple".to_string())),
+        };
+
+        // Extract field 1 (second element)
+        let snd_ptr = self.extract_adt_field(pair_ptr, 2, 1)?;
+        Ok(Some(snd_ptr.into()))
+    }
+
+    /// Lower `fromJust` - extract value from Just, error on Nothing.
+    fn lower_builtin_from_just(&mut self, maybe_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let maybe_val = self.lower_expr(maybe_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fromJust: maybe has no value".to_string())
+        })?;
+
+        let maybe_ptr = match maybe_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("fromJust expects Maybe".to_string())),
+        };
+
+        let tag = self.extract_adt_tag(maybe_ptr)?;
+        let tm = self.type_mapper();
+
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let nothing_block = self.llvm_context().append_basic_block(current_fn, "fromJust_nothing");
+        let just_block = self.llvm_context().append_basic_block(current_fn, "fromJust_just");
+
+        // Tag: Nothing=0, Just=1
+        let is_nothing = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_nothing")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        self.builder()
+            .build_conditional_branch(is_nothing, nothing_block, just_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Nothing case: error
+        self.builder().position_at_end(nothing_block);
+        let error_msg = self.module.add_global_string("fromJust_error", "fromJust: Nothing");
+        let error_fn = self.functions.get(&VarId::new(1006)).ok_or_else(|| {
+            CodegenError::Internal("bhc_error not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*error_fn, &[error_msg.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call error: {:?}", e)))?;
+        self.builder()
+            .build_unreachable()
+            .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+
+        // Just case: extract value
+        self.builder().position_at_end(just_block);
+        let val_ptr = self.extract_adt_field(maybe_ptr, 1, 0)?;
+        Ok(Some(val_ptr.into()))
+    }
+
+    /// Lower `isJust` - check if Maybe is Just.
+    fn lower_builtin_is_just(&mut self, maybe_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let maybe_val = self.lower_expr(maybe_expr)?.ok_or_else(|| {
+            CodegenError::Internal("isJust: maybe has no value".to_string())
+        })?;
+
+        let maybe_ptr = match maybe_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("isJust expects Maybe".to_string())),
+        };
+
+        let tag = self.extract_adt_tag(maybe_ptr)?;
+        let tm = self.type_mapper();
+
+        // isJust = (tag == 1)
+        let is_just = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_just")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        let result = self.builder()
+            .build_int_z_extend(is_just, tm.i64_type(), "isJust_result")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend: {:?}", e)))?;
+
+        Ok(Some(result.into()))
+    }
+
+    /// Lower `isNothing` - check if Maybe is Nothing.
+    fn lower_builtin_is_nothing(&mut self, maybe_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let maybe_val = self.lower_expr(maybe_expr)?.ok_or_else(|| {
+            CodegenError::Internal("isNothing: maybe has no value".to_string())
+        })?;
+
+        let maybe_ptr = match maybe_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("isNothing expects Maybe".to_string())),
+        };
+
+        let tag = self.extract_adt_tag(maybe_ptr)?;
+        let tm = self.type_mapper();
+
+        // isNothing = (tag == 0)
+        let is_nothing = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_nothing")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        let result = self.builder()
+            .build_int_z_extend(is_nothing, tm.i64_type(), "isNothing_result")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend: {:?}", e)))?;
+
+        Ok(Some(result.into()))
+    }
+
+    /// Lower `isLeft` - check if Either is Left.
+    fn lower_builtin_is_left(&mut self, either_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let either_val = self.lower_expr(either_expr)?.ok_or_else(|| {
+            CodegenError::Internal("isLeft: either has no value".to_string())
+        })?;
+
+        let either_ptr = match either_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("isLeft expects Either".to_string())),
+        };
+
+        let tag = self.extract_adt_tag(either_ptr)?;
+        let tm = self.type_mapper();
+
+        // isLeft = (tag == 0)
+        let is_left = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_left")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        let result = self.builder()
+            .build_int_z_extend(is_left, tm.i64_type(), "isLeft_result")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend: {:?}", e)))?;
+
+        Ok(Some(result.into()))
+    }
+
+    /// Lower `isRight` - check if Either is Right.
+    fn lower_builtin_is_right(&mut self, either_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let either_val = self.lower_expr(either_expr)?.ok_or_else(|| {
+            CodegenError::Internal("isRight: either has no value".to_string())
+        })?;
+
+        let either_ptr = match either_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("isRight expects Either".to_string())),
+        };
+
+        let tag = self.extract_adt_tag(either_ptr)?;
+        let tm = self.type_mapper();
+
+        // isRight = (tag == 1)
+        let is_right = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_right")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        let result = self.builder()
+            .build_int_z_extend(is_right, tm.i64_type(), "isRight_result")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend: {:?}", e)))?;
+
+        Ok(Some(result.into()))
+    }
+
+    /// Lower `error` - runtime error.
+    fn lower_builtin_error(&mut self, msg_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let msg_val = self.lower_expr(msg_expr)?.ok_or_else(|| {
+            CodegenError::Internal("error: message has no value".to_string())
+        })?;
+
+        let msg_ptr = match msg_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => {
+                // If it's not a pointer, use a default error message
+                self.module.add_global_string("error_default", "error called")
+            }
+        };
+
+        let error_fn = self.functions.get(&VarId::new(1006)).ok_or_else(|| {
+            CodegenError::Internal("bhc_error not declared".to_string())
+        })?;
+
+        self.builder()
+            .build_call(*error_fn, &[msg_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call error: {:?}", e)))?;
+
+        self.builder()
+            .build_unreachable()
+            .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+
+        // error never returns, but we need to return something for the type system
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `undefined` - always errors.
+    fn lower_builtin_undefined(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let error_msg = self.module.add_global_string("undefined_error", "undefined");
+        let error_fn = self.functions.get(&VarId::new(1006)).ok_or_else(|| {
+            CodegenError::Internal("bhc_error not declared".to_string())
+        })?;
+
+        self.builder()
+            .build_call(*error_fn, &[error_msg.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call error: {:?}", e)))?;
+
+        self.builder()
+            .build_unreachable()
+            .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `seq` - force evaluation of first argument, return second.
+    fn lower_builtin_seq(&mut self, a_expr: &Expr, b_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Evaluate first argument (for its effect of forcing evaluation)
+        let _a = self.lower_expr(a_expr)?;
+        // Return second argument
+        self.lower_expr(b_expr)
     }
 
     /// Check if a name is a data constructor and return (tag, arity).
@@ -1455,17 +2053,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Lower a function application.
     ///
-    /// Handles three cases:
-    /// 1. Primitive operation (e.g., `1 + 2`) - generate LLVM instruction
-    /// 2. Constructor application (e.g., `Just 42`) - allocate ADT value
-    /// 3. Function call - generate call instruction
+    /// Handles four cases:
+    /// 1. Builtin function (e.g., `head xs`) - generate specialized code
+    /// 2. Primitive operation (e.g., `1 + 2`) - generate LLVM instruction
+    /// 3. Constructor application (e.g., `Just 42`) - allocate ADT value
+    /// 4. Function call - generate call instruction
     fn lower_application(
         &mut self,
         func: &Expr,
         arg: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        // First, reconstruct the full application to check for primop/constructor
+        // First, reconstruct the full application to check for special cases
         let full_app = Expr::App(Box::new(func.clone()), Box::new(arg.clone()), func.span());
+
+        // Check if this is a saturated builtin function
+        if let Some((name, builtin_args)) = self.is_saturated_builtin(&full_app) {
+            return self.lower_builtin(name, &builtin_args);
+        }
 
         // Check if this is a saturated primitive operation
         if let Some((op, prim_args)) = self.is_saturated_primop(&full_app) {
