@@ -12,6 +12,7 @@
 
 use crate::{CodegenError, CodegenResult};
 use bhc_core::{Alt, AltCon, Bind, CoreModule, DataCon, Expr, Literal, Var, VarId};
+use rustc_hash::FxHashSet;
 
 /// Primitive operations that compile directly to LLVM instructions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,8 @@ pub struct Lowering<'ctx, 'm> {
     env: FxHashMap<VarId, BasicValueEnum<'ctx>>,
     /// Mapping from Core variables to LLVM functions (for top-level bindings).
     functions: FxHashMap<VarId, FunctionValue<'ctx>>,
+    /// Counter for generating unique closure names.
+    closure_counter: u32,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -87,6 +90,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             module,
             env: FxHashMap::default(),
             functions: FxHashMap::default(),
+            closure_counter: 0,
         };
         lowering.declare_rts_functions();
         lowering
@@ -389,6 +393,292 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    // ========================================================================
+    // Closure Support
+    // ========================================================================
+    //
+    // Closures are represented as heap-allocated structs:
+    //
+    //   struct Closure {
+    //       ptr fn_ptr;        // Pointer to the lifted function
+    //       i64 env_size;      // Number of captured variables
+    //       ptr env[];         // Array of captured variable pointers
+    //   }
+    //
+    // When a lambda captures free variables, we:
+    // 1. Compute the free variables
+    // 2. Create a lifted function that takes (env_ptr, params...) as arguments
+    // 3. Allocate a closure struct with the function pointer and captured values
+    //
+    // When calling a closure:
+    // 1. Load the function pointer from the closure
+    // 2. Call with the closure (as env) and the arguments
+    // ========================================================================
+
+    /// Compute the free variables of an expression.
+    ///
+    /// Returns the set of variable IDs that are referenced but not bound
+    /// within the expression.
+    fn free_vars(&self, expr: &Expr) -> FxHashSet<VarId> {
+        let mut free = FxHashSet::default();
+        let mut bound = FxHashSet::default();
+        self.collect_free_vars(expr, &mut free, &mut bound);
+        free
+    }
+
+    /// Helper to collect free variables, tracking bound variables.
+    fn collect_free_vars(
+        &self,
+        expr: &Expr,
+        free: &mut FxHashSet<VarId>,
+        bound: &mut FxHashSet<VarId>,
+    ) {
+        match expr {
+            Expr::Lit(_, _, _) => {}
+
+            Expr::Var(var, _) => {
+                // A variable is free if it's not bound and not a top-level function/constructor
+                if !bound.contains(&var.id)
+                    && !self.functions.contains_key(&var.id)
+                    && self.constructor_info(var.name.as_str()).is_none()
+                    && self.primitive_op_info(var.name.as_str()).is_none()
+                    && self.rts_function_id(var.name.as_str()).is_none()
+                {
+                    free.insert(var.id);
+                }
+            }
+
+            Expr::App(func, arg, _) => {
+                self.collect_free_vars(func, free, bound);
+                self.collect_free_vars(arg, free, bound);
+            }
+
+            Expr::Lam(param, body, _) => {
+                bound.insert(param.id);
+                self.collect_free_vars(body, free, bound);
+                bound.remove(&param.id);
+            }
+
+            Expr::Let(bind, body, _) => {
+                match bind {
+                    Bind::NonRec(var, rhs) => {
+                        self.collect_free_vars(rhs, free, bound);
+                        bound.insert(var.id);
+                        self.collect_free_vars(body, free, bound);
+                        bound.remove(&var.id);
+                    }
+                    Bind::Rec(bindings) => {
+                        // For recursive bindings, all vars are bound in both RHS and body
+                        for (var, _) in bindings {
+                            bound.insert(var.id);
+                        }
+                        for (_, rhs) in bindings {
+                            self.collect_free_vars(rhs, free, bound);
+                        }
+                        self.collect_free_vars(body, free, bound);
+                        for (var, _) in bindings {
+                            bound.remove(&var.id);
+                        }
+                    }
+                }
+            }
+
+            Expr::Case(scrut, alts, _, _) => {
+                self.collect_free_vars(scrut, free, bound);
+                for alt in alts {
+                    for binder in &alt.binders {
+                        bound.insert(binder.id);
+                    }
+                    self.collect_free_vars(&alt.rhs, free, bound);
+                    for binder in &alt.binders {
+                        bound.remove(&binder.id);
+                    }
+                }
+            }
+
+            Expr::TyApp(inner, _, _) => {
+                self.collect_free_vars(inner, free, bound);
+            }
+
+            Expr::TyLam(_, body, _) => {
+                self.collect_free_vars(body, free, bound);
+            }
+
+            Expr::Lazy(inner, _) => {
+                self.collect_free_vars(inner, free, bound);
+            }
+
+            Expr::Cast(inner, _, _) => {
+                self.collect_free_vars(inner, free, bound);
+            }
+
+            Expr::Tick(_, inner, _) => {
+                self.collect_free_vars(inner, free, bound);
+            }
+
+            Expr::Type(_, _) | Expr::Coercion(_, _) => {}
+        }
+    }
+
+    /// Get the LLVM struct type for a closure with the given environment size.
+    ///
+    /// Closure layout: { ptr fn_ptr, i64 env_size, [env_size x ptr] env }
+    fn closure_type(&self, env_size: u32) -> inkwell::types::StructType<'ctx> {
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let i64_type = tm.i64_type();
+
+        // Create array type for environment
+        let env_type = ptr_type.array_type(env_size);
+
+        // Struct: { ptr fn_ptr, i64 env_size, [env_size x ptr] env }
+        self.llvm_ctx.struct_type(&[ptr_type.into(), i64_type.into(), env_type.into()], false)
+    }
+
+    /// Allocate a closure with the given function pointer and captured variables.
+    fn alloc_closure(
+        &self,
+        fn_ptr: PointerValue<'ctx>,
+        captured_vars: &[(VarId, BasicValueEnum<'ctx>)],
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        let env_size = captured_vars.len() as u32;
+        let closure_ty = self.closure_type(env_size);
+
+        // Calculate size: sizeof(ptr) + sizeof(i64) + env_size * sizeof(ptr)
+        let size = 8 + 8 + (env_size as u64) * 8;
+
+        // Call bhc_alloc
+        let alloc_fn = self.functions.get(&VarId::new(1005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+
+        let size_val = tm.i64_type().const_int(size, false);
+        let raw_ptr = self
+            .builder()
+            .build_call(*alloc_fn, &[size_val.into()], "closure_alloc")
+            .map_err(|e| CodegenError::Internal(format!("failed to call bhc_alloc: {:?}", e)))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::Internal("bhc_alloc returned void".to_string()))?;
+
+        let closure_ptr = raw_ptr.into_pointer_value();
+
+        // Store function pointer at offset 0
+        let fn_ptr_slot = self
+            .builder()
+            .build_struct_gep(closure_ty, closure_ptr, 0, "fn_ptr_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get fn_ptr slot: {:?}", e)))?;
+
+        self.builder()
+            .build_store(fn_ptr_slot, fn_ptr)
+            .map_err(|e| CodegenError::Internal(format!("failed to store fn_ptr: {:?}", e)))?;
+
+        // Store env_size at offset 1
+        let env_size_slot = self
+            .builder()
+            .build_struct_gep(closure_ty, closure_ptr, 1, "env_size_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get env_size slot: {:?}", e)))?;
+
+        let env_size_val = tm.i64_type().const_int(env_size as u64, false);
+        self.builder()
+            .build_store(env_size_slot, env_size_val)
+            .map_err(|e| CodegenError::Internal(format!("failed to store env_size: {:?}", e)))?;
+
+        // Store captured variables in environment array
+        if env_size > 0 {
+            let env_slot = self
+                .builder()
+                .build_struct_gep(closure_ty, closure_ptr, 2, "env_slot")
+                .map_err(|e| CodegenError::Internal(format!("failed to get env slot: {:?}", e)))?;
+
+            for (i, (_var_id, val)) in captured_vars.iter().enumerate() {
+                let elem_ptr = unsafe {
+                    self.builder()
+                        .build_in_bounds_gep(
+                            tm.ptr_type().array_type(env_size),
+                            env_slot,
+                            &[
+                                tm.i64_type().const_zero(),
+                                tm.i64_type().const_int(i as u64, false),
+                            ],
+                            &format!("env_{}", i),
+                        )
+                        .map_err(|e| CodegenError::Internal(format!("failed to get env elem: {:?}", e)))?
+                };
+
+                // Convert value to pointer if needed
+                let ptr_val = self.value_to_ptr(*val)?;
+                self.builder()
+                    .build_store(elem_ptr, ptr_val)
+                    .map_err(|e| CodegenError::Internal(format!("failed to store env elem: {:?}", e)))?;
+            }
+        }
+
+        Ok(closure_ptr)
+    }
+
+    /// Extract the function pointer from a closure.
+    fn extract_closure_fn_ptr(&self, closure_ptr: PointerValue<'ctx>) -> CodegenResult<PointerValue<'ctx>> {
+        let closure_ty = self.closure_type(0); // Use 0-size for reading fn_ptr (same offset)
+
+        let fn_ptr_slot = self
+            .builder()
+            .build_struct_gep(closure_ty, closure_ptr, 0, "fn_ptr_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get fn_ptr slot: {:?}", e)))?;
+
+        let fn_ptr = self
+            .builder()
+            .build_load(self.type_mapper().ptr_type(), fn_ptr_slot, "fn_ptr")
+            .map_err(|e| CodegenError::Internal(format!("failed to load fn_ptr: {:?}", e)))?;
+
+        Ok(fn_ptr.into_pointer_value())
+    }
+
+    /// Extract an element from a closure's environment.
+    fn extract_closure_env_elem(
+        &self,
+        closure_ptr: PointerValue<'ctx>,
+        env_size: u32,
+        index: u32,
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        let closure_ty = self.closure_type(env_size);
+
+        let env_slot = self
+            .builder()
+            .build_struct_gep(closure_ty, closure_ptr, 2, "env_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get env slot: {:?}", e)))?;
+
+        let elem_ptr = unsafe {
+            self.builder()
+                .build_in_bounds_gep(
+                    tm.ptr_type().array_type(env_size),
+                    env_slot,
+                    &[
+                        tm.i64_type().const_zero(),
+                        tm.i64_type().const_int(index as u64, false),
+                    ],
+                    &format!("env_elem_ptr_{}", index),
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to get env elem ptr: {:?}", e)))?
+        };
+
+        let elem_val = self
+            .builder()
+            .build_load(tm.ptr_type(), elem_ptr, &format!("env_elem_{}", index))
+            .map_err(|e| CodegenError::Internal(format!("failed to load env elem: {:?}", e)))?;
+
+        Ok(elem_val.into_pointer_value())
+    }
+
+    /// Generate a unique name for a closure function.
+    fn next_closure_name(&mut self) -> String {
+        let name = format!("__closure_{}", self.closure_counter);
+        self.closure_counter += 1;
+        name
+    }
+
     /// Check if an expression is a saturated constructor application.
     ///
     /// Returns Some((tag, collected_args)) if the expression is a fully-applied constructor.
@@ -521,12 +811,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
             Expr::App(func, arg, _span) => self.lower_application(func, arg),
 
-            Expr::Lam(_param, _body, _span) => {
-                // For now, lambdas should have been lifted to top-level
-                // Full closure support requires heap allocation
-                Err(CodegenError::Unsupported(
-                    "nested lambdas not yet supported - use let bindings".to_string(),
-                ))
+            Expr::Lam(param, body, _span) => {
+                // Create a closure for this lambda
+                self.lower_lambda(param, body)
             }
 
             Expr::Let(bind, body, _span) => self.lower_let(bind, body),
@@ -595,6 +882,132 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 Ok(ptr.into())
             }
         }
+    }
+
+    /// Lower a lambda expression to a closure.
+    ///
+    /// Creates a lifted function and allocates a closure struct containing
+    /// the function pointer and captured variables.
+    fn lower_lambda(
+        &mut self,
+        param: &Var,
+        body: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Collect all parameters (for multi-argument lambdas)
+        let mut params = vec![param.clone()];
+        let mut current_body = body;
+
+        while let Expr::Lam(next_param, next_body, _) = current_body {
+            params.push(next_param.clone());
+            current_body = next_body;
+        }
+
+        // Compute free variables in the lambda body
+        let full_lambda = Expr::Lam(
+            param.clone(),
+            Box::new(body.clone()),
+            body.span(),
+        );
+        let free = self.free_vars(&full_lambda);
+
+        // Collect the values of free variables from current environment
+        let mut captured: Vec<(VarId, BasicValueEnum<'ctx>)> = Vec::new();
+        for var_id in &free {
+            if let Some(val) = self.env.get(var_id) {
+                captured.push((*var_id, *val));
+            }
+        }
+
+        // Save current insertion point
+        let current_block = self.builder().get_insert_block();
+
+        // Generate unique name for the lifted function
+        let fn_name = self.next_closure_name();
+
+        // Build the function type:
+        // - First param is the closure/env pointer
+        // - Remaining params are the lambda parameters
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+
+        let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+        param_types.push(ptr_type.into()); // env/closure pointer
+
+        for _ in &params {
+            // For now, use ptr for all params (polymorphic)
+            param_types.push(ptr_type.into());
+        }
+
+        // Return type - use ptr for now (polymorphic)
+        let fn_type = ptr_type.fn_type(&param_types, false);
+
+        // Create the lifted function
+        let lifted_fn = self.module.add_function(&fn_name, fn_type);
+
+        // Create entry block for the lifted function
+        let entry = self.llvm_context().append_basic_block(lifted_fn, "entry");
+        self.builder().position_at_end(entry);
+
+        // Save old environment and create new scope
+        let old_env = std::mem::take(&mut self.env);
+
+        // Bind captured variables from environment
+        // The closure pointer is the first argument
+        if !captured.is_empty() {
+            let closure_ptr = lifted_fn.get_first_param()
+                .ok_or_else(|| CodegenError::Internal("missing closure param".to_string()))?
+                .into_pointer_value();
+
+            for (i, (var_id, _)) in captured.iter().enumerate() {
+                let elem_ptr = self.extract_closure_env_elem(
+                    closure_ptr,
+                    captured.len() as u32,
+                    i as u32,
+                )?;
+                // Store as pointer - will be unboxed when used
+                self.env.insert(*var_id, elem_ptr.into());
+            }
+        }
+
+        // Bind lambda parameters to function arguments
+        // Skip first arg (closure pointer)
+        for (i, lam_param) in params.iter().enumerate() {
+            if let Some(arg) = lifted_fn.get_nth_param((i + 1) as u32) {
+                self.env.insert(lam_param.id, arg);
+            }
+        }
+
+        // Lower the body
+        let result = self.lower_expr(current_body)?;
+
+        // Build return
+        if let Some(val) = result {
+            // Convert to pointer for return
+            let ret_ptr = self.value_to_ptr(val)?;
+            self.builder()
+                .build_return(Some(&ret_ptr))
+                .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
+        } else {
+            // Return null pointer for unit/void
+            let null = ptr_type.const_null();
+            self.builder()
+                .build_return(Some(&null))
+                .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
+        }
+
+        // Restore old environment
+        self.env = old_env;
+
+        // Restore insertion point
+        if let Some(block) = current_block {
+            self.builder().position_at_end(block);
+        }
+
+        // Allocate closure with function pointer and captured values
+        let fn_ptr = lifted_fn.as_global_value().as_pointer_value();
+        let closure_ptr = self.alloc_closure(fn_ptr, &captured)?;
+
+        Ok(Some(closure_ptr.into()))
     }
 
     // ========================================================================
@@ -1077,7 +1490,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         args.reverse();
 
         // Get the function being called
-        let fn_val = match current {
+        match current {
             Expr::Var(var, _) => {
                 let name = var.name.as_str();
 
@@ -1091,26 +1504,45 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
                 // Check if this is an RTS builtin
                 if let Some(rts_id) = self.rts_function_id(name) {
-                    self.functions.get(&rts_id).copied().ok_or_else(|| {
+                    let fn_val = self.functions.get(&rts_id).copied().ok_or_else(|| {
                         CodegenError::Internal(format!("RTS function not declared: {}", name))
-                    })?
-                } else {
-                    // Look up the user-defined function
-                    self.functions.get(&var.id).copied().ok_or_else(|| {
-                        CodegenError::Internal(format!("unknown function: {}", name))
-                    })?
+                    })?;
+                    return self.lower_direct_call(fn_val, &args);
                 }
+
+                // Check if this is a known top-level function
+                if let Some(fn_val) = self.functions.get(&var.id).copied() {
+                    return self.lower_direct_call(fn_val, &args);
+                }
+
+                // Check if this is a closure in the environment
+                if let Some(closure_val) = self.env.get(&var.id).copied() {
+                    return self.lower_closure_call(closure_val, &args);
+                }
+
+                Err(CodegenError::Internal(format!("unknown function: {}", name)))
             }
             _ => {
-                return Err(CodegenError::Unsupported(
-                    "indirect function calls not yet supported".to_string(),
-                ))
-            }
-        };
+                // Indirect call - evaluate the function expression
+                let func_val = self.lower_expr(current)?.ok_or_else(|| {
+                    CodegenError::Internal("function expression has no value".to_string())
+                })?;
 
+                // Treat as closure call
+                self.lower_closure_call(func_val, &args)
+            }
+        }
+    }
+
+    /// Lower a direct function call (to a known function).
+    fn lower_direct_call(
+        &mut self,
+        fn_val: FunctionValue<'ctx>,
+        args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         // Lower arguments
         let mut llvm_args = Vec::new();
-        for arg_expr in &args {
+        for arg_expr in args {
             if let Some(val) = self.lower_expr(arg_expr)? {
                 llvm_args.push(val.into());
             }
@@ -1121,6 +1553,61 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .builder()
             .build_call(fn_val, &llvm_args, "call")
             .map_err(|e| CodegenError::Internal(format!("failed to build call: {:?}", e)))?;
+
+        Ok(call.try_as_basic_value().left())
+    }
+
+    /// Lower a closure call (indirect call through closure struct).
+    fn lower_closure_call(
+        &mut self,
+        closure_val: BasicValueEnum<'ctx>,
+        args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+
+        // Get closure pointer
+        let closure_ptr = match closure_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => {
+                return Err(CodegenError::Internal(
+                    "closure value is not a pointer".to_string(),
+                ))
+            }
+        };
+
+        // Extract function pointer from closure
+        let fn_ptr = self.extract_closure_fn_ptr(closure_ptr)?;
+
+        // Build function type for the call:
+        // - First param is the closure pointer (environment)
+        // - Remaining params are the arguments
+        let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+        param_types.push(ptr_type.into()); // closure/env pointer
+
+        for _ in args {
+            param_types.push(ptr_type.into());
+        }
+
+        let fn_type = ptr_type.fn_type(&param_types, false);
+
+        // Lower arguments
+        let mut llvm_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
+        llvm_args.push(closure_ptr.into()); // Pass closure as first argument (environment)
+
+        for arg_expr in args {
+            if let Some(val) = self.lower_expr(arg_expr)? {
+                // Convert to pointer for uniform calling convention
+                let ptr_val = self.value_to_ptr(val)?;
+                llvm_args.push(ptr_val.into());
+            }
+        }
+
+        // Build indirect call through function pointer
+        let call = self
+            .builder()
+            .build_indirect_call(fn_type, fn_ptr, &llvm_args, "closure_call")
+            .map_err(|e| CodegenError::Internal(format!("failed to build closure call: {:?}", e)))?;
 
         Ok(call.try_as_basic_value().left())
     }
