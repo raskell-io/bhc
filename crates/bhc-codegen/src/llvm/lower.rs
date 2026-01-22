@@ -12,6 +12,45 @@
 
 use crate::{CodegenError, CodegenResult};
 use bhc_core::{Alt, AltCon, Bind, CoreModule, DataCon, Expr, Literal, Var, VarId};
+
+/// Primitive operations that compile directly to LLVM instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrimOp {
+    // Arithmetic
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Rem,
+    Quot,
+
+    // Comparison
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+
+    // Boolean
+    And,
+    Or,
+    Not,
+
+    // Unary numeric
+    Negate,
+    Abs,
+    Signum,
+
+    // Bitwise
+    BitAnd,
+    BitOr,
+    BitXor,
+    ShiftL,
+    ShiftR,
+    Complement,
+}
 use bhc_index::Idx;
 use bhc_types::Ty;
 use inkwell::builder::Builder;
@@ -558,25 +597,474 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    // ========================================================================
+    // Primitive Operations
+    // ========================================================================
+
+    /// Check if a name is a primitive operation and return its arity.
+    fn primitive_op_info(&self, name: &str) -> Option<(PrimOp, u32)> {
+        match name {
+            // Arithmetic (binary)
+            "+" | "GHC.Num.+" => Some((PrimOp::Add, 2)),
+            "-" | "GHC.Num.-" => Some((PrimOp::Sub, 2)),
+            "*" | "GHC.Num.*" => Some((PrimOp::Mul, 2)),
+            "/" | "GHC.Real./" => Some((PrimOp::Div, 2)),
+            "div" | "GHC.Real.div" => Some((PrimOp::Div, 2)),
+            "mod" | "GHC.Real.mod" => Some((PrimOp::Mod, 2)),
+            "rem" | "GHC.Real.rem" => Some((PrimOp::Rem, 2)),
+            "quot" | "GHC.Real.quot" => Some((PrimOp::Quot, 2)),
+
+            // Comparison (binary)
+            "==" | "GHC.Classes.==" => Some((PrimOp::Eq, 2)),
+            "/=" | "GHC.Classes./=" => Some((PrimOp::Ne, 2)),
+            "<" | "GHC.Classes.<" => Some((PrimOp::Lt, 2)),
+            "<=" | "GHC.Classes.<=" => Some((PrimOp::Le, 2)),
+            ">" | "GHC.Classes.>" => Some((PrimOp::Gt, 2)),
+            ">=" | "GHC.Classes.>=" => Some((PrimOp::Ge, 2)),
+
+            // Boolean (binary)
+            "&&" | "GHC.Classes.&&" => Some((PrimOp::And, 2)),
+            "||" | "GHC.Classes.||" => Some((PrimOp::Or, 2)),
+
+            // Unary
+            "negate" | "GHC.Num.negate" => Some((PrimOp::Negate, 1)),
+            "abs" | "GHC.Num.abs" => Some((PrimOp::Abs, 1)),
+            "signum" | "GHC.Num.signum" => Some((PrimOp::Signum, 1)),
+            "not" | "GHC.Classes.not" => Some((PrimOp::Not, 1)),
+
+            // Bitwise (binary)
+            ".&." => Some((PrimOp::BitAnd, 2)),
+            ".|." => Some((PrimOp::BitOr, 2)),
+            "xor" => Some((PrimOp::BitXor, 2)),
+            "shiftL" => Some((PrimOp::ShiftL, 2)),
+            "shiftR" => Some((PrimOp::ShiftR, 2)),
+
+            // Bitwise (unary)
+            "complement" => Some((PrimOp::Complement, 1)),
+
+            _ => None,
+        }
+    }
+
+    /// Check if an expression is a saturated primitive operation.
+    fn is_saturated_primop<'a>(&self, expr: &'a Expr) -> Option<(PrimOp, Vec<&'a Expr>)> {
+        // Collect arguments while unwrapping applications
+        let mut args = Vec::new();
+        let mut current = expr;
+
+        while let Expr::App(func, arg, _) = current {
+            args.push(arg.as_ref());
+            current = func.as_ref();
+        }
+
+        // Check if the head is a primitive operation
+        if let Expr::Var(var, _) = current {
+            if let Some((op, arity)) = self.primitive_op_info(var.name.as_str()) {
+                args.reverse();
+                if args.len() == arity as usize {
+                    return Some((op, args));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Lower a primitive operation to LLVM instructions.
+    fn lower_primop(
+        &mut self,
+        op: PrimOp,
+        args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        match op {
+            // Binary arithmetic operations
+            PrimOp::Add | PrimOp::Sub | PrimOp::Mul | PrimOp::Div |
+            PrimOp::Mod | PrimOp::Rem | PrimOp::Quot => {
+                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                self.lower_binary_arith(op, lhs, rhs)
+            }
+
+            // Binary comparison operations
+            PrimOp::Eq | PrimOp::Ne | PrimOp::Lt | PrimOp::Le |
+            PrimOp::Gt | PrimOp::Ge => {
+                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                self.lower_comparison(op, lhs, rhs)
+            }
+
+            // Binary boolean operations
+            PrimOp::And | PrimOp::Or => {
+                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                self.lower_binary_bool(op, lhs, rhs)
+            }
+
+            // Binary bitwise operations
+            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor |
+            PrimOp::ShiftL | PrimOp::ShiftR => {
+                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                self.lower_binary_bitwise(op, lhs, rhs)
+            }
+
+            // Unary operations
+            PrimOp::Negate | PrimOp::Abs | PrimOp::Signum |
+            PrimOp::Not | PrimOp::Complement => {
+                let arg = self.lower_expr(args[0])?.ok_or_else(|| {
+                    CodegenError::Internal("primop arg has no value".to_string())
+                })?;
+                self.lower_unary(op, arg)
+            }
+        }
+    }
+
+    /// Lower a binary arithmetic operation.
+    fn lower_binary_arith(
+        &self,
+        op: PrimOp,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if we're dealing with integers or floats
+        match (lhs, rhs) {
+            (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+                let result = match op {
+                    PrimOp::Add => self.builder().build_int_add(l, r, "add"),
+                    PrimOp::Sub => self.builder().build_int_sub(l, r, "sub"),
+                    PrimOp::Mul => self.builder().build_int_mul(l, r, "mul"),
+                    PrimOp::Div | PrimOp::Quot => self.builder().build_int_signed_div(l, r, "div"),
+                    PrimOp::Mod | PrimOp::Rem => self.builder().build_int_signed_rem(l, r, "rem"),
+                    _ => return Err(CodegenError::Internal("invalid arith op".to_string())),
+                };
+                result
+                    .map(|v| Some(v.into()))
+                    .map_err(|e| CodegenError::Internal(format!("failed to build int op: {:?}", e)))
+            }
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+                let result = match op {
+                    PrimOp::Add => self.builder().build_float_add(l, r, "fadd"),
+                    PrimOp::Sub => self.builder().build_float_sub(l, r, "fsub"),
+                    PrimOp::Mul => self.builder().build_float_mul(l, r, "fmul"),
+                    PrimOp::Div | PrimOp::Quot => self.builder().build_float_div(l, r, "fdiv"),
+                    PrimOp::Mod | PrimOp::Rem => self.builder().build_float_rem(l, r, "frem"),
+                    _ => return Err(CodegenError::Internal("invalid arith op".to_string())),
+                };
+                result
+                    .map(|v| Some(v.into()))
+                    .map_err(|e| CodegenError::Internal(format!("failed to build float op: {:?}", e)))
+            }
+            _ => Err(CodegenError::TypeError(
+                "arithmetic operations require matching numeric types".to_string(),
+            )),
+        }
+    }
+
+    /// Lower a comparison operation.
+    fn lower_comparison(
+        &self,
+        op: PrimOp,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        match (lhs, rhs) {
+            (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+                use inkwell::IntPredicate;
+                let pred = match op {
+                    PrimOp::Eq => IntPredicate::EQ,
+                    PrimOp::Ne => IntPredicate::NE,
+                    PrimOp::Lt => IntPredicate::SLT,
+                    PrimOp::Le => IntPredicate::SLE,
+                    PrimOp::Gt => IntPredicate::SGT,
+                    PrimOp::Ge => IntPredicate::SGE,
+                    _ => return Err(CodegenError::Internal("invalid comparison op".to_string())),
+                };
+                let cmp = self.builder()
+                    .build_int_compare(pred, l, r, "cmp")
+                    .map_err(|e| CodegenError::Internal(format!("failed to build int cmp: {:?}", e)))?;
+
+                // Convert i1 to i64 (0 or 1) for consistency with our Bool representation
+                let result = self.builder()
+                    .build_int_z_extend(cmp, self.type_mapper().i64_type(), "cmp_ext")
+                    .map_err(|e| CodegenError::Internal(format!("failed to extend cmp: {:?}", e)))?;
+
+                Ok(Some(result.into()))
+            }
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+                use inkwell::FloatPredicate;
+                let pred = match op {
+                    PrimOp::Eq => FloatPredicate::OEQ,
+                    PrimOp::Ne => FloatPredicate::ONE,
+                    PrimOp::Lt => FloatPredicate::OLT,
+                    PrimOp::Le => FloatPredicate::OLE,
+                    PrimOp::Gt => FloatPredicate::OGT,
+                    PrimOp::Ge => FloatPredicate::OGE,
+                    _ => return Err(CodegenError::Internal("invalid comparison op".to_string())),
+                };
+                let cmp = self.builder()
+                    .build_float_compare(pred, l, r, "fcmp")
+                    .map_err(|e| CodegenError::Internal(format!("failed to build float cmp: {:?}", e)))?;
+
+                // Convert i1 to i64
+                let result = self.builder()
+                    .build_int_z_extend(cmp, self.type_mapper().i64_type(), "fcmp_ext")
+                    .map_err(|e| CodegenError::Internal(format!("failed to extend fcmp: {:?}", e)))?;
+
+                Ok(Some(result.into()))
+            }
+            _ => Err(CodegenError::TypeError(
+                "comparison operations require matching types".to_string(),
+            )),
+        }
+    }
+
+    /// Lower a binary boolean operation.
+    fn lower_binary_bool(
+        &self,
+        op: PrimOp,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Convert to i64 if needed, then perform operation
+        let l = self.to_int_value(lhs)?;
+        let r = self.to_int_value(rhs)?;
+
+        // Convert to i1 for boolean operations
+        let zero = self.type_mapper().i64_type().const_zero();
+        let l_bool = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, l, zero, "l_bool")
+            .map_err(|e| CodegenError::Internal(format!("failed to convert to bool: {:?}", e)))?;
+        let r_bool = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, r, zero, "r_bool")
+            .map_err(|e| CodegenError::Internal(format!("failed to convert to bool: {:?}", e)))?;
+
+        let result = match op {
+            PrimOp::And => self.builder().build_and(l_bool, r_bool, "and"),
+            PrimOp::Or => self.builder().build_or(l_bool, r_bool, "or"),
+            _ => return Err(CodegenError::Internal("invalid bool op".to_string())),
+        };
+
+        let bool_result = result
+            .map_err(|e| CodegenError::Internal(format!("failed to build bool op: {:?}", e)))?;
+
+        // Extend back to i64
+        let extended = self.builder()
+            .build_int_z_extend(bool_result, self.type_mapper().i64_type(), "bool_ext")
+            .map_err(|e| CodegenError::Internal(format!("failed to extend bool: {:?}", e)))?;
+
+        Ok(Some(extended.into()))
+    }
+
+    /// Lower a binary bitwise operation.
+    fn lower_binary_bitwise(
+        &self,
+        op: PrimOp,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let l = self.to_int_value(lhs)?;
+        let r = self.to_int_value(rhs)?;
+
+        let result = match op {
+            PrimOp::BitAnd => self.builder().build_and(l, r, "band"),
+            PrimOp::BitOr => self.builder().build_or(l, r, "bor"),
+            PrimOp::BitXor => self.builder().build_xor(l, r, "bxor"),
+            PrimOp::ShiftL => self.builder().build_left_shift(l, r, "shl"),
+            PrimOp::ShiftR => self.builder().build_right_shift(l, r, true, "shr"),
+            _ => return Err(CodegenError::Internal("invalid bitwise op".to_string())),
+        };
+
+        result
+            .map(|v| Some(v.into()))
+            .map_err(|e| CodegenError::Internal(format!("failed to build bitwise op: {:?}", e)))
+    }
+
+    /// Lower a unary operation.
+    fn lower_unary(
+        &self,
+        op: PrimOp,
+        arg: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        match op {
+            PrimOp::Negate => {
+                match arg {
+                    BasicValueEnum::IntValue(i) => {
+                        let result = self.builder()
+                            .build_int_neg(i, "neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to negate: {:?}", e)))?;
+                        Ok(Some(result.into()))
+                    }
+                    BasicValueEnum::FloatValue(f) => {
+                        let result = self.builder()
+                            .build_float_neg(f, "fneg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to fnegate: {:?}", e)))?;
+                        Ok(Some(result.into()))
+                    }
+                    _ => Err(CodegenError::TypeError("negate requires numeric type".to_string())),
+                }
+            }
+            PrimOp::Abs => {
+                match arg {
+                    BasicValueEnum::IntValue(i) => {
+                        // abs(x) = x < 0 ? -x : x
+                        let zero = self.type_mapper().i64_type().const_zero();
+                        let is_neg = self.builder()
+                            .build_int_compare(inkwell::IntPredicate::SLT, i, zero, "is_neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+                        let neg = self.builder()
+                            .build_int_neg(i, "neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to negate: {:?}", e)))?;
+                        let result = self.builder()
+                            .build_select(is_neg, neg, i, "abs")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+                        Ok(Some(result))
+                    }
+                    BasicValueEnum::FloatValue(f) => {
+                        // For floats, use llvm.fabs intrinsic or manual comparison
+                        let zero = self.type_mapper().f64_type().const_zero();
+                        let is_neg = self.builder()
+                            .build_float_compare(inkwell::FloatPredicate::OLT, f, zero, "is_neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+                        let neg = self.builder()
+                            .build_float_neg(f, "fneg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to fnegate: {:?}", e)))?;
+                        let result = self.builder()
+                            .build_select(is_neg, neg, f, "fabs")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+                        Ok(Some(result))
+                    }
+                    _ => Err(CodegenError::TypeError("abs requires numeric type".to_string())),
+                }
+            }
+            PrimOp::Signum => {
+                match arg {
+                    BasicValueEnum::IntValue(i) => {
+                        // signum(x) = x < 0 ? -1 : (x > 0 ? 1 : 0)
+                        let zero = self.type_mapper().i64_type().const_zero();
+                        let one = self.type_mapper().i64_type().const_int(1, false);
+                        let neg_one = self.type_mapper().i64_type().const_int(-1i64 as u64, true);
+
+                        let is_neg = self.builder()
+                            .build_int_compare(inkwell::IntPredicate::SLT, i, zero, "is_neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+                        let is_pos = self.builder()
+                            .build_int_compare(inkwell::IntPredicate::SGT, i, zero, "is_pos")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+                        let pos_or_zero = self.builder()
+                            .build_select(is_pos, one, zero, "pos_or_zero")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+                        let result = self.builder()
+                            .build_select(is_neg, neg_one, pos_or_zero.into_int_value(), "signum")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+
+                        Ok(Some(result))
+                    }
+                    BasicValueEnum::FloatValue(f) => {
+                        let zero = f.get_type().const_zero();
+                        let one = f.get_type().const_float(1.0);
+                        let neg_one = f.get_type().const_float(-1.0);
+
+                        let is_neg = self.builder()
+                            .build_float_compare(inkwell::FloatPredicate::OLT, f, zero, "is_neg")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+                        let is_pos = self.builder()
+                            .build_float_compare(inkwell::FloatPredicate::OGT, f, zero, "is_pos")
+                            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+                        let pos_or_zero = self.builder()
+                            .build_select(is_pos, one, zero, "pos_or_zero")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+                        let result = self.builder()
+                            .build_select(is_neg, neg_one, pos_or_zero.into_float_value(), "fsignum")
+                            .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+
+                        Ok(Some(result))
+                    }
+                    _ => Err(CodegenError::TypeError("signum requires numeric type".to_string())),
+                }
+            }
+            PrimOp::Not => {
+                let i = self.to_int_value(arg)?;
+                let zero = self.type_mapper().i64_type().const_zero();
+                let one = self.type_mapper().i64_type().const_int(1, false);
+
+                // not x = x == 0 ? 1 : 0
+                let is_zero = self.builder()
+                    .build_int_compare(inkwell::IntPredicate::EQ, i, zero, "is_zero")
+                    .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+                let result = self.builder()
+                    .build_select(is_zero, one, zero, "not")
+                    .map_err(|e| CodegenError::Internal(format!("failed to select: {:?}", e)))?;
+
+                Ok(Some(result))
+            }
+            PrimOp::Complement => {
+                let i = self.to_int_value(arg)?;
+                let result = self.builder()
+                    .build_not(i, "complement")
+                    .map_err(|e| CodegenError::Internal(format!("failed to complement: {:?}", e)))?;
+                Ok(Some(result.into()))
+            }
+            _ => Err(CodegenError::Internal("invalid unary op".to_string())),
+        }
+    }
+
+    /// Convert a basic value to an int value.
+    fn to_int_value(&self, val: BasicValueEnum<'ctx>) -> CodegenResult<IntValue<'ctx>> {
+        match val {
+            BasicValueEnum::IntValue(i) => Ok(i),
+            BasicValueEnum::PointerValue(p) => {
+                // Pointer might be a boxed int - convert
+                self.builder()
+                    .build_ptr_to_int(p, self.type_mapper().i64_type(), "ptr_to_int")
+                    .map_err(|e| CodegenError::Internal(format!("failed to convert ptr to int: {:?}", e)))
+            }
+            _ => Err(CodegenError::TypeError("expected integer value".to_string())),
+        }
+    }
+
     /// Lower a function application.
     ///
-    /// Handles two cases:
-    /// 1. Constructor application (e.g., `Just 42`) - allocate ADT value
-    /// 2. Function call - generate call instruction
+    /// Handles three cases:
+    /// 1. Primitive operation (e.g., `1 + 2`) - generate LLVM instruction
+    /// 2. Constructor application (e.g., `Just 42`) - allocate ADT value
+    /// 3. Function call - generate call instruction
     fn lower_application(
         &mut self,
         func: &Expr,
         arg: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        // First, reconstruct the full application to check for constructor
+        // First, reconstruct the full application to check for primop/constructor
         let full_app = Expr::App(Box::new(func.clone()), Box::new(arg.clone()), func.span());
+
+        // Check if this is a saturated primitive operation
+        if let Some((op, prim_args)) = self.is_saturated_primop(&full_app) {
+            return self.lower_primop(op, &prim_args);
+        }
 
         // Check if this is a saturated constructor application
         if let Some((tag, arity, con_args)) = self.is_saturated_constructor(&full_app) {
             return self.lower_constructor_application(tag, arity, &con_args);
         }
 
-        // Not a constructor - proceed with function call
+        // Not a primop or constructor - proceed with function call
         // Collect all arguments (for curried applications)
         let mut args = vec![arg];
         let mut current = func;
