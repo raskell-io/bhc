@@ -1009,3 +1009,156 @@ fn test_class_with_multiple_methods() {
     let result = type_check_module(&module, FileId::new(0));
     assert!(result.is_ok(), "Class with multiple methods should type check: {:?}", result.err());
 }
+
+#[test]
+fn test_instance_declaration() {
+    use bhc_hir::{ClassDef, InstanceDef, MethodSig};
+
+    // Define: class MyEq a where myEq :: a -> a -> Bool
+    let a_var = TyVar::new(100, Kind::Star);
+    let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+    let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+
+    // myEq :: a -> a -> Bool
+    let myeq_ty = Ty::fun(Ty::Var(a_var.clone()), Ty::fun(Ty::Var(a_var.clone()), bool_ty.clone()));
+    let myeq_scheme = Scheme::poly(vec![a_var.clone()], myeq_ty);
+
+    let myeq_class = ClassDef {
+        id: def_id(200),
+        name: Symbol::intern("MyEq"),
+        params: vec![a_var],
+        supers: vec![],
+        methods: vec![MethodSig {
+            name: Symbol::intern("myEq"),
+            ty: myeq_scheme,
+            span: Span::DUMMY,
+        }],
+        defaults: vec![],
+        span: Span::DUMMY,
+    };
+
+    // Define: instance MyEq Int where myEq x y = True
+    // The method implementation just returns True (simplified)
+    let myeq_impl = ValueDef {
+        id: def_id(201),
+        name: Symbol::intern("myEq"),
+        sig: Some(Scheme::mono(Ty::fun(int_ty.clone(), Ty::fun(int_ty.clone(), bool_ty.clone())))),
+        equations: vec![Equation {
+            pats: vec![
+                Pat::Var(Symbol::intern("x"), def_id(202), Span::DUMMY),
+                Pat::Var(Symbol::intern("y"), def_id(203), Span::DUMMY),
+            ],
+            guards: vec![],
+            rhs: Expr::Con(DefRef {
+                def_id: DefId::new(9), // True
+                span: Span::DUMMY,
+            }),
+            span: Span::DUMMY,
+        }],
+        span: Span::DUMMY,
+    };
+
+    let myeq_instance = InstanceDef {
+        class: Symbol::intern("MyEq"),
+        types: vec![int_ty],
+        constraints: vec![],
+        methods: vec![myeq_impl],
+        span: Span::DUMMY,
+    };
+
+    let module = module_with_items(vec![
+        Item::Class(myeq_class),
+        Item::Instance(myeq_instance),
+    ]);
+
+    let result = type_check_module(&module, FileId::new(0));
+    assert!(result.is_ok(), "Instance declaration should type check: {:?}", result.err());
+}
+
+#[test]
+fn test_instance_with_multiple_methods() {
+    use bhc_hir::{ClassDef, InstanceDef, MethodSig};
+
+    // Define a class with two methods
+    let a_var = TyVar::new(100, Kind::Star);
+    let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+    let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+
+    // isZero :: a -> Bool
+    let is_zero_ty = Ty::fun(Ty::Var(a_var.clone()), bool_ty.clone());
+    let is_zero_scheme = Scheme::poly(vec![a_var.clone()], is_zero_ty);
+
+    // isPositive :: a -> Bool
+    let is_positive_ty = Ty::fun(Ty::Var(a_var.clone()), bool_ty.clone());
+    let is_positive_scheme = Scheme::poly(vec![a_var.clone()], is_positive_ty);
+
+    let num_check_class = ClassDef {
+        id: def_id(300),
+        name: Symbol::intern("NumCheck"),
+        params: vec![a_var],
+        supers: vec![],
+        methods: vec![
+            MethodSig {
+                name: Symbol::intern("isZero"),
+                ty: is_zero_scheme,
+                span: Span::DUMMY,
+            },
+            MethodSig {
+                name: Symbol::intern("isPositive"),
+                ty: is_positive_scheme,
+                span: Span::DUMMY,
+            },
+        ],
+        defaults: vec![],
+        span: Span::DUMMY,
+    };
+
+    // Instance for Int
+    let is_zero_impl = ValueDef {
+        id: def_id(301),
+        name: Symbol::intern("isZero"),
+        sig: Some(Scheme::mono(Ty::fun(int_ty.clone(), bool_ty.clone()))),
+        equations: vec![Equation {
+            pats: vec![Pat::Var(Symbol::intern("x"), def_id(302), Span::DUMMY)],
+            guards: vec![],
+            rhs: Expr::Con(DefRef {
+                def_id: DefId::new(9), // True (placeholder)
+                span: Span::DUMMY,
+            }),
+            span: Span::DUMMY,
+        }],
+        span: Span::DUMMY,
+    };
+
+    let is_positive_impl = ValueDef {
+        id: def_id(303),
+        name: Symbol::intern("isPositive"),
+        sig: Some(Scheme::mono(Ty::fun(int_ty.clone(), bool_ty.clone()))),
+        equations: vec![Equation {
+            pats: vec![Pat::Var(Symbol::intern("x"), def_id(304), Span::DUMMY)],
+            guards: vec![],
+            rhs: Expr::Con(DefRef {
+                def_id: DefId::new(9), // True (placeholder)
+                span: Span::DUMMY,
+            }),
+            span: Span::DUMMY,
+        }],
+        span: Span::DUMMY,
+    };
+
+    let num_check_instance = InstanceDef {
+        class: Symbol::intern("NumCheck"),
+        types: vec![int_ty],
+        constraints: vec![],
+        methods: vec![is_zero_impl, is_positive_impl],
+        span: Span::DUMMY,
+    };
+
+    let module = module_with_items(vec![
+        Item::Class(num_check_class),
+        Item::Instance(num_check_instance),
+    ]);
+
+    let result = type_check_module(&module, FileId::new(0));
+    assert!(result.is_ok(), "Instance with multiple methods should type check: {:?}", result.err());
+}

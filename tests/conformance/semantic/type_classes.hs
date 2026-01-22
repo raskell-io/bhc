@@ -196,6 +196,63 @@ testSumPair = sumPair (15, 27)
 -- Result: 42
 
 -- ================================================================
+-- Type Class Declarations
+-- ================================================================
+
+-- Define a simple equality class
+class MyEq a where
+  myEq :: a -> a -> Bool
+  myNeq :: a -> a -> Bool
+
+-- Instance for Int
+instance MyEq Int where
+  myEq x y = x == y
+  myNeq x y = x /= y
+
+-- Instance for Bool
+instance MyEq Bool where
+  myEq True True = True
+  myEq False False = True
+  myEq _ _ = False
+  myNeq x y = not (myEq x y)
+
+-- Test using the class method
+testMyEqInt :: Bool
+testMyEqInt = myEq 42 42
+-- Result: True
+
+testMyNeqInt :: Bool
+testMyNeqInt = myNeq 1 2
+-- Result: True
+
+testMyEqBool :: Bool
+testMyEqBool = myEq True True
+-- Result: True
+
+-- ================================================================
+-- Class with Superclass (conceptual - not enforced yet)
+-- ================================================================
+
+-- Ordering class
+class MyOrd a where
+  myCompare :: a -> a -> Int
+  myLt :: a -> a -> Bool
+  myGt :: a -> a -> Bool
+
+instance MyOrd Int where
+  myCompare x y = if x < y then -1 else if x > y then 1 else 0
+  myLt x y = x < y
+  myGt x y = x > y
+
+testMyCompare :: Int
+testMyCompare = myCompare 5 10
+-- Result: -1
+
+testMyLt :: Bool
+testMyLt = myLt 3 7
+-- Result: True
+
+-- ================================================================
 -- Main function to run all tests
 -- ================================================================
 
@@ -250,5 +307,13 @@ main = do
   -- Tuples
   putStrLn "=== Tuple tests ==="
   print testSumPair         -- Expected: 42
+
+  -- Type class instances
+  putStrLn "=== Type class tests ==="
+  print testMyEqInt         -- Expected: True
+  print testMyNeqInt        -- Expected: True
+  print testMyEqBool        -- Expected: True
+  print testMyCompare       -- Expected: -1
+  print testMyLt            -- Expected: True
 
   putStrLn "=== All type class tests completed ==="
