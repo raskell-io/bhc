@@ -331,6 +331,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Unit constructor
             "()" => Some((0, 0)),     // tag=0, arity=0
 
+            // Ordering constructors
+            "LT" => Some((0, 0)),     // tag=0, arity=0
+            "EQ" => Some((1, 0)),     // tag=1, arity=0
+            "GT" => Some((2, 0)),     // tag=2, arity=0
+
             // User-defined constructors: check first character is uppercase
             _ => {
                 if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {

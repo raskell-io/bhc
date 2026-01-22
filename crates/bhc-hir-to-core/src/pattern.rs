@@ -139,11 +139,16 @@ pub fn lower_pat_to_alt(
                 // Fallback - shouldn't happen if constructor was registered
                 Symbol::intern("Con")
             };
+
+            // Get the tag for this constructor
+            // For builtin types, use known tags; otherwise use DefId index
+            let tag = get_constructor_tag(con_name.as_str(), def_ref.def_id.index() as u32);
+
             let placeholder_tycon = TyCon::new(Symbol::intern("DataType"), Kind::Star);
             let con = DataCon {
                 name: con_name,
                 ty_con: placeholder_tycon,
-                tag: def_ref.def_id.index() as u32,
+                tag,
                 arity: sub_pats.len() as u32,
             };
 
@@ -208,11 +213,15 @@ pub fn lower_pat_to_alt(
             } else {
                 Symbol::intern("Con")
             };
+
+            // Get the tag for this constructor
+            let tag = get_constructor_tag(con_name.as_str(), def_ref.def_id.index() as u32);
+
             let placeholder_tycon = TyCon::new(Symbol::intern("DataType"), Kind::Star);
             let con = DataCon {
                 name: con_name,
                 ty_con: placeholder_tycon,
-                tag: def_ref.def_id.index() as u32,
+                tag,
                 arity: field_pats.len() as u32,
             };
 
@@ -530,6 +539,42 @@ fn make_if(cond: core::Expr, then_br: core::Expr, else_br: core::Expr, span: Spa
         Ty::Error,
         span,
     )
+}
+
+/// Get the canonical constructor tag for a given constructor name.
+///
+/// For builtin types (Bool, Maybe, Either, List, Unit), we use fixed tags
+/// that match what the LLVM codegen expects. For user-defined types,
+/// we fall back to the DefId index.
+fn get_constructor_tag(name: &str, fallback: u32) -> u32 {
+    match name {
+        // Bool constructors
+        "False" => 0,
+        "True" => 1,
+
+        // Maybe constructors
+        "Nothing" => 0,
+        "Just" => 1,
+
+        // Either constructors
+        "Left" => 0,
+        "Right" => 1,
+
+        // List constructors
+        "[]" => 0,
+        ":" => 1,
+
+        // Unit constructor
+        "()" => 0,
+
+        // Ordering constructors
+        "LT" => 0,
+        "EQ" => 1,
+        "GT" => 2,
+
+        // User-defined constructors: use fallback
+        _ => fallback,
+    }
 }
 
 /// Create a pattern match error expression.
