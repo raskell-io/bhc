@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,6 +56,26 @@ jobs:
         rust: [stable, beta]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
+      - name: Install LLVM (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install llvm@18
+          echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+
+      - name: Install LLVM (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install llvm --version=18.1.8
+          echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -93,6 +120,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -106,6 +140,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -130,6 +171,13 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

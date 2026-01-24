@@ -58,7 +58,7 @@ jobs:
             ${{ runner.os }}-cargo-playground-
 
       - name: Install wasm-bindgen
-        run: cargo install wasm-bindgen-cli --version 0.2.108
+        run: cargo install wasm-bindgen-cli --version 0.2.108 --force
 
       - name: Build playground WASM
         run: cargo build -p bhc-playground --target wasm32-unknown-unknown --release
