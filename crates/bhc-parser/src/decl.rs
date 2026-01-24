@@ -301,9 +301,14 @@ impl<'src> Parser<'src> {
         self.expect(&TokenKind::LParen)?;
         let mut exports = Vec::new();
 
+        // Skip any doc comments at the start of the export list
+        self.skip_doc_comments();
+
         if !self.check(&TokenKind::RParen) {
             exports.push(self.parse_export()?);
             while self.eat(&TokenKind::Comma) {
+                // Skip doc comments between export items (Haddock section headers)
+                self.skip_doc_comments();
                 if self.check(&TokenKind::RParen) {
                     break;
                 }
@@ -349,7 +354,7 @@ impl<'src> Parser<'src> {
                 let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
                 Ok(Export::Type(ident, constrs, span))
             }
-            // Handle operators in parentheses: module Foo ((+), (++)) where
+            // Handle operators in parentheses: module Foo ((+), (.), (!)) where
             TokenKind::LParen => {
                 self.advance(); // consume (
 
@@ -361,6 +366,11 @@ impl<'src> Parser<'src> {
                 let ident = match &op_tok.node.kind {
                     TokenKind::Operator(sym) => Ident::new(*sym),
                     TokenKind::ConOperator(sym) => Ident::new(*sym),
+                    // Special tokens that are valid operators when in parentheses
+                    TokenKind::Dot => Ident::new(Symbol::intern(".")),
+                    TokenKind::Bang => Ident::new(Symbol::intern("!")),
+                    TokenKind::At => Ident::new(Symbol::intern("@")),
+                    TokenKind::Tilde => Ident::new(Symbol::intern("~")),
                     _ => {
                         return Err(ParseError::Unexpected {
                             found: op_tok.node.kind.description().to_string(),
@@ -551,6 +561,11 @@ impl<'src> Parser<'src> {
                 let ident = match &op_tok.node.kind {
                     TokenKind::Operator(sym) => Ident::new(*sym),
                     TokenKind::ConOperator(sym) => Ident::new(*sym),
+                    // Special tokens that are valid operators when in parentheses
+                    TokenKind::Dot => Ident::new(Symbol::intern(".")),
+                    TokenKind::Bang => Ident::new(Symbol::intern("!")),
+                    TokenKind::At => Ident::new(Symbol::intern("@")),
+                    TokenKind::Tilde => Ident::new(Symbol::intern("~")),
                     _ => {
                         return Err(ParseError::Unexpected {
                             found: op_tok.node.kind.description().to_string(),
