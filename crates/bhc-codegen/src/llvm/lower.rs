@@ -93,6 +93,9 @@ pub struct Lowering<'ctx, 'm> {
     /// Mapping from constructor names to metadata (tag, arity).
     /// This is populated from DataCon entries in case alternatives.
     constructor_metadata: FxHashMap<String, ConstructorMeta>,
+    /// Whether we're currently lowering an expression in tail position.
+    /// Used for tail call optimization.
+    in_tail_position: bool,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -105,6 +108,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             functions: FxHashMap::default(),
             closure_counter: 0,
             constructor_metadata: FxHashMap::default(),
+            in_tail_position: false,
         };
         lowering.declare_rts_functions();
         lowering
@@ -2673,6 +2677,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         fn_val: FunctionValue<'ctx>,
         args: &[&Expr],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Arguments are not in tail position
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = false;
+
         // Lower arguments
         let mut llvm_args = Vec::new();
         for arg_expr in args {
@@ -2681,11 +2689,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
         }
 
+        // Restore tail position flag
+        self.in_tail_position = was_tail;
+
         // Build the call
         let call = self
             .builder()
             .build_call(fn_val, &llvm_args, "call")
             .map_err(|e| CodegenError::Internal(format!("failed to build call: {:?}", e)))?;
+
+        // Mark as tail call if in tail position
+        if self.in_tail_position {
+            call.set_tail_call(true);
+        }
 
         Ok(call.try_as_basic_value().left())
     }
@@ -2724,6 +2740,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
         let fn_type = ptr_type.fn_type(&param_types, false);
 
+        // Arguments are not in tail position
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = false;
+
         // Lower arguments
         let mut llvm_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
         llvm_args.push(closure_ptr.into()); // Pass closure as first argument (environment)
@@ -2736,11 +2756,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
         }
 
+        // Restore tail position flag
+        self.in_tail_position = was_tail;
+
         // Build indirect call through function pointer
         let call = self
             .builder()
             .build_indirect_call(fn_type, fn_ptr, &llvm_args, "closure_call")
             .map_err(|e| CodegenError::Internal(format!("failed to build closure call: {:?}", e)))?;
+
+        // Mark as tail call if in tail position
+        if self.in_tail_position {
+            call.set_tail_call(true);
+        }
 
         Ok(call.try_as_basic_value().left())
     }
@@ -3468,7 +3496,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             self.builder().position_at_end(blocks[i]);
 
             if let Some(val) = self.lower_expr(&alt.rhs)? {
-                phi_values.push((val, blocks[i]));
+                // Get the ACTUAL current block (lower_expr may have created nested blocks)
+                let current_block = self.builder().get_insert_block()
+                    .ok_or_else(|| CodegenError::Internal("no current block after lower_expr".to_string()))?;
+                phi_values.push((val, current_block));
             }
 
             // Jump to merge block
@@ -3592,7 +3623,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             None
         };
         if let Some(val) = true_rhs {
-            phi_values.push((val, true_block));
+            // Get the ACTUAL current block (lower_expr may have created nested blocks)
+            let current_block = self.builder().get_insert_block()
+                .ok_or_else(|| CodegenError::Internal("no current block after lower_expr".to_string()))?;
+            phi_values.push((val, current_block));
         }
         self.builder()
             .build_unconditional_branch(merge_block)
@@ -3608,7 +3642,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             None
         };
         if let Some(val) = false_rhs {
-            phi_values.push((val, false_block));
+            // Get the ACTUAL current block (lower_expr may have created nested blocks)
+            let current_block = self.builder().get_insert_block()
+                .ok_or_else(|| CodegenError::Internal("no current block after lower_expr".to_string()))?;
+            phi_values.push((val, current_block));
         }
         self.builder()
             .build_unconditional_branch(merge_block)
@@ -3695,7 +3732,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
 
             if let Some(val) = result {
-                phi_values.push((val, blocks[i]));
+                // Get the ACTUAL current block (lower_expr may have created nested blocks)
+                let current_block = self.builder().get_insert_block()
+                    .ok_or_else(|| CodegenError::Internal("no current block after lower_expr".to_string()))?;
+                phi_values.push((val, current_block));
             }
 
             // Jump to merge block
