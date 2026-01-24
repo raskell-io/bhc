@@ -475,7 +475,374 @@ pub fn copy_file<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> IoResult<u64
 
 // FFI exports for BHC runtime
 
-/// Read file contents (FFI)
+use std::ffi::CStr;
+use std::sync::OnceLock;
+
+/// Opaque handle for FFI
+pub struct HandlePtr {
+    handle: Handle,
+}
+
+// Global handles for stdin/stdout/stderr using OnceLock
+static STDIN_HANDLE: OnceLock<std::sync::Mutex<HandlePtr>> = OnceLock::new();
+static STDOUT_HANDLE: OnceLock<std::sync::Mutex<HandlePtr>> = OnceLock::new();
+static STDERR_HANDLE: OnceLock<std::sync::Mutex<HandlePtr>> = OnceLock::new();
+
+/// Get stdin handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_stdin() -> *mut HandlePtr {
+    let handle = STDIN_HANDLE.get_or_init(|| {
+        std::sync::Mutex::new(HandlePtr { handle: stdin() })
+    });
+    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+}
+
+/// Get stdout handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_stdout() -> *mut HandlePtr {
+    let handle = STDOUT_HANDLE.get_or_init(|| {
+        std::sync::Mutex::new(HandlePtr { handle: stdout() })
+    });
+    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+}
+
+/// Get stderr handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_stderr() -> *mut HandlePtr {
+    let handle = STDERR_HANDLE.get_or_init(|| {
+        std::sync::Mutex::new(HandlePtr { handle: stderr() })
+    });
+    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+}
+
+/// Open a file (FFI)
+/// mode: 0=Read, 1=Write, 2=Append, 3=ReadWrite
+#[no_mangle]
+pub extern "C" fn bhc_open_file(path: *const i8, mode: i32) -> *mut HandlePtr {
+    if path.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let path = unsafe { CStr::from_ptr(path) };
+    let path = match path.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let open_mode = match mode {
+        0 => OpenMode::Read,
+        1 => OpenMode::Write,
+        2 => OpenMode::Append,
+        3 => OpenMode::ReadWrite,
+        _ => return std::ptr::null_mut(),
+    };
+
+    match Handle::open(path, open_mode) {
+        Ok(handle) => Box::into_raw(Box::new(HandlePtr { handle })),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Close a handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_close_handle(handle: *mut HandlePtr) {
+    if !handle.is_null() {
+        unsafe {
+            let _ = Box::from_raw(handle);
+        }
+    }
+}
+
+/// Read a character from handle (FFI)
+/// Returns -1 on error or EOF
+#[no_mangle]
+pub extern "C" fn bhc_hGetChar(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    let mut buf = [0u8; 1];
+    match handle.read(&mut buf) {
+        Ok(0) => -1, // EOF
+        Ok(_) => buf[0] as i32,
+        Err(_) => -1,
+    }
+}
+
+/// Read a line from handle (FFI)
+/// Returns pointer to string, null on error
+#[no_mangle]
+pub extern "C" fn bhc_hGetLine(handle: *mut HandlePtr, out_len: *mut usize) -> *mut u8 {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    match handle.read_line() {
+        Ok(Some(line)) => {
+            let bytes = line.into_bytes();
+            let len = bytes.len();
+            let ptr = bytes.leak().as_mut_ptr();
+            if !out_len.is_null() {
+                unsafe { *out_len = len };
+            }
+            ptr
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Read all contents from handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hGetContents(handle: *mut HandlePtr, out_len: *mut usize) -> *mut u8 {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    match handle.read_all() {
+        Ok(bytes) => {
+            let len = bytes.len();
+            let ptr = bytes.leak().as_mut_ptr();
+            if !out_len.is_null() {
+                unsafe { *out_len = len };
+            }
+            ptr
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Write a character to handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hPutChar(handle: *mut HandlePtr, c: i32) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    let buf = [c as u8];
+    match handle.write(&buf) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Write a string to handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hPutStr(handle: *mut HandlePtr, data: *const u8, len: usize) -> i32 {
+    if handle.is_null() || data.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    let data = unsafe { std::slice::from_raw_parts(data, len) };
+    match handle.write_all(data) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Flush handle (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hFlush(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    match handle.flush() {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Seek in handle (FFI)
+/// mode: 0=Start, 1=Current, 2=End
+#[no_mangle]
+pub extern "C" fn bhc_hSeek(handle: *mut HandlePtr, mode: i32, offset: i64) -> i64 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    let pos = match mode {
+        0 => SeekPosition::Start(offset as u64),
+        1 => SeekPosition::Current(offset),
+        2 => SeekPosition::End(offset),
+        _ => return -1,
+    };
+
+    match handle.seek(pos) {
+        Ok(new_pos) => new_pos as i64,
+        Err(_) => -1,
+    }
+}
+
+/// Get current position (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hTell(handle: *mut HandlePtr) -> i64 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    match handle.position() {
+        Ok(pos) => pos as i64,
+        Err(_) => -1,
+    }
+}
+
+/// Check if at EOF (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hIsEOF(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle = unsafe { &mut (*handle).handle };
+    match handle.is_eof() {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Check if handle is open (FFI) - always true for valid handles
+#[no_mangle]
+pub extern "C" fn bhc_hIsOpen(_handle: *mut HandlePtr) -> i32 {
+    1 // Handles are always "open" in our model
+}
+
+/// Check if handle is closed (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hIsClosed(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() { 1 } else { 0 }
+}
+
+/// Check if handle is readable (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hIsReadable(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return 0;
+    }
+
+    let handle = unsafe { &(*handle).handle };
+    match handle.mode() {
+        OpenMode::Read | OpenMode::ReadWrite => 1,
+        _ => 0,
+    }
+}
+
+/// Check if handle is writable (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_hIsWritable(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return 0;
+    }
+
+    let handle = unsafe { &(*handle).handle };
+    match handle.mode() {
+        OpenMode::Write | OpenMode::Append | OpenMode::ReadWrite => 1,
+        _ => 0,
+    }
+}
+
+/// Check if handle is seekable (FFI) - files are seekable
+#[no_mangle]
+pub extern "C" fn bhc_hIsSeekable(handle: *mut HandlePtr) -> i32 {
+    if handle.is_null() {
+        return 0;
+    }
+
+    let handle = unsafe { &(*handle).handle };
+    // stdin/stdout/stderr are not seekable
+    if handle.path() == "<stdin>" || handle.path() == "<stdout>" || handle.path() == "<stderr>" {
+        0
+    } else {
+        1
+    }
+}
+
+/// Read file as string (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_readFile(path: *const i8, out_len: *mut usize) -> *mut u8 {
+    if path.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let path = unsafe { CStr::from_ptr(path) };
+    let path = match path.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    match read_file(path) {
+        Ok(content) => {
+            let bytes = content.into_bytes();
+            let len = bytes.len();
+            let ptr = bytes.leak().as_mut_ptr();
+            if !out_len.is_null() {
+                unsafe { *out_len = len };
+            }
+            ptr
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Write string to file (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_writeFile(path: *const i8, data: *const u8, len: usize) -> i32 {
+    if path.is_null() || data.is_null() {
+        return -1;
+    }
+
+    let path = unsafe { CStr::from_ptr(path) };
+    let path = match path.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let data = unsafe { std::slice::from_raw_parts(data, len) };
+    let content = match std::str::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    match write_file(path, content) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Append string to file (FFI)
+#[no_mangle]
+pub extern "C" fn bhc_appendFile(path: *const i8, data: *const u8, len: usize) -> i32 {
+    if path.is_null() || data.is_null() {
+        return -1;
+    }
+
+    let path = unsafe { CStr::from_ptr(path) };
+    let path = match path.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let data = unsafe { std::slice::from_raw_parts(data, len) };
+    let content = match std::str::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    match append_file(path, content) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Read file contents (FFI) - legacy name
 #[no_mangle]
 pub extern "C" fn bhc_read_file(path: *const i8, out_len: *mut usize) -> *mut u8 {
     use std::ffi::CStr;
