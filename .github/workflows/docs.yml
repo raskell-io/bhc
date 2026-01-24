@@ -1,0 +1,66 @@
+name: Build and Deploy API Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'stdlib/**'
+      - 'tools/bhc-docs/**'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bhc
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-docs-
+
+      - name: Build bhc-docs
+        run: cargo build -p bhc-docs --release
+
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: raskell-io/bhc.raskell.io-docs
+          path: docs-site
+          token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+
+      - name: Generate API docs
+        run: |
+          ./target/release/bhc-docs build stdlib/bhc-prelude/hs \
+            -o docs-site/static/api \
+            --base-url "/docs/api" \
+            --version "${{ github.ref_name }}" \
+            --source-url "https://github.com/raskell-io/bhc/blob/${{ github.sha }}"
+
+      - name: Commit and push docs
+        run: |
+          cd docs-site
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add static/api
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: update API reference from bhc@${{ github.sha }}"
+            git push
+          fi
