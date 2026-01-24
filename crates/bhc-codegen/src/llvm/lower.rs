@@ -1857,6 +1857,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Lower a function definition.
     fn lower_function_def(&mut self, var: &Var, expr: &Expr) -> CodegenResult<()> {
+        eprintln!("[DEBUG] lower_function_def: {}", var.name.as_str());
         let fn_val = self.functions.get(&var.id).copied().ok_or_else(|| {
             CodegenError::Internal(format!("function not declared: {}", var.name.as_str()))
         })?;
@@ -2916,6 +2917,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut: &Expr,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        eprintln!("[DEBUG] lower_case with {} alternatives", alts.len());
+        eprintln!("[DEBUG]   scrut: {:?}", scrut);
+        for (i, alt) in alts.iter().enumerate() {
+            eprintln!("[DEBUG]   alt[{}] con: {:?}", i, alt.con);
+        }
         let scrut_val = self.lower_expr(scrut)?.ok_or_else(|| {
             CodegenError::Internal("scrutinee has no value".to_string())
         })?;
@@ -2992,6 +2998,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_int: IntValue<'ctx>,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        eprintln!("[DEBUG] lower_case_literal_int called with {} alts", alts.len());
+        for (i, alt) in alts.iter().enumerate() {
+            eprintln!("[DEBUG]   alt {}: {:?}", i, alt.con);
+        }
 
         let current_fn = self.builder()
             .get_insert_block()
@@ -3397,6 +3407,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_val: BasicValueEnum<'ctx>,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        eprintln!("[DEBUG] lower_case_datacon with {} alts, scrut_val: {:?}", alts.len(), scrut_val.get_type());
         // For constructor patterns, scrutinee must be a pointer (ADT value)
         let scrut_ptr = match scrut_val {
             BasicValueEnum::PointerValue(p) => p,
@@ -3494,10 +3505,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         blocks: &[inkwell::basic_block::BasicBlock<'ctx>],
         merge_block: inkwell::basic_block::BasicBlock<'ctx>,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        eprintln!("[DEBUG] lower_case_alternatives with {} alts, {} blocks", alts.len(), blocks.len());
         // Pass 1: Lower all expressions and collect values WITHOUT building branches
         let mut collected: Vec<(Option<BasicValueEnum<'ctx>>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
         for (i, alt) in alts.iter().enumerate() {
+            eprintln!("[DEBUG]   processing alt {}: {:?}", i, alt.con);
             self.builder().position_at_end(blocks[i]);
 
             let result = self.lower_expr(&alt.rhs)?;
@@ -3732,11 +3745,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_ptr: PointerValue<'ctx>,
         datacon_info: &[Option<&DataCon>],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        eprintln!("[DEBUG] lower_case_datacon_alternatives with {} alts, {} blocks", alts.len(), blocks.len());
         // Pass 1: Lower all expressions and collect values WITHOUT building branches
         // We collect (Option<value>, block) so we know which block each value came from
         let mut collected: Vec<(Option<BasicValueEnum<'ctx>>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
         for (i, alt) in alts.iter().enumerate() {
+            eprintln!("[DEBUG]   processing alt {}: {:?}", i, alt.con);
             self.builder().position_at_end(blocks[i]);
 
             // Extract fields and bind to pattern variables
