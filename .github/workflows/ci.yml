@@ -74,7 +74,7 @@ jobs:
       - name: Install LLVM (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          choco install llvm --version=18.1.8
+          choco install llvm --version=18.1.8 --allow-downgrade --force
           echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
 
       - name: Install Rust
