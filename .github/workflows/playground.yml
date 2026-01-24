@@ -1,0 +1,78 @@
+name: Build and Deploy Playground
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/bhc-playground/**'
+      - 'crates/bhc-parser/**'
+      - 'crates/bhc-lexer/**'
+      - 'crates/bhc-ast/**'
+      - 'crates/bhc-core/**'
+      - 'crates/bhc-typeck/**'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-playground:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bhc
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-playground-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-playground-
+
+      - name: Install wasm-bindgen
+        run: cargo install wasm-bindgen-cli --version 0.2.108
+
+      - name: Build playground WASM
+        run: cargo build -p bhc-playground --target wasm32-unknown-unknown --release
+
+      - name: Generate JS bindings
+        run: |
+          mkdir -p playground-out
+          wasm-bindgen --out-dir playground-out --target web \
+            target/wasm32-unknown-unknown/release/bhc_playground.wasm
+
+      - name: Checkout website repo
+        uses: actions/checkout@v4
+        with:
+          repository: raskell-io/bhc.raskell.io
+          path: website
+          token: ${{ secrets.DOCS_DEPLOY_TOKEN2 }}
+
+      - name: Update playground files
+        run: |
+          cp playground-out/bhc_playground.js website/static/playground/
+          cp playground-out/bhc_playground_bg.wasm website/static/playground/
+
+      - name: Commit and push
+        run: |
+          cd website
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add static/playground
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update playground WASM from bhc@${{ github.sha }}"
+            git push
+          fi
