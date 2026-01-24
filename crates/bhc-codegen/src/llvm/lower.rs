@@ -12,6 +12,7 @@
 
 use crate::{CodegenError, CodegenResult};
 use bhc_core::{Alt, AltCon, Bind, CoreModule, DataCon, Expr, Literal, Var, VarId};
+use bhc_intern::Symbol;
 use rustc_hash::FxHashSet;
 
 /// Primitive operations that compile directly to LLVM instructions.
@@ -57,7 +58,7 @@ use bhc_types::Ty;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FloatValue, FunctionValue, IntValue, PointerValue};
 use rustc_hash::FxHashMap;
 
 use super::context::LlvmContext;
@@ -2847,15 +2848,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_val: BasicValueEnum<'ctx>,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        // For literal patterns, scrutinee must be an integer
-        let scrut_int = match scrut_val {
-            BasicValueEnum::IntValue(i) => i,
-            _ => {
-                return Err(CodegenError::Unsupported(
-                    "case on non-integer values requires constructor patterns".to_string(),
-                ))
-            }
-        };
+        // Dispatch based on scrutinee type
+        match scrut_val {
+            BasicValueEnum::IntValue(i) => self.lower_case_literal_int(i, alts),
+            BasicValueEnum::FloatValue(f) => self.lower_case_literal_float(f, alts),
+            BasicValueEnum::PointerValue(p) => self.lower_case_literal_string(p, alts),
+            _ => Err(CodegenError::Unsupported(
+                format!("unsupported scrutinee type for literal case: {:?}", scrut_val.get_type()),
+            )),
+        }
+    }
+
+    /// Lower a case expression with integer literal patterns.
+    fn lower_case_literal_int(
+        &mut self,
+        scrut_int: IntValue<'ctx>,
+        alts: &[Alt],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
 
         let current_fn = self.builder()
             .get_insert_block()
@@ -2915,6 +2924,302 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
         // Generate code for each alternative
         self.lower_case_alternatives(alts, &blocks, merge_block)
+    }
+
+    /// Lower a case expression with float/double literal patterns.
+    /// Uses chained comparisons since LLVM switch doesn't support floats.
+    fn lower_case_literal_float(
+        &mut self,
+        scrut_float: FloatValue<'ctx>,
+        alts: &[Alt],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let current_fn = self.builder()
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+            .get_parent()
+            .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "float_case_merge");
+
+        // Separate literal alts from default
+        let mut literal_alts: Vec<(f64, &Alt)> = Vec::new();
+        let mut default_alt: Option<&Alt> = None;
+
+        for alt in alts {
+            match &alt.con {
+                AltCon::Lit(Literal::Float(f)) => literal_alts.push((*f as f64, alt)),
+                AltCon::Lit(Literal::Double(d)) => literal_alts.push((*d, alt)),
+                AltCon::Default => default_alt = Some(alt),
+                _ => {
+                    return Err(CodegenError::Unsupported(
+                        format!("unsupported pattern in float case: {:?}", alt.con),
+                    ))
+                }
+            }
+        }
+
+        // Create all blocks upfront to avoid creating duplicate blocks
+        let mut phi_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
+
+        // Create the default/else block
+        let default_block = self.llvm_context().append_basic_block(current_fn, "float_default");
+
+        // Create comparison blocks (one per literal except the first which uses current block)
+        let mut cmp_blocks: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
+        for i in 1..literal_alts.len() {
+            cmp_blocks.push(self.llvm_context().append_basic_block(current_fn, &format!("float_cmp_{}", i)));
+        }
+
+        // Create match blocks (one per literal)
+        let mut match_blocks: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
+        for i in 0..literal_alts.len() {
+            match_blocks.push(self.llvm_context().append_basic_block(current_fn, &format!("float_match_{}", i)));
+        }
+
+        // Generate chain of comparisons
+        for (i, (val, alt)) in literal_alts.iter().enumerate() {
+            // Position at the comparison block
+            if i > 0 {
+                self.builder().position_at_end(cmp_blocks[i - 1]);
+            }
+            // i == 0 uses the current block (already positioned there)
+
+            let match_block = match_blocks[i];
+
+            // Determine next block (next comparison or default)
+            let next_block = if i + 1 < literal_alts.len() {
+                cmp_blocks[i] // cmp_blocks[0] corresponds to float_cmp_1
+            } else {
+                default_block
+            };
+
+            // Build float comparison (ordered equal)
+            // Check if it's f32 or f64 by comparing types
+            let is_f32 = scrut_float.get_type() == self.type_mapper().f32_type();
+            let const_val = if is_f32 {
+                self.type_mapper().f32_type().const_float(*val)
+            } else {
+                self.type_mapper().f64_type().const_float(*val)
+            };
+            let cmp = self.builder()
+                .build_float_compare(inkwell::FloatPredicate::OEQ, scrut_float, const_val, "float_eq")
+                .map_err(|e| CodegenError::Internal(format!("failed to build float cmp: {:?}", e)))?;
+
+            self.builder()
+                .build_conditional_branch(cmp, match_block, next_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build cond branch: {:?}", e)))?;
+
+            // Generate code for match block
+            self.builder().position_at_end(match_block);
+            if let Some(result) = self.lower_expr(&alt.rhs)? {
+                phi_values.push((result, self.builder().get_insert_block().unwrap()));
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        }
+
+        // Generate default block
+        self.builder().position_at_end(default_block);
+        if let Some(alt) = default_alt {
+            // Bind scrutinee to any pattern variables
+            for binder in &alt.binders {
+                self.env.insert(binder.id, scrut_float.into());
+            }
+            if let Some(result) = self.lower_expr(&alt.rhs)? {
+                phi_values.push((result, self.builder().get_insert_block().unwrap()));
+            }
+            for binder in &alt.binders {
+                self.env.remove(&binder.id);
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        } else {
+            // No default - generate unreachable
+            self.builder()
+                .build_unreachable()
+                .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+        }
+
+        // Build phi in merge block
+        self.builder().position_at_end(merge_block);
+        if phi_values.is_empty() {
+            Ok(None)
+        } else {
+            let first_val = phi_values[0].0;
+            let phi = self.builder()
+                .build_phi(first_val.get_type(), "float_case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &phi_values {
+                phi.add_incoming(&[(val, *block)]);
+            }
+
+            Ok(Some(phi.as_basic_value()))
+        }
+    }
+
+    /// Lower a case expression with string literal patterns.
+    /// Uses strcmp to compare strings.
+    fn lower_case_literal_string(
+        &mut self,
+        scrut_ptr: PointerValue<'ctx>,
+        alts: &[Alt],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let current_fn = self.builder()
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+            .get_parent()
+            .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "str_case_merge");
+
+        // Get or declare strcmp
+        let strcmp_fn = self.get_or_declare_strcmp()?;
+
+        // Separate literal alts from default
+        let mut literal_alts: Vec<(&Symbol, &Alt)> = Vec::new();
+        let mut default_alt: Option<&Alt> = None;
+
+        for alt in alts {
+            match &alt.con {
+                AltCon::Lit(Literal::String(s)) => literal_alts.push((s, alt)),
+                AltCon::Default => default_alt = Some(alt),
+                _ => {
+                    return Err(CodegenError::Unsupported(
+                        format!("unsupported pattern in string case: {:?}", alt.con),
+                    ))
+                }
+            }
+        }
+
+        // Create all blocks upfront to avoid creating duplicate blocks
+        let mut phi_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
+        let default_block = self.llvm_context().append_basic_block(current_fn, "str_default");
+
+        // Create comparison blocks (one per literal except the first which uses current block)
+        let mut cmp_blocks: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
+        for i in 1..literal_alts.len() {
+            cmp_blocks.push(self.llvm_context().append_basic_block(current_fn, &format!("str_cmp_{}", i)));
+        }
+
+        // Create match blocks (one per literal)
+        let mut match_blocks: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
+        for i in 0..literal_alts.len() {
+            match_blocks.push(self.llvm_context().append_basic_block(current_fn, &format!("str_match_{}", i)));
+        }
+
+        // Generate chain of strcmp comparisons
+        for (i, (sym, alt)) in literal_alts.iter().enumerate() {
+            // Position at the comparison block
+            if i > 0 {
+                self.builder().position_at_end(cmp_blocks[i - 1]);
+            }
+            // i == 0 uses the current block (already positioned there)
+
+            let match_block = match_blocks[i];
+
+            // Determine next block (next comparison or default)
+            let next_block = if i + 1 < literal_alts.len() {
+                cmp_blocks[i] // cmp_blocks[0] corresponds to str_cmp_1
+            } else {
+                default_block
+            };
+
+            // Create global string constant for the pattern
+            let str_const = self.module.add_global_string(&format!("str_pat_{}", i), sym.as_str());
+
+            // Call strcmp(scrut, pattern)
+            let cmp_result = self.builder()
+                .build_call(
+                    strcmp_fn,
+                    &[scrut_ptr.into(), str_const.into()],
+                    "strcmp_result",
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to call strcmp: {:?}", e)))?
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| CodegenError::Internal("strcmp returned void".to_string()))?;
+
+            // strcmp returns 0 for equal strings
+            let zero = self.type_mapper().i32_type().const_zero();
+            let is_equal = self.builder()
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    cmp_result.into_int_value(),
+                    zero,
+                    "str_eq",
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to build int cmp: {:?}", e)))?;
+
+            self.builder()
+                .build_conditional_branch(is_equal, match_block, next_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build cond branch: {:?}", e)))?;
+
+            // Generate match block
+            self.builder().position_at_end(match_block);
+            if let Some(result) = self.lower_expr(&alt.rhs)? {
+                phi_values.push((result, self.builder().get_insert_block().unwrap()));
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        }
+
+        // Generate default block
+        self.builder().position_at_end(default_block);
+        if let Some(alt) = default_alt {
+            for binder in &alt.binders {
+                self.env.insert(binder.id, scrut_ptr.into());
+            }
+            if let Some(result) = self.lower_expr(&alt.rhs)? {
+                phi_values.push((result, self.builder().get_insert_block().unwrap()));
+            }
+            for binder in &alt.binders {
+                self.env.remove(&binder.id);
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        } else {
+            self.builder()
+                .build_unreachable()
+                .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
+        }
+
+        // Build phi in merge block
+        self.builder().position_at_end(merge_block);
+        if phi_values.is_empty() {
+            Ok(None)
+        } else {
+            let first_val = phi_values[0].0;
+            let phi = self.builder()
+                .build_phi(first_val.get_type(), "str_case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &phi_values {
+                phi.add_incoming(&[(val, *block)]);
+            }
+
+            Ok(Some(phi.as_basic_value()))
+        }
+    }
+
+    /// Get or declare the strcmp function.
+    fn get_or_declare_strcmp(&self) -> CodegenResult<FunctionValue<'ctx>> {
+        let name = "strcmp";
+        if let Some(fn_val) = self.module.get_function(name) {
+            return Ok(fn_val);
+        }
+
+        // int strcmp(const char*, const char*)
+        let tm = self.type_mapper();
+        let fn_type = tm.i32_type().fn_type(
+            &[tm.ptr_type().into(), tm.ptr_type().into()],
+            false,
+        );
+        Ok(self.module.add_function(name, fn_type))
     }
 
     /// Lower a case expression with constructor patterns.

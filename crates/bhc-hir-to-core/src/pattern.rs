@@ -629,6 +629,8 @@ fn get_constructor_tag(name: &str, fallback: u32) -> u32 {
 ///
 /// Given a pattern like `Left x | Right x`, this produces alternatives
 /// for both `Left x` and `Right x` with the same RHS.
+/// NOTE: This only expands top-level or-patterns. Use `flatten_nested_or_patterns`
+/// for deep expansion of nested or-patterns.
 pub fn expand_or_patterns(pat: &hir::Pat) -> Vec<&hir::Pat> {
     match pat {
         Pat::Or(left, right, _) => {
@@ -640,22 +642,155 @@ pub fn expand_or_patterns(pat: &hir::Pat) -> Vec<&hir::Pat> {
     }
 }
 
-/// Lower a pattern that may contain top-level or-patterns to multiple alternatives.
+/// Deeply flatten all or-patterns in a pattern, including nested ones.
+///
+/// For example:
+/// - `Just (Left x | Right x)` → `[Just (Left x), Just (Right x)]`
+/// - `(Left a | Right a, True | False)` → `[(Left a, True), (Left a, False), (Right a, True), (Right a, False)]`
+pub fn flatten_nested_or_patterns(pat: &hir::Pat) -> Vec<hir::Pat> {
+    match pat {
+        Pat::Or(left, right, _) => {
+            // First flatten both branches
+            let mut result = flatten_nested_or_patterns(left);
+            result.extend(flatten_nested_or_patterns(right));
+            result
+        }
+        Pat::Con(def_ref, sub_pats, span) => {
+            // Flatten each sub-pattern and compute cross-product
+            flatten_con_pattern(*def_ref, sub_pats, *span)
+        }
+        Pat::RecordCon(def_ref, field_pats, span) => {
+            // For record patterns, flatten field patterns
+            flatten_record_pattern(*def_ref, field_pats, *span)
+        }
+        Pat::As(name, def_id, inner, span) => {
+            // Flatten inner pattern and wrap each with As
+            let inner_flattened = flatten_nested_or_patterns(inner);
+            inner_flattened
+                .into_iter()
+                .map(|p| Pat::As(*name, *def_id, Box::new(p), *span))
+                .collect()
+        }
+        Pat::Ann(inner, ty, span) => {
+            // Flatten inner and wrap with annotation
+            let inner_flattened = flatten_nested_or_patterns(inner);
+            inner_flattened
+                .into_iter()
+                .map(|p| Pat::Ann(Box::new(p), ty.clone(), *span))
+                .collect()
+        }
+        // Patterns without sub-patterns - return as-is
+        Pat::Wild(span) => vec![Pat::Wild(*span)],
+        Pat::Var(name, def_id, span) => vec![Pat::Var(*name, *def_id, *span)],
+        Pat::Lit(lit, span) => vec![Pat::Lit(lit.clone(), *span)],
+        Pat::Error(span) => vec![Pat::Error(*span)],
+    }
+}
+
+/// Flatten a constructor pattern with potentially nested or-patterns in sub-patterns.
+fn flatten_con_pattern(
+    def_ref: bhc_hir::DefRef,
+    sub_pats: &[hir::Pat],
+    span: Span,
+) -> Vec<hir::Pat> {
+    if sub_pats.is_empty() {
+        return vec![Pat::Con(def_ref, vec![], span)];
+    }
+
+    // Flatten each sub-pattern
+    let flattened_subs: Vec<Vec<hir::Pat>> = sub_pats
+        .iter()
+        .map(flatten_nested_or_patterns)
+        .collect();
+
+    // Compute cross-product of all combinations
+    let combinations = cross_product(&flattened_subs);
+
+    // Create a Con pattern for each combination
+    combinations
+        .into_iter()
+        .map(|combo| Pat::Con(def_ref, combo, span))
+        .collect()
+}
+
+/// Flatten a record constructor pattern with potentially nested or-patterns in fields.
+fn flatten_record_pattern(
+    def_ref: bhc_hir::DefRef,
+    field_pats: &[hir::FieldPat],
+    span: Span,
+) -> Vec<hir::Pat> {
+    if field_pats.is_empty() {
+        return vec![Pat::RecordCon(def_ref, vec![], span)];
+    }
+
+    // Flatten each field pattern
+    let flattened_fields: Vec<Vec<hir::FieldPat>> = field_pats
+        .iter()
+        .map(|fp| {
+            let flattened = flatten_nested_or_patterns(&fp.pat);
+            flattened
+                .into_iter()
+                .map(|p| hir::FieldPat {
+                    name: fp.name,
+                    pat: p,
+                    span: fp.span,
+                })
+                .collect()
+        })
+        .collect();
+
+    // Compute cross-product
+    let combinations = cross_product(&flattened_fields);
+
+    // Create a RecordCon pattern for each combination
+    combinations
+        .into_iter()
+        .map(|combo| Pat::RecordCon(def_ref, combo, span))
+        .collect()
+}
+
+/// Compute the cross-product of multiple vectors.
+/// For example: [[a, b], [1, 2]] → [[a, 1], [a, 2], [b, 1], [b, 2]]
+fn cross_product<T: Clone>(vecs: &[Vec<T>]) -> Vec<Vec<T>> {
+    if vecs.is_empty() {
+        return vec![vec![]];
+    }
+
+    let first = &vecs[0];
+    let rest = cross_product(&vecs[1..]);
+
+    let mut result = Vec::new();
+    for item in first {
+        for r in &rest {
+            let mut combo = vec![item.clone()];
+            combo.extend(r.clone());
+            result.push(combo);
+        }
+    }
+    result
+}
+
+/// Lower a pattern that may contain or-patterns (including nested ones) to multiple alternatives.
 ///
 /// For `Left x | Right x -> e`, this produces:
 /// - `Left x -> e`
 /// - `Right x -> e`
+///
+/// For nested or-patterns like `Just (Left x | Right x) -> e`, this produces:
+/// - `Just (Left x) -> e`
+/// - `Just (Right x) -> e`
 pub fn lower_pat_with_or_to_alts(
     ctx: &mut LowerContext,
     pat: &hir::Pat,
     rhs: core::Expr,
     span: Span,
 ) -> LowerResult<Vec<Alt>> {
-    let expanded = expand_or_patterns(pat);
+    // Use deep flattening to handle nested or-patterns
+    let expanded = flatten_nested_or_patterns(pat);
     let mut alts = Vec::with_capacity(expanded.len());
 
     for sub_pat in expanded {
-        let alt = lower_pat_to_alt(ctx, sub_pat, rhs.clone(), span)?;
+        let alt = lower_pat_to_alt(ctx, &sub_pat, rhs.clone(), span)?;
         alts.push(alt);
     }
 

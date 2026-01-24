@@ -15,6 +15,7 @@ bhc-session = { workspace = true }
 bhc-core = { workspace = true }
 bhc-types = { workspace = true }
 bhc-index = { workspace = true }
+bhc-intern = { workspace = true }
 
 # LLVM bindings
 inkwell = { workspace = true }
