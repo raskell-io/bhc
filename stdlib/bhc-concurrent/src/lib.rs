@@ -38,6 +38,7 @@
 #![warn(unsafe_code)]
 
 pub mod channel;
+pub mod ffi;
 pub mod scope;
 pub mod stm;
 pub mod task;
