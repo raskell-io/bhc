@@ -76,16 +76,19 @@ BHC targets the Haskell 2026 Platform specification:
 
 ```bash
 # Build the compiler
-cd compiler && cabal build
+cargo build --release
 
 # Compile a program
-bhc hello.hs -o hello
+./target/release/bhc hello.hs -o hello
 
 # Run with Numeric Profile
-bhc --profile=numeric matmul.hs -o matmul
+./target/release/bhc --profile=numeric matmul.hs -o matmul
 
 # View kernel fusion report
-bhc --profile=numeric -fkernel-report tensor_ops.hs
+./target/release/bhc --profile=numeric --kernel-report tensor_ops.hs
+
+# Try it in your browser
+# Visit https://bhc.raskell.io/playground/
 ```
 
 ---
@@ -127,28 +130,32 @@ main = do
 
 ```
 bhc/
-├── compiler/           # Compiler driver + front-end
-│   └── src/
-│       ├── Parser/     # Lexer, parser, AST
-│       ├── TypeCheck/  # Type inference, typeclasses
-│       ├── Core/       # Core IR
-│       ├── Tensor/     # Tensor IR passes
-│       ├── Loop/       # Loop IR, vectorization
-│       └── Codegen/    # Backend code generation
-├── rts/                # Runtime system
-│   └── src/
-│       ├── gc/         # Garbage collector
-│       ├── arena/      # Hot arena allocator
-│       └── scheduler/  # Task scheduler
-├── stdlib/             # H26 Platform modules
-│   └── H26/
-│       ├── Tensor.hs
-│       ├── Numeric.hs
-│       ├── Concurrency.hs
-│       └── ...
-├── tests/              # Conformance test suite
-├── spec/               # Specification documents
-└── tools/              # bhci, bhi
+├── crates/                    # Rust compiler implementation
+│   ├── bhc/                   # Main CLI binary
+│   ├── bhc-driver/            # Compilation orchestration
+│   ├── bhc-parser/            # Parsing (lexer, AST)
+│   ├── bhc-typeck/            # Type inference & checking
+│   ├── bhc-core/              # Core IR + interpreter
+│   ├── bhc-tensor-ir/         # Tensor IR (Numeric profile)
+│   ├── bhc-loop-ir/           # Loop IR (vectorization)
+│   ├── bhc-codegen/           # Native code generation (LLVM)
+│   ├── bhc-wasm/              # WebAssembly backend
+│   ├── bhc-gpu/               # GPU backends (CUDA/ROCm)
+│   └── bhc-playground/        # Browser WASM playground
+├── rts/                       # Runtime system (Rust)
+│   ├── bhc-rts/               # Core runtime
+│   └── bhc-rts-gc/            # Garbage collector
+├── stdlib/                    # Standard library
+│   ├── bhc-prelude/           # Prelude primitives
+│   ├── bhc-base/              # Base library
+│   ├── bhc-containers/        # Data structures
+│   ├── bhc-numeric/           # Numeric/SIMD/BLAS
+│   └── H26/                   # H26 Platform modules
+├── tools/                     # Additional tools
+│   ├── bhci/                  # Interactive REPL
+│   ├── bhi/                   # IR inspector
+│   └── bhc-docs/              # Documentation generator
+└── tests/                     # Test suites
 ```
 
 ---
@@ -157,23 +164,24 @@ bhc/
 
 | Milestone | Name | Status |
 |-----------|------|--------|
-| M0 | Proof of Life | Not Started |
-| M1 | Numeric Profile Skeleton | Not Started |
-| M2 | Tensor IR v1 | Not Started |
-| M3 | Vectorization + Parallel Loops | Not Started |
-| M4 | Pinned Arrays + FFI | Not Started |
-| M5 | Server Runtime Contract | Not Started |
-| M6 | Platform Standardization | Not Started |
+| Phase 1 | Native Hello World | ✅ Complete |
+| Phase 2 | Language Completeness | 🟡 In Progress |
+| Phase 3 | Numeric Profile | 🟡 Partial |
+| Phase 4 | WASM Backend | 🟡 Partial |
+| Phase 5 | Server Profile | 🔴 Not Started |
+| Phase 6 | GPU Backend | 🔴 Skeleton |
 
-See [ROADMAP.md](.claude/ROADMAP.md) for detailed milestone specifications.
+See [ROADMAP.md](ROADMAP.md) for detailed milestone specifications.
 
 ---
 
 ## Documentation
 
-- [CLAUDE.md](.claude/CLAUDE.md) — Project overview and development guidelines
-- [ROADMAP.md](.claude/ROADMAP.md) — Milestone schedule and exit criteria
-- [rules/](.claude/rules/) — Code quality and design guidelines
+- [Website](https://bhc.raskell.io) — Official website with guides and tutorials
+- [API Docs](https://bhc.raskell.io/docs/api/) — Standard library reference (63 modules)
+- [Playground](https://bhc.raskell.io/playground/) — Try BHC in your browser
+- [ROADMAP.md](ROADMAP.md) — Implementation status and milestones
+- [.claude/CLAUDE.md](.claude/CLAUDE.md) — Development guidelines
 
 ---
 
@@ -181,24 +189,30 @@ See [ROADMAP.md](.claude/ROADMAP.md) for detailed milestone specifications.
 
 ### Prerequisites
 
-- GHC 9.6+ (for bootstrapping)
-- Cabal 3.10+
-- LLVM 17+ (optional, for native codegen)
+- Rust 1.75+ (stable toolchain)
+- LLVM 17+ (for native codegen)
+- wasm32-unknown-unknown target (for playground)
 
 ### Build Commands
 
 ```bash
 # Build everything
-cabal build all
+cargo build
+
+# Build release
+cargo build --release
 
 # Run tests
-cabal test
+cargo test
+
+# Run specific crate tests
+cargo test -p bhc-parser
 
 # Run benchmarks
-cabal bench
+cargo bench
 
-# Build with optimizations
-cabal build -O2
+# Build and run bhc
+cargo run --bin bhc -- Main.hs
 ```
 
 ---
