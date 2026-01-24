@@ -1,15 +1,31 @@
 name: Build and Deploy Playground
 
+# Rebuild playground WASM when any dependency changes.
+# Keep paths in sync with: grep "^bhc-" crates/bhc-playground/Cargo.toml
+
 on:
   push:
     branches: [main]
     paths:
+      # The playground crate itself
       - 'crates/bhc-playground/**'
-      - 'crates/bhc-parser/**'
+      # All dependencies (from bhc-playground/Cargo.toml)
+      - 'crates/bhc-span/**'
+      - 'crates/bhc-intern/**'
+      - 'crates/bhc-index/**'
+      - 'crates/bhc-arena/**'
+      - 'crates/bhc-data-structures/**'
+      - 'crates/bhc-diagnostics/**'
       - 'crates/bhc-lexer/**'
       - 'crates/bhc-ast/**'
-      - 'crates/bhc-core/**'
+      - 'crates/bhc-parser/**'
+      - 'crates/bhc-types/**'
+      - 'crates/bhc-hir/**'
+      - 'crates/bhc-lower/**'
       - 'crates/bhc-typeck/**'
+      - 'crates/bhc-core/**'
+      - 'crates/bhc-hir-to-core/**'
+      - 'crates/bhc-session/**'
   workflow_dispatch:  # Allow manual trigger
 
 env:
