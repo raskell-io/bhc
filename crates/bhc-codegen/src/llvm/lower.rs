@@ -324,6 +324,105 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    /// Coerce a value to match a target type.
+    /// Used to ensure PHI node operands have consistent types.
+    fn coerce_to_type(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        target_type: inkwell::types::BasicTypeEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let value_type = value.get_type();
+
+        // If types already match, no coercion needed
+        if value_type == target_type {
+            return Ok(value);
+        }
+
+        let tm = self.type_mapper();
+
+        match (value, target_type) {
+            // Pointer to integer: unbox (ptr_to_int)
+            (BasicValueEnum::PointerValue(p), inkwell::types::BasicTypeEnum::IntType(int_ty)) => {
+                let int_val = self.builder()
+                    .build_ptr_to_int(p, int_ty, "coerce_ptr_to_int")
+                    .map_err(|e| CodegenError::Internal(format!("failed to coerce ptr to int: {:?}", e)))?;
+                Ok(int_val.into())
+            }
+            // Integer to pointer: box (int_to_ptr)
+            (BasicValueEnum::IntValue(i), inkwell::types::BasicTypeEnum::PointerType(_)) => {
+                // First extend/truncate to i64 if needed, then convert to pointer
+                let i64_val = if i.get_type().get_bit_width() < 64 {
+                    self.builder()
+                        .build_int_z_extend(i, tm.i64_type(), "extend_to_i64")
+                        .map_err(|e| CodegenError::Internal(format!("failed to extend int: {:?}", e)))?
+                } else if i.get_type().get_bit_width() > 64 {
+                    self.builder()
+                        .build_int_truncate(i, tm.i64_type(), "truncate_to_i64")
+                        .map_err(|e| CodegenError::Internal(format!("failed to truncate int: {:?}", e)))?
+                } else {
+                    i
+                };
+                let ptr_val = self.builder()
+                    .build_int_to_ptr(i64_val, tm.ptr_type(), "coerce_int_to_ptr")
+                    .map_err(|e| CodegenError::Internal(format!("failed to coerce int to ptr: {:?}", e)))?;
+                Ok(ptr_val.into())
+            }
+            // Pointer to float: unbox (ptr_to_int then bit_cast)
+            (BasicValueEnum::PointerValue(p), inkwell::types::BasicTypeEnum::FloatType(float_ty)) => {
+                let bits = self.builder()
+                    .build_ptr_to_int(p, tm.i64_type(), "coerce_ptr_to_bits")
+                    .map_err(|e| CodegenError::Internal(format!("failed to coerce ptr to bits: {:?}", e)))?;
+                // For f32, truncate to i32 first, then bit_cast
+                let float_val = if float_ty == tm.f32_type() {
+                    let bits32 = self.builder()
+                        .build_int_truncate(bits, tm.i32_type(), "truncate_bits_f32")
+                        .map_err(|e| CodegenError::Internal(format!("failed to truncate bits: {:?}", e)))?;
+                    self.builder()
+                        .build_bit_cast(bits32, float_ty, "coerce_to_f32")
+                        .map_err(|e| CodegenError::Internal(format!("failed to coerce to f32: {:?}", e)))?
+                } else {
+                    self.builder()
+                        .build_bit_cast(bits, float_ty, "coerce_to_f64")
+                        .map_err(|e| CodegenError::Internal(format!("failed to coerce to f64: {:?}", e)))?
+                };
+                Ok(float_val)
+            }
+            // Float to pointer: box (bit_cast then int_to_ptr)
+            (BasicValueEnum::FloatValue(f), inkwell::types::BasicTypeEnum::PointerType(_)) => {
+                let bits = self.builder()
+                    .build_bit_cast(f, tm.i64_type(), "float_to_bits")
+                    .map_err(|e| CodegenError::Internal(format!("failed to cast float to bits: {:?}", e)))?
+                    .into_int_value();
+                let ptr_val = self.builder()
+                    .build_int_to_ptr(bits, tm.ptr_type(), "coerce_float_to_ptr")
+                    .map_err(|e| CodegenError::Internal(format!("failed to coerce float to ptr: {:?}", e)))?;
+                Ok(ptr_val.into())
+            }
+            // Integer width conversion
+            (BasicValueEnum::IntValue(i), inkwell::types::BasicTypeEnum::IntType(int_ty)) => {
+                let src_bits = i.get_type().get_bit_width();
+                let dst_bits = int_ty.get_bit_width();
+                let result = if src_bits < dst_bits {
+                    self.builder()
+                        .build_int_s_extend(i, int_ty, "sext")
+                        .map_err(|e| CodegenError::Internal(format!("failed to sign extend: {:?}", e)))?
+                } else {
+                    self.builder()
+                        .build_int_truncate(i, int_ty, "trunc")
+                        .map_err(|e| CodegenError::Internal(format!("failed to truncate: {:?}", e)))?
+                };
+                Ok(result.into())
+            }
+            _ => {
+                // Types don't match and we don't know how to coerce
+                Err(CodegenError::Internal(format!(
+                    "cannot coerce {:?} to {:?}",
+                    value_type, target_type
+                )))
+            }
+        }
+    }
+
     /// Extract the tag from an ADT value.
     fn extract_adt_tag(&self, adt_ptr: PointerValue<'ctx>) -> CodegenResult<IntValue<'ctx>> {
         // We need to use a generic adt type for reading - use arity 0 since tag is always at offset 0
@@ -3047,12 +3146,33 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         if phi_values.is_empty() {
             Ok(None)
         } else {
-            let first_val = phi_values[0].0;
-            let phi = self.builder()
-                .build_phi(first_val.get_type(), "float_case_result")
-                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+            let target_type = phi_values[0].0.get_type();
+
+            // Coerce all values to the target type
+            let mut coerced_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
             for (val, block) in &phi_values {
+                if val.get_type() == target_type {
+                    coerced_values.push((*val, *block));
+                } else {
+                    let terminator = block.get_terminator();
+                    if let Some(term) = terminator {
+                        self.builder().position_before(&term);
+                        let coerced = self.coerce_to_type(*val, target_type)?;
+                        coerced_values.push((coerced, *block));
+                    } else {
+                        coerced_values.push((*val, *block));
+                    }
+                }
+            }
+
+            self.builder().position_at_end(merge_block);
+
+            let phi = self.builder()
+                .build_phi(target_type, "float_case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &coerced_values {
                 phi.add_incoming(&[(val, *block)]);
             }
 
@@ -3193,12 +3313,33 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         if phi_values.is_empty() {
             Ok(None)
         } else {
-            let first_val = phi_values[0].0;
-            let phi = self.builder()
-                .build_phi(first_val.get_type(), "str_case_result")
-                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+            let target_type = phi_values[0].0.get_type();
+
+            // Coerce all values to the target type
+            let mut coerced_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
             for (val, block) in &phi_values {
+                if val.get_type() == target_type {
+                    coerced_values.push((*val, *block));
+                } else {
+                    let terminator = block.get_terminator();
+                    if let Some(term) = terminator {
+                        self.builder().position_before(&term);
+                        let coerced = self.coerce_to_type(*val, target_type)?;
+                        coerced_values.push((coerced, *block));
+                    } else {
+                        coerced_values.push((*val, *block));
+                    }
+                }
+            }
+
+            self.builder().position_at_end(merge_block);
+
+            let phi = self.builder()
+                .build_phi(target_type, "str_case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &coerced_values {
                 phi.add_incoming(&[(val, *block)]);
             }
 
@@ -3342,13 +3483,36 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         if phi_values.is_empty() {
             Ok(None)
         } else {
-            let first_val = phi_values[0].0;
-            let phi = self
-                .builder()
-                .build_phi(first_val.get_type(), "case_result")
-                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+            let target_type = phi_values[0].0.get_type();
+
+            // Coerce all values to the target type (first value's type)
+            let mut coerced_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
             for (val, block) in &phi_values {
+                if val.get_type() == target_type {
+                    coerced_values.push((*val, *block));
+                } else {
+                    // Need to insert coercion in the source block, before the branch
+                    let terminator = block.get_terminator();
+                    if let Some(term) = terminator {
+                        self.builder().position_before(&term);
+                        let coerced = self.coerce_to_type(*val, target_type)?;
+                        coerced_values.push((coerced, *block));
+                    } else {
+                        coerced_values.push((*val, *block));
+                    }
+                }
+            }
+
+            // Position back at merge block for the PHI
+            self.builder().position_at_end(merge_block);
+
+            let phi = self
+                .builder()
+                .build_phi(target_type, "case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &coerced_values {
                 phi.add_incoming(&[(val, *block)]);
             }
 
@@ -3456,13 +3620,35 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         if phi_values.is_empty() {
             Ok(None)
         } else {
-            let first_val = phi_values[0].0;
-            let phi = self
-                .builder()
-                .build_phi(first_val.get_type(), "bool_result")
-                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+            let target_type = phi_values[0].0.get_type();
+
+            // Coerce all values to the target type (first value's type)
+            let mut coerced_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
             for (val, block) in &phi_values {
+                if val.get_type() == target_type {
+                    coerced_values.push((*val, *block));
+                } else {
+                    let terminator = block.get_terminator();
+                    if let Some(term) = terminator {
+                        self.builder().position_before(&term);
+                        let coerced = self.coerce_to_type(*val, target_type)?;
+                        coerced_values.push((coerced, *block));
+                    } else {
+                        coerced_values.push((*val, *block));
+                    }
+                }
+            }
+
+            // Position back at merge block for the PHI
+            self.builder().position_at_end(merge_block);
+
+            let phi = self
+                .builder()
+                .build_phi(target_type, "bool_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &coerced_values {
                 phi.add_incoming(&[(val, *block)]);
             }
 
@@ -3524,13 +3710,39 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         if phi_values.is_empty() {
             Ok(None)
         } else {
-            let first_val = phi_values[0].0;
-            let phi = self
-                .builder()
-                .build_phi(first_val.get_type(), "case_result")
-                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+            let target_type = phi_values[0].0.get_type();
+
+            // Coerce all values to the target type (first value's type)
+            // This handles cases like: Nothing -> 0 (i64) vs Just x -> x (ptr)
+            let mut coerced_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
             for (val, block) in &phi_values {
+                if val.get_type() == target_type {
+                    coerced_values.push((*val, *block));
+                } else {
+                    // Need to insert coercion in the source block, before the branch
+                    // Position just before the terminator
+                    let terminator = block.get_terminator();
+                    if let Some(term) = terminator {
+                        self.builder().position_before(&term);
+                        let coerced = self.coerce_to_type(*val, target_type)?;
+                        coerced_values.push((coerced, *block));
+                    } else {
+                        // No terminator - this shouldn't happen, but handle gracefully
+                        coerced_values.push((*val, *block));
+                    }
+                }
+            }
+
+            // Position back at merge block for the PHI
+            self.builder().position_at_end(merge_block);
+
+            let phi = self
+                .builder()
+                .build_phi(target_type, "case_result")
+                .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+            for (val, block) in &coerced_values {
                 phi.add_incoming(&[(val, *block)]);
             }
 
