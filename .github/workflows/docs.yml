@@ -47,7 +47,7 @@ jobs:
       - name: Generate API docs
         run: |
           mkdir -p website/static/docs/api
-          ./target/release/bhc-docs build stdlib/bhc-prelude/hs \
+          ./target/release/bhc-docs build stdlib \
             -o website/static/docs/api \
             --base-url "/docs/api" \
             --version "${{ github.ref_name }}" \
