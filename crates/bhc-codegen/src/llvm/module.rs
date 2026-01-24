@@ -106,6 +106,7 @@ impl<'ctx> LlvmModule<'ctx> {
     /// 4. Returns 0
     pub fn create_entry_point(&self, haskell_main: FunctionValue<'ctx>) -> CodegenResult<FunctionValue<'ctx>> {
         let i32_type = self.type_mapper.i32_type();
+        let void_type = self.type_mapper.context().void_type();
         // Use opaque pointer type (LLVM 15+)
         let ptr_type = self.type_mapper.context().ptr_type(AddressSpace::default());
 
@@ -116,16 +117,38 @@ impl<'ctx> LlvmModule<'ctx> {
         );
         let main_fn = self.add_function("main", main_type);
 
+        // Declare bhc_rts_init(int argc, char** argv)
+        let rts_init_type = void_type.fn_type(
+            &[i32_type.into(), ptr_type.into()],
+            false,
+        );
+        let rts_init = self.module.add_function("bhc_rts_init", rts_init_type, None);
+
+        // Declare bhc_shutdown()
+        let shutdown_type = void_type.fn_type(&[], false);
+        let shutdown = self.module.add_function("bhc_shutdown", shutdown_type, None);
+
         // Create entry block
         let entry = self.type_mapper.context().append_basic_block(main_fn, "entry");
         self.builder.position_at_end(entry);
 
-        // TODO: Call bhc_init(argc, argv)
-        // For now, just call the Haskell main directly
+        // Get argc and argv parameters
+        let argc = main_fn.get_nth_param(0)
+            .ok_or_else(|| CodegenError::Internal("missing argc param".to_string()))?;
+        let argv = main_fn.get_nth_param(1)
+            .ok_or_else(|| CodegenError::Internal("missing argv param".to_string()))?;
+
+        // Call bhc_rts_init(argc, argv)
+        self.builder.build_call(rts_init, &[argc.into(), argv.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to build rts_init call: {:?}", e)))?;
 
         // Call Haskell main (returns void or a value we ignore)
         self.builder.build_call(haskell_main, &[], "")
             .map_err(|e| CodegenError::Internal(format!("failed to build call: {:?}", e)))?;
+
+        // Call bhc_shutdown()
+        self.builder.build_call(shutdown, &[], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to build shutdown call: {:?}", e)))?;
 
         // Return 0
         let zero = i32_type.const_int(0, false);

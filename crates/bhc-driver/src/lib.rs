@@ -431,6 +431,7 @@ impl Compiler {
                 deterministic: true,
                 ..Default::default()
             };
+            let par_deterministic = par_config.deterministic;
             let mut par_pass = ParallelPass::new(par_config);
             let mut parallel_analysis: FxHashMap<LoopId, ParallelInfo> = FxHashMap::default();
             for ir in &loop_irs {
@@ -451,7 +452,7 @@ impl Compiler {
                 let comprehensive_report = ComprehensiveKernelReport::new(&unit.module_name)
                     .with_fusion(&fusion_report)
                     .with_vectorization(&vectorize_report)
-                    .with_parallelization(&parallel_analysis, par_config.deterministic);
+                    .with_parallelization(&parallel_analysis, par_deterministic);
                 self.emit_comprehensive_kernel_report(&comprehensive_report);
             }
         }

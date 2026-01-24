@@ -119,10 +119,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Declare external RTS functions.
     fn declare_rts_functions(&mut self) {
-        let tm = self.type_mapper();
+        // Get all types upfront to avoid borrow conflicts
         let void_type = self.llvm_ctx.void_type();
-        let i64_type = tm.i64_type();
-        let f64_type = tm.f64_type();
+        let i64_type = self.type_mapper().i64_type();
+        let f64_type = self.type_mapper().f64_type();
+        let i32_type = self.type_mapper().i32_type();
         let i8_ptr_type = self.llvm_ctx.ptr_type(inkwell::AddressSpace::default());
 
         // bhc_print_int_ln(i64) -> void
@@ -171,7 +172,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         self.functions.insert(VarId::new(1008), print_bool_ln);
 
         // bhc_print_char(i32) -> void - print a character
-        let i32_type = tm.i32_type();
         let print_char_type = void_type.fn_type(&[i32_type.into()], false);
         let print_char = self.module.llvm_module().add_function("bhc_print_char", print_char_type, None);
         self.functions.insert(VarId::new(1009), print_char);
@@ -1090,10 +1090,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     CodegenError::Internal("bhc_print_double_ln not declared".to_string())
                 })?;
 
-                // Extend float to double if needed
-                let f64_val = if f.get_type().get_bit_size() == 32 {
+                // Extend float to double if needed (check if it's f32)
+                let f64_type = self.type_mapper().f64_type();
+                let f32_type = self.type_mapper().f32_type();
+                let f64_val = if f.get_type() == f32_type {
                     self.builder()
-                        .build_float_ext(f, self.type_mapper().f64_type(), "to_f64")
+                        .build_float_ext(f, f64_type, "to_f64")
                         .map_err(|e| CodegenError::Internal(format!("failed to extend float: {:?}", e)))?
                 } else {
                     f
@@ -1252,7 +1254,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
 
             Expr::Let(bind, body, _) => {
-                match bind {
+                match &**bind {
                     Bind::NonRec(var, rhs) => {
                         self.collect_free_vars(rhs, free, bound);
                         bound.insert(var.id);
@@ -1551,14 +1553,30 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 self.collect_constructors_from_expr(func);
                 self.collect_constructors_from_expr(arg);
             }
+            Expr::TyApp(func, _, _) => {
+                self.collect_constructors_from_expr(func);
+            }
             Expr::Lam(_, body, _) => {
+                self.collect_constructors_from_expr(body);
+            }
+            Expr::TyLam(_, body, _) => {
                 self.collect_constructors_from_expr(body);
             }
             Expr::Let(bind, body, _) => {
                 self.collect_constructors_from_binding(bind);
                 self.collect_constructors_from_expr(body);
             }
-            Expr::Var(_, _) | Expr::Lit(_, _, _) => {}
+            Expr::Lazy(inner, _) => {
+                self.collect_constructors_from_expr(inner);
+            }
+            Expr::Cast(inner, _, _) => {
+                self.collect_constructors_from_expr(inner);
+            }
+            Expr::Tick(_, inner, _) => {
+                self.collect_constructors_from_expr(inner);
+            }
+            // Leaf nodes that don't contain constructors
+            Expr::Var(_, _) | Expr::Lit(_, _, _) | Expr::Type(_, _) | Expr::Coercion(_, _) => {}
         }
     }
 
@@ -1614,12 +1632,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Lower the function body, handling lambda parameters
         let result = self.lower_function_body(fn_val, expr)?;
 
-        // Build return
-        if let Some(val) = result {
+        // Build return based on function's declared return type, not the computed result
+        // This handles cases like IO () which produces a value but should return void
+        let ret_type = fn_val.get_type().get_return_type();
+        if ret_type.is_none() {
+            // Void return type - don't return a value
+            self.builder()
+                .build_return(None)
+                .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
+        } else if let Some(val) = result {
             self.builder()
                 .build_return(Some(&val))
                 .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
         } else {
+            // Function expects a return value but body produced none
+            // This shouldn't happen with correct type checking
             self.builder()
                 .build_return(None)
                 .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;

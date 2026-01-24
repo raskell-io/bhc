@@ -17,11 +17,11 @@
 //! This generates a detailed report showing what optimizations were applied
 //! and why certain patterns did or didn't fuse.
 
-use bhc_loop_ir::parallel::{ParallelInfo, ParallelStrategy};
-use bhc_loop_ir::vectorize::{VectorizeReport, VectorizedLoopInfo};
+use bhc_loop_ir::parallel::ParallelInfo;
+use bhc_loop_ir::vectorize::VectorizeReport;
 use bhc_loop_ir::LoopId;
-use bhc_tensor_ir::fusion::{FusionDecision, Kernel, KernelReport as FusionReport};
-use bhc_tensor_ir::{AllocInfo, AllocRegion};
+use bhc_tensor_ir::fusion::KernelReport as FusionReport;
+use bhc_tensor_ir::{AllocRegion, FusionDecision, Kernel};
 use rustc_hash::FxHashMap;
 use std::fmt;
 
@@ -381,7 +381,7 @@ fn calculate_memory_summary(kernels: &[Kernel]) -> MemorySummary {
                     summary.general_bytes += alloc.size;
                     summary.general_count += 1;
                 }
-                AllocRegion::DeviceMemory => {
+                AllocRegion::DeviceMemory(_) => {
                     summary.device_bytes += alloc.size;
                     summary.device_count += 1;
                 }

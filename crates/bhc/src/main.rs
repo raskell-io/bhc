@@ -167,59 +167,56 @@ fn main() -> Result<()> {
 
 /// Compile source files
 fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
-    use bhc_diagnostics::{DiagnosticRenderer, SourceMap};
-    use bhc_parser::parse_module;
-    use bhc_span::FileId;
+    use bhc_driver::CompilerBuilder;
+    use camino::Utf8PathBuf;
 
     tracing::info!("Compiling {} file(s) with {:?} profile", files.len(), cli.profile);
 
-    let mut source_map = SourceMap::new();
-    let mut has_errors = false;
+    // Convert profile
+    let profile = match cli.profile {
+        Profile::Default => bhc_session::Profile::Default,
+        Profile::Server => bhc_session::Profile::Server,
+        Profile::Numeric => bhc_session::Profile::Numeric,
+        Profile::Edge => bhc_session::Profile::Edge,
+    };
 
-    for (i, file) in files.iter().enumerate() {
-        let src = std::fs::read_to_string(file)?;
-        let file_id = source_map.add_file(file.display().to_string(), src.clone());
+    // Build compiler with configuration
+    let mut builder = CompilerBuilder::new()
+        .profile(profile)
+        .output_type(bhc_session::OutputType::Executable)
+        .emit_kernel_report(cli.kernel_report);
 
-        tracing::debug!("Parsing {}", file.display());
+    // Set output path if specified
+    if let Some(ref output) = cli.output {
+        builder = builder.output_path(Utf8PathBuf::from_path_buf(output.clone())
+            .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in output path"))?);
+    }
 
-        let (module, diagnostics) = parse_module(&src, file_id);
+    let compiler = builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create compiler: {}", e))?;
 
-        // Render diagnostics
-        let renderer = DiagnosticRenderer::new(&source_map);
-        renderer.render_all(&diagnostics);
+    // Convert paths and compile
+    let utf8_paths: Vec<Utf8PathBuf> = files
+        .iter()
+        .map(|p| {
+            Utf8PathBuf::from_path_buf(p.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in path: {}", p.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-        if diagnostics.iter().any(|d| d.is_error()) {
-            has_errors = true;
-            continue;
-        }
-
-        if let Some(module) = module {
-            tracing::info!(
-                "Parsed module: {}",
-                module.name.as_ref().map_or("<main>".to_string(), |n| n.to_string())
-            );
-
-            // Dump AST if requested
-            if matches!(cli.dump_ir, Some(IrStage::Ast | IrStage::All)) {
-                println!("=== AST for {} ===", file.display());
-                println!("{:#?}", module);
+    match compiler.compile_files(utf8_paths.iter().map(|p| p.as_path())) {
+        Ok(outputs) => {
+            for output in outputs {
+                tracing::info!("Generated: {}", output.path);
             }
-
-            // TODO: Continue compilation pipeline
-            // 1. Desugar to HIR
-            // 2. Type check
-            // 3. Lower to Core IR
-            // 4. (Numeric profile) Lower to Tensor IR
-            // 5. (Numeric profile) Lower to Loop IR
-            // 6. Code generation
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Compilation error: {}", e);
+            std::process::exit(1);
         }
     }
-
-    if has_errors {
-        std::process::exit(1);
-    }
-
-    Ok(())
 }
 
 /// Check source files without generating code
