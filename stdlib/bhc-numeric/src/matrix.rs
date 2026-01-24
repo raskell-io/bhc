@@ -14,7 +14,7 @@
 //! - `bhc_matrix_matmul_f64`, `bhc_matrix_transpose_f64`
 //! - `bhc_matrix_add_f64`, `bhc_matrix_scale_f64`
 
-use crate::blas::{BlasProvider, PureRustBlas};
+use crate::blas::{BlasProviderF64, Layout, PureRustBlas, Transpose};
 use crate::vector::Vector;
 use std::fmt;
 use std::ops::{Index, IndexMut};
@@ -517,18 +517,21 @@ impl Matrix<f64> {
         }
         let blas = PureRustBlas;
         let mut result = vec![0.0; self.rows * other.cols];
-        blas.gemm(
-            self.rows,
-            other.cols,
-            self.cols,
+        blas.dgemm(
+            Layout::RowMajor,
+            Transpose::NoTrans,
+            Transpose::NoTrans,
+            self.rows as i32,
+            other.cols as i32,
+            self.cols as i32,
             1.0,
             &self.data,
-            self.cols,
+            self.cols as i32,
             &other.data,
-            other.cols,
+            other.cols as i32,
             0.0,
             &mut result,
-            other.cols,
+            other.cols as i32,
         );
         Some(Self {
             data: result,

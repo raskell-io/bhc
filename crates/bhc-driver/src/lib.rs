@@ -44,6 +44,10 @@
 
 #![warn(missing_docs)]
 
+mod report;
+
+pub use report::ComprehensiveKernelReport;
+
 use bhc_ast::Module as AstModule;
 use bhc_codegen::{
     llvm::{lower_core_module, LlvmBackend, LlvmModuleExt},
@@ -56,10 +60,11 @@ use bhc_intern::Symbol;
 use bhc_linker::{LinkerConfig, LinkLibrary, LinkOutputType};
 use bhc_loop_ir::{
     lower::{LowerConfig, LowerError},
-    parallel::{ParallelConfig, ParallelPass},
-    vectorize::{VectorizeConfig, VectorizePass},
-    TargetArch,
+    parallel::{ParallelConfig, ParallelInfo, ParallelPass},
+    vectorize::{VectorizeConfig, VectorizePass, VectorizeReport},
+    LoopId, TargetArch,
 };
+use rustc_hash::FxHashMap;
 use bhc_lower::LowerContext;
 use bhc_session::{Options, OutputType, Profile, Session, SessionRef};
 use bhc_span::FileId;
@@ -360,11 +365,8 @@ impl Compiler {
             let mut fusion_ctx = FusionContext::new(true);
             let kernels = fusion::fuse_ops(&mut fusion_ctx, tensor_ops);
 
-            // Generate and emit kernel report if requested
-            if self.session.options.emit_kernel_report {
-                let report = fusion::generate_kernel_report(&fusion_ctx);
-                self.emit_kernel_report(&unit.module_name, &report);
-            }
+            // Generate fusion report (may be used for comprehensive report)
+            let fusion_report = fusion::generate_kernel_report(&fusion_ctx);
 
             debug!(
                 module = %unit.module_name,
@@ -393,14 +395,30 @@ impl Compiler {
                 "loop IR lowering complete"
             );
 
-            // Apply vectorization pass
+            // Apply vectorization pass and collect report
             let vec_config = VectorizeConfig {
                 target: target_arch,
                 ..Default::default()
             };
             let mut vec_pass = VectorizePass::new(vec_config);
+            let mut vectorize_report = VectorizeReport::default();
             for ir in &loop_irs {
                 let vec_analysis = vec_pass.analyze(ir);
+                // Collect vectorization info for report
+                for (loop_id, info) in &vec_analysis {
+                    if info.vectorizable {
+                        vectorize_report.vectorized_loops.push(
+                            bhc_loop_ir::vectorize::VectorizedLoopInfo {
+                                loop_id: *loop_id,
+                                vector_width: info.recommended_width,
+                                has_fma: info.has_fma,
+                                has_reduction: info.has_reduction,
+                            },
+                        );
+                    } else if let Some(reason) = &info.reason {
+                        vectorize_report.failed_loops.push((*loop_id, reason.clone()));
+                    }
+                }
                 debug!(
                     module = %unit.module_name,
                     vectorizable_loops = vec_analysis.values().filter(|v| v.vectorizable).count(),
@@ -414,8 +432,11 @@ impl Compiler {
                 ..Default::default()
             };
             let mut par_pass = ParallelPass::new(par_config);
+            let mut parallel_analysis: FxHashMap<LoopId, ParallelInfo> = FxHashMap::default();
             for ir in &loop_irs {
                 let par_analysis = par_pass.analyze(ir);
+                // Collect parallelization info for report
+                parallel_analysis.extend(par_analysis.clone());
                 debug!(
                     module = %unit.module_name,
                     parallelizable_loops = par_analysis.values().filter(|p| p.parallelizable).count(),
@@ -424,6 +445,15 @@ impl Compiler {
             }
 
             self.callbacks.on_phase_complete(CompilePhase::LoopLower, &unit.module_name);
+
+            // Emit comprehensive kernel report if requested (after all analyses)
+            if self.session.options.emit_kernel_report {
+                let comprehensive_report = ComprehensiveKernelReport::new(&unit.module_name)
+                    .with_fusion(&fusion_report)
+                    .with_vectorization(&vectorize_report)
+                    .with_parallelization(&parallel_analysis, par_config.deterministic);
+                self.emit_comprehensive_kernel_report(&comprehensive_report);
+            }
         }
 
         // Phase 5: Code generation
@@ -917,12 +947,28 @@ impl Compiler {
         Err(CompileError::NoMainFunction)
     }
 
-    /// Emit a kernel report for the given module.
+    /// Emit a kernel report for the given module (basic version).
     ///
     /// The report shows fusion decisions made by the compiler, which kernels
     /// were generated, and whether guaranteed fusion patterns succeeded.
+    #[allow(dead_code)]
     fn emit_kernel_report(&self, module_name: &str, report: &KernelReport) {
         info!(module = %module_name, "kernel report");
+        // Print report to stderr (standard for compiler diagnostics)
+        eprintln!("{report}");
+    }
+
+    /// Emit a comprehensive kernel report with all optimization analyses.
+    ///
+    /// This is the main kernel report function that includes:
+    /// - Fusion analysis from Tensor IR
+    /// - Vectorization analysis from Loop IR
+    /// - Parallelization analysis from Loop IR
+    /// - Memory allocation summary
+    ///
+    /// The report is printed to stderr (standard for compiler diagnostics).
+    fn emit_comprehensive_kernel_report(&self, report: &ComprehensiveKernelReport) {
+        info!(module = %report.module_name, "comprehensive kernel report");
         // Print report to stderr (standard for compiler diagnostics)
         eprintln!("{report}");
     }
