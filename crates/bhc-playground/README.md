@@ -104,24 +104,40 @@ Format Haskell source code.
 ## Building
 
 ```bash
-# Build WASM package
-wasm-pack build crates/bhc-playground --target web
+# Install prerequisites
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli
 
-# Build for Node.js
-wasm-pack build crates/bhc-playground --target nodejs
+# Build WASM
+cargo build -p bhc-playground --target wasm32-unknown-unknown --release
+
+# Generate JS bindings
+wasm-bindgen --out-dir out --target web \
+  target/wasm32-unknown-unknown/release/bhc_playground.wasm
 ```
 
 ## Deployment
 
-The playground is deployed at https://play.bhc.raskell.io
+The playground is deployed at https://bhc.raskell.io/playground/
+
+### Automatic Deployment (CI)
+
+The playground WASM is automatically rebuilt and deployed when any dependency
+crate changes. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+
+**Trigger paths:** All 16 dependency crates (bhc-parser, bhc-lexer, etc.)
+
+### Manual Deployment
 
 ```bash
-# Deploy to playground
-cd crates/bhc-playground
-wasm-pack build --target web
-cd www
-npm run build
-npm run deploy
+# Trigger via GitHub CLI
+gh workflow run playground.yml
+
+# Or build and deploy locally
+cargo build -p bhc-playground --target wasm32-unknown-unknown --release
+wasm-bindgen --out-dir out --target web \
+  target/wasm32-unknown-unknown/release/bhc_playground.wasm
+# Then copy out/* to website static/playground/
 ```
 
 ## Limitations
