@@ -7,12 +7,12 @@ Tracking all places where bhc is or could be available.
 | Channel | Install Command | Link |
 |---------|-----------------|------|
 | GitHub Releases | `curl -fsSL https://bhc.raskell.io/install.sh \| sh` | [releases](https://github.com/raskell-io/bhc/releases) |
+| Homebrew | `brew install raskell-io/tap/bhc` | [homebrew-tap](https://github.com/raskell-io/homebrew-tap) |
 
 ## Planned
 
 | Channel | Priority | Notes |
 |---------|----------|-------|
-| Homebrew | High | `brew install raskell-io/tap/bhc` - add to existing tap |
 | Cargo | Medium | `cargo install bhc` - requires crates.io publish |
 | Nix Flake | Medium | `nix run github:raskell-io/bhc` |
 | Scoop | Low | Windows support needed first |
