@@ -214,70 +214,70 @@ jobs:
         run: |
           # Foundation crates (no internal dependencies)
           cargo publish -p bhc-macros --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-span --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-arena --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-intern --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-index --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-data-structures --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Diagnostics
           cargo publish -p bhc-diagnostics --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Parsing
           cargo publish -p bhc-lexer --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-ast --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-parser --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Type system
           cargo publish -p bhc-types --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-typeck --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # IRs
           cargo publish -p bhc-hir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-tensor-ir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-loop-ir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Lowering
           cargo publish -p bhc-lower --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-hir-to-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Compilation infrastructure
           cargo publish -p bhc-target --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-session --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-query --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Code generation
           cargo publish -p bhc-ffi --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-codegen --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc-linker --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
 
           # Driver and CLI
           cargo publish -p bhc-driver --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
-          sleep 30
+          sleep 60
           cargo publish -p bhc --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
         continue-on-error: true
