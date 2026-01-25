@@ -2229,4 +2229,467 @@ mod tests {
         // Result should not be a thunk (no thunks in strict mode result)
         assert!(!result.is_thunk());
     }
+
+    // =========================================================================
+    // Additional Primop Tests
+    // =========================================================================
+
+    #[test]
+    fn test_eval_primop_sub() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (-) 10 3
+        let sub = Expr::Var(make_var("-", 100), Span::default());
+        let app1 = Expr::App(Box::new(sub), Box::new(make_int(10)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(3)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(7)));
+    }
+
+    #[test]
+    fn test_eval_primop_div() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // div 10 3
+        let div = Expr::Var(make_var("div", 100), Span::default());
+        let app1 = Expr::App(Box::new(div), Box::new(make_int(10)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(3)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(3)));
+    }
+
+    #[test]
+    fn test_eval_primop_mod() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // mod 10 3
+        let modop = Expr::Var(make_var("mod", 100), Span::default());
+        let app1 = Expr::App(Box::new(modop), Box::new(make_int(10)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(3)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_primop_negate() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // negate 42
+        let neg = Expr::Var(make_var("negate", 100), Span::default());
+        let app = Expr::App(Box::new(neg), Box::new(make_int(42)), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(-42)));
+    }
+
+    #[test]
+    fn test_eval_div_by_zero() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // div 10 0
+        let div = Expr::Var(make_var("div", 100), Span::default());
+        let app1 = Expr::App(Box::new(div), Box::new(make_int(10)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(0)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_eval_comparison_eq() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (==) 42 42
+        let eq = Expr::Var(make_var("==", 100), Span::default());
+        let app1 = Expr::App(Box::new(eq), Box::new(make_int(42)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(42)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_comparison_neq() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (==) 42 43
+        let eq = Expr::Var(make_var("==", 100), Span::default());
+        let app1 = Expr::App(Box::new(eq), Box::new(make_int(42)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(43)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(false));
+    }
+
+    #[test]
+    fn test_eval_comparison_le() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (<=) 3 5
+        let le = Expr::Var(make_var("<=", 100), Span::default());
+        let app1 = Expr::App(Box::new(le), Box::new(make_int(3)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(5)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+
+        // (<=) 5 5 (equal case)
+        let le2 = Expr::Var(make_var("<=", 101), Span::default());
+        let app3 = Expr::App(Box::new(le2), Box::new(make_int(5)), Span::default());
+        let app4 = Expr::App(Box::new(app3), Box::new(make_int(5)), Span::default());
+
+        let result2 = eval.eval(&app4, &Env::new()).unwrap();
+        assert_eq!(result2.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_comparison_gt() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (>) 5 3
+        let gt = Expr::Var(make_var(">", 100), Span::default());
+        let app1 = Expr::App(Box::new(gt), Box::new(make_int(5)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(3)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_comparison_ge() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (>=) 5 5
+        let ge = Expr::Var(make_var(">=", 100), Span::default());
+        let app1 = Expr::App(Box::new(ge), Box::new(make_int(5)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(5)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_boolean_and() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // Create boolean values via comparison: (1 < 2) && (3 < 4) == true
+        let lt1 = Expr::Var(make_var("<", 100), Span::default());
+        let lt2 = Expr::Var(make_var("<", 101), Span::default());
+        let and_op = Expr::Var(make_var("&&", 102), Span::default());
+
+        // (1 < 2) = true
+        let cmp1 = Expr::App(
+            Box::new(Expr::App(Box::new(lt1), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // (3 < 4) = true
+        let cmp2 = Expr::App(
+            Box::new(Expr::App(Box::new(lt2), Box::new(make_int(3)), Span::default())),
+            Box::new(make_int(4)),
+            Span::default(),
+        );
+
+        // true && true
+        let app1 = Expr::App(Box::new(and_op), Box::new(cmp1), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(cmp2), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_boolean_or() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (1 > 2) || (3 < 4) = false || true = true
+        let gt = Expr::Var(make_var(">", 100), Span::default());
+        let lt = Expr::Var(make_var("<", 101), Span::default());
+        let or_op = Expr::Var(make_var("||", 102), Span::default());
+
+        // (1 > 2) = false
+        let cmp1 = Expr::App(
+            Box::new(Expr::App(Box::new(gt), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // (3 < 4) = true
+        let cmp2 = Expr::App(
+            Box::new(Expr::App(Box::new(lt), Box::new(make_int(3)), Span::default())),
+            Box::new(make_int(4)),
+            Span::default(),
+        );
+
+        // false || true
+        let app1 = Expr::App(Box::new(or_op), Box::new(cmp1), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(cmp2), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_boolean_not() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // not (1 > 2) = not false = true
+        let gt = Expr::Var(make_var(">", 100), Span::default());
+        let not_op = Expr::Var(make_var("not", 101), Span::default());
+
+        // (1 > 2) = false
+        let cmp = Expr::App(
+            Box::new(Expr::App(Box::new(gt), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // not false
+        let app = Expr::App(Box::new(not_op), Box::new(cmp), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_eval_seq() {
+        let eval = Evaluator::new(EvalMode::Lazy);
+
+        // seq 1 42 = 42 (forces first arg, returns second)
+        let seq_op = Expr::Var(make_var("seq", 100), Span::default());
+        let app1 = Expr::App(Box::new(seq_op), Box::new(make_int(1)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(42)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(42)));
+    }
+
+    #[test]
+    fn test_eval_nested_arithmetic() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // ((1 + 2) * 3) - 4 = 9 - 4 = 5
+        let add = Expr::Var(make_var("+", 100), Span::default());
+        let mul = Expr::Var(make_var("*", 101), Span::default());
+        let sub = Expr::Var(make_var("-", 102), Span::default());
+
+        // 1 + 2
+        let add_expr = Expr::App(
+            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(make_int(2)),
+            Span::default(),
+        );
+
+        // (1 + 2) * 3
+        let mul_expr = Expr::App(
+            Box::new(Expr::App(Box::new(mul), Box::new(add_expr), Span::default())),
+            Box::new(make_int(3)),
+            Span::default(),
+        );
+
+        // ((1 + 2) * 3) - 4
+        let sub_expr = Expr::App(
+            Box::new(Expr::App(Box::new(sub), Box::new(mul_expr), Span::default())),
+            Box::new(make_int(4)),
+            Span::default(),
+        );
+
+        let result = eval.eval(&sub_expr, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(5)));
+    }
+
+    #[test]
+    fn test_eval_list_head() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // head [1, 2, 3] = 1
+        let head_var = Expr::Var(make_var("head", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3]);
+        let app = Expr::App(Box::new(head_var), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(1)));
+    }
+
+    #[test]
+    fn test_eval_list_tail() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // tail [1, 2, 3] = [2, 3]
+        let tail_var = Expr::Var(make_var("tail", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3]);
+        let app = Expr::App(Box::new(tail_var), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        let list = result.as_list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].as_int(), Some(2));
+        assert_eq!(list[1].as_int(), Some(3));
+    }
+
+    #[test]
+    fn test_eval_list_length() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // length [1, 2, 3, 4, 5] = 5
+        let length_var = Expr::Var(make_var("length", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3, 4, 5]);
+        let app = Expr::App(Box::new(length_var), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(5)));
+    }
+
+    #[test]
+    fn test_eval_list_null() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // null [] = true
+        let null_var = Expr::Var(make_var("null", 100), Span::default());
+        let nil = Expr::Var(
+            Var::new(Symbol::intern("[]"), VarId::new(9999), Ty::Error),
+            Span::default(),
+        );
+        let app = Expr::App(Box::new(null_var), Box::new(nil), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+
+        // null [1] = false
+        let null_var2 = Expr::Var(make_var("null", 101), Span::default());
+        let list_expr = build_list_expr(vec![1]);
+        let app2 = Expr::App(Box::new(null_var2), Box::new(list_expr), Span::default());
+
+        let result2 = eval.eval(&app2, &Env::new()).unwrap();
+        assert_eq!(result2.as_bool(), Some(false));
+    }
+
+    #[test]
+    fn test_eval_list_reverse() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // reverse [1, 2, 3] = [3, 2, 1]
+        let reverse_var = Expr::Var(make_var("reverse", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3]);
+        let app = Expr::App(Box::new(reverse_var), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app, &Env::new()).unwrap();
+        let list = result.as_list().unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].as_int(), Some(3));
+        assert_eq!(list[1].as_int(), Some(2));
+        assert_eq!(list[2].as_int(), Some(1));
+    }
+
+    #[test]
+    fn test_eval_list_take() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // take 2 [1, 2, 3, 4, 5] = [1, 2]
+        let take_var = Expr::Var(make_var("take", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3, 4, 5]);
+        let app1 = Expr::App(Box::new(take_var), Box::new(make_int(2)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        let list = result.as_list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].as_int(), Some(1));
+        assert_eq!(list[1].as_int(), Some(2));
+    }
+
+    #[test]
+    fn test_eval_list_drop() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // drop 2 [1, 2, 3, 4, 5] = [3, 4, 5]
+        let drop_var = Expr::Var(make_var("drop", 100), Span::default());
+        let list_expr = build_list_expr(vec![1, 2, 3, 4, 5]);
+        let app1 = Expr::App(Box::new(drop_var), Box::new(make_int(2)), Span::default());
+        let app2 = Expr::App(Box::new(app1), Box::new(list_expr), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        let list = result.as_list().unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].as_int(), Some(3));
+        assert_eq!(list[1].as_int(), Some(4));
+        assert_eq!(list[2].as_int(), Some(5));
+    }
+
+    #[test]
+    fn test_eval_multiple_lambdas() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // (\x -> \y -> x + y) 3 4 = 7
+        let x = make_var("x", 0);
+        let y = make_var("y", 1);
+        let add = Expr::Var(make_var("+", 100), Span::default());
+
+        // x + y
+        let add_xy = Expr::App(
+            Box::new(Expr::App(
+                Box::new(add),
+                Box::new(Expr::Var(x.clone(), Span::default())),
+                Span::default(),
+            )),
+            Box::new(Expr::Var(y.clone(), Span::default())),
+            Span::default(),
+        );
+
+        // \y -> x + y
+        let inner_lam = Expr::Lam(y, Box::new(add_xy), Span::default());
+
+        // \x -> \y -> x + y
+        let outer_lam = Expr::Lam(x, Box::new(inner_lam), Span::default());
+
+        // (\x -> \y -> x + y) 3
+        let app1 = Expr::App(Box::new(outer_lam), Box::new(make_int(3)), Span::default());
+
+        // (\x -> \y -> x + y) 3 4
+        let app2 = Expr::App(Box::new(app1), Box::new(make_int(4)), Span::default());
+
+        let result = eval.eval(&app2, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(7)));
+    }
+
+    #[test]
+    fn test_eval_closure_capture() {
+        let eval = Evaluator::new(EvalMode::Strict);
+
+        // let x = 10 in (\y -> x + y) 5 = 15
+        let x = make_var("x", 0);
+        let y = make_var("y", 1);
+        let add = Expr::Var(make_var("+", 100), Span::default());
+
+        // x + y
+        let add_xy = Expr::App(
+            Box::new(Expr::App(
+                Box::new(add),
+                Box::new(Expr::Var(x.clone(), Span::default())),
+                Span::default(),
+            )),
+            Box::new(Expr::Var(y.clone(), Span::default())),
+            Span::default(),
+        );
+
+        // \y -> x + y
+        let lam = Expr::Lam(y, Box::new(add_xy), Span::default());
+
+        // (\y -> x + y) 5
+        let app = Expr::App(Box::new(lam), Box::new(make_int(5)), Span::default());
+
+        // let x = 10 in (\y -> x + y) 5
+        let expr = Expr::Let(
+            Box::new(Bind::NonRec(x, Box::new(make_int(10)))),
+            Box::new(app),
+            Span::default(),
+        );
+
+        let result = eval.eval(&expr, &Env::new()).unwrap();
+        assert!(matches!(result, Value::Int(15)));
+    }
 }

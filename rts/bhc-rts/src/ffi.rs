@@ -290,6 +290,18 @@ pub unsafe extern "C" fn bhc_panic(msg: *const c_char) -> ! {
     panic!("{}", message);
 }
 
+/// Runtime error - same as panic but named for Haskell compatibility.
+///
+/// # Safety
+///
+/// The message pointer must be a valid null-terminated C string, or null.
+///
+/// This function never returns.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_error(msg: *const c_char) -> ! {
+    unsafe { bhc_panic(msg) }
+}
+
 /// Check if we're running in debug mode.
 ///
 /// # Returns
@@ -320,6 +332,134 @@ pub extern "C" fn bhc_get_profile() -> c_int {
         Profile::Server => 1,
         Profile::Numeric => 2,
         Profile::Edge => 3,
+    }
+}
+
+// ============================================================================
+// Thunk Support
+// ============================================================================
+//
+// Thunks are heap objects representing suspended computations.
+//
+// Memory Layout:
+//   struct Thunk {
+//       i64   tag;       // -1 = thunk (unevaluated)
+//                        // -2 = blackhole (being evaluated)
+//                        // >= 0 = evaluated (value's ADT tag)
+//       ptr   payload;   // Unevaluated: pointer to eval function
+//                        // Evaluated: the actual value
+//       i64   env_size;  // Number of captured variables
+//       ptr[] env;       // Captured environment
+//   }
+//
+// Thunk evaluation:
+//   1. Check tag
+//   2. If tag == -1 (thunk): set tag to -2 (blackhole), call eval_fn(env)
+//   3. If tag == -2 (blackhole): error (circular reference)
+//   4. If tag >= 0: return payload (already evaluated)
+// ============================================================================
+
+/// Thunk tag constant: unevaluated thunk
+pub const BHC_TAG_THUNK: i64 = -1;
+
+/// Thunk tag constant: blackhole (being evaluated, used to detect cycles)
+pub const BHC_TAG_BLACKHOLE: i64 = -2;
+
+/// Force evaluation of a thunk to Weak Head Normal Form (WHNF).
+///
+/// # Arguments
+///
+/// * `obj` - Pointer to a heap object (thunk or value)
+///
+/// # Returns
+///
+/// Pointer to the evaluated value (same as input if already evaluated)
+///
+/// # Safety
+///
+/// `obj` must be a valid pointer to a BHC heap object with proper layout.
+/// The tag field (i64 at offset 0) determines the object type.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_force(obj: *mut u8) -> *mut u8 {
+    if obj.is_null() {
+        return obj;
+    }
+
+    // Read the tag (i64 at offset 0)
+    let tag_ptr = obj as *mut i64;
+    let tag = unsafe { *tag_ptr };
+
+    if tag >= 0 {
+        // Already evaluated (ADT or value), return as-is
+        return obj;
+    }
+
+    if tag == BHC_TAG_BLACKHOLE {
+        // Circular reference detected - panic
+        eprintln!("BHC Runtime Error: <<loop>> - circular reference in thunk evaluation");
+        std::process::exit(1);
+    }
+
+    if tag == BHC_TAG_THUNK {
+        // Unevaluated thunk - mark as blackhole and evaluate
+        unsafe { *tag_ptr = BHC_TAG_BLACKHOLE };
+
+        // Read eval function pointer (at offset 8)
+        let eval_fn_ptr = unsafe { *(obj.add(8) as *const *const u8) };
+
+        // Read env_size (at offset 16) - currently unused but kept for documentation
+        let _env_size = unsafe { *(obj.add(16) as *const i64) };
+
+        // Get environment pointer (at offset 24)
+        let env_ptr = unsafe { obj.add(24) };
+
+        // The eval function has signature: fn(env: *mut u8) -> *mut u8
+        // It takes the environment array and returns the evaluated value
+        let eval_fn: extern "C" fn(*mut u8) -> *mut u8 =
+            unsafe { std::mem::transmute(eval_fn_ptr) };
+
+        // Call the evaluation function with the environment
+        let result = eval_fn(env_ptr as *mut u8);
+
+        // Update the thunk with the result (update in place)
+        // Set tag to 0 (indicating evaluated/indirection)
+        // Store result pointer in payload slot
+        unsafe {
+            *tag_ptr = 0; // Mark as evaluated indirection
+            *(obj.add(8) as *mut *mut u8) = result;
+        }
+
+        return result;
+    }
+
+    // Unknown tag - return as-is
+    obj
+}
+
+/// Check if an object is a thunk that needs forcing.
+///
+/// # Arguments
+///
+/// * `obj` - Pointer to a heap object
+///
+/// # Returns
+///
+/// 1 if the object is an unevaluated thunk, 0 otherwise
+///
+/// # Safety
+///
+/// `obj` must be a valid pointer to a BHC heap object.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_is_thunk(obj: *const u8) -> c_int {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let tag = unsafe { *(obj as *const i64) };
+    if tag == BHC_TAG_THUNK {
+        1
+    } else {
+        0
     }
 }
 

@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["lib", "staticlib"]
+crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 bhc-rts-alloc = { workspace = true }

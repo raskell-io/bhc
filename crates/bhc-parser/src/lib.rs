@@ -349,6 +349,7 @@ pub fn parse_expr(src: &str, file_id: FileId) -> (Option<Expr>, Vec<Diagnostic>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bhc_ast::ImportSpec;
 
     fn parse_expr_ok(src: &str) -> Expr {
         let (expr, diags) = parse_expr(src, FileId::new(0));
@@ -1589,5 +1590,87 @@ xmessage msg = print msg
         }
         assert!(diags.is_empty(), "Parse errors: {:?}", diags);
         assert!(module.is_some(), "Failed to parse CPP in where clause");
+    }
+
+    // Tests for operator exports and imports (fixes for #123)
+
+    #[test]
+    fn test_export_dot_operator() {
+        // Export the composition operator (.)
+        let module = parse_module_ok("module Foo ((.), foo) where\nfoo = 1");
+        assert!(module.exports.is_some());
+        let exports = module.exports.unwrap();
+        assert_eq!(exports.len(), 2);
+    }
+
+    #[test]
+    fn test_export_bang_operator() {
+        // Export the indexing operator (!)
+        let module = parse_module_ok("module Data.Map ((!), lookup) where\nlookup = undefined");
+        assert!(module.exports.is_some());
+        let exports = module.exports.unwrap();
+        assert_eq!(exports.len(), 2);
+    }
+
+    #[test]
+    fn test_export_multiple_special_operators() {
+        // Export multiple special operators
+        let module = parse_module_ok("module Ops ((.), (!), (@), (~)) where\nx = 1");
+        assert!(module.exports.is_some());
+        let exports = module.exports.unwrap();
+        assert_eq!(exports.len(), 4);
+    }
+
+    #[test]
+    fn test_import_dot_operator() {
+        // Import the composition operator
+        let module = parse_module_ok("import Data.Function ((.))\nx = 1");
+        assert!(!module.imports.is_empty());
+        let import = &module.imports[0];
+        assert!(import.spec.is_some());
+    }
+
+    #[test]
+    fn test_import_bang_operator() {
+        // Import the indexing operator
+        let module = parse_module_ok("import Data.Map ((!), lookup)\nx = 1");
+        assert!(!module.imports.is_empty());
+    }
+
+    #[test]
+    fn test_export_with_doc_comments() {
+        // Export list with Haddock doc comments between items
+        let src = r#"module Foo (
+    -- * Section header
+    foo,
+    -- | Documentation for bar
+    bar
+) where
+foo = 1
+bar = 2"#;
+        let module = parse_module_ok(src);
+        assert!(module.exports.is_some());
+        let exports = module.exports.unwrap();
+        assert_eq!(exports.len(), 2);
+    }
+
+    #[test]
+    fn test_export_regular_operator() {
+        // Export a regular operator like (++)
+        let module = parse_module_ok("module Data.List ((++), map) where\nmap = undefined");
+        assert!(module.exports.is_some());
+    }
+
+    #[test]
+    fn test_import_hiding_operator() {
+        // Import hiding an operator
+        let module = parse_module_ok("import Prelude hiding ((.))\nx = 1");
+        assert!(!module.imports.is_empty());
+        let import = &module.imports[0];
+        // Check that the spec is a Hiding variant
+        match &import.spec {
+            Some(ImportSpec::Hiding(_)) => {}
+            _ => panic!("Expected hiding import"),
+        }
     }
 }

@@ -185,6 +185,16 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let print_newline_type = void_type.fn_type(&[], false);
         let print_newline = self.module.llvm_module().add_function("bhc_print_newline", print_newline_type, None);
         self.functions.insert(VarId::new(1010), print_newline);
+
+        // bhc_force(ptr) -> ptr - Force thunk evaluation to WHNF
+        let force_type = i8_ptr_type.fn_type(&[i8_ptr_type.into()], false);
+        let force_fn = self.module.llvm_module().add_function("bhc_force", force_type, None);
+        self.functions.insert(VarId::new(1011), force_fn);
+
+        // bhc_is_thunk(ptr) -> i32 - Check if object is an unevaluated thunk
+        let is_thunk_type = i32_type.fn_type(&[i8_ptr_type.into()], false);
+        let is_thunk_fn = self.module.llvm_module().add_function("bhc_is_thunk", is_thunk_type, None);
+        self.functions.insert(VarId::new(1012), is_thunk_fn);
     }
 
     // ========================================================================
@@ -512,6 +522,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "tail" => Some(1),
             "null" => Some(1),
             "length" => Some(1),
+            "take" => Some(2),
+            "drop" => Some(2),
+            "reverse" => Some(1),
+            "append" | "++" => Some(2),
+            "enumFromTo" => Some(2),
+            "replicate" => Some(2),
 
             // Tuple operations
             "fst" => Some(1),
@@ -534,6 +550,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "seq" => Some(2),
             "id" => Some(1),
             "const" => Some(2),
+            "not" => Some(1),
+            "otherwise" => Some(0),
 
             // IO operations
             "putStrLn" => Some(1),
@@ -542,7 +560,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "print" => Some(1),
             "getLine" => Some(0),
 
-            _ => None,
+            _ => {
+                // Check for field selector pattern: $sel_N where N is a digit
+                if name.starts_with("$sel_") {
+                    if let Ok(_) = name[5..].parse::<usize>() {
+                        return Some(1); // Field selectors take one argument (the tuple/dict)
+                    }
+                }
+                None
+            }
         }
     }
 
@@ -583,6 +609,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "tail" => self.lower_builtin_tail(args[0]),
             "null" => self.lower_builtin_null(args[0]),
             "length" => self.lower_builtin_length(args[0]),
+            "take" => self.lower_builtin_take(args[0], args[1]),
+            "drop" => self.lower_builtin_drop(args[0], args[1]),
+            "reverse" => self.lower_builtin_reverse(args[0]),
+            "append" | "++" => self.lower_builtin_append(args[0], args[1]),
+            "enumFromTo" => self.lower_builtin_enum_from_to(args[0], args[1]),
+            "replicate" => self.lower_builtin_replicate(args[0], args[1]),
 
             // Tuple operations
             "fst" => self.lower_builtin_fst(args[0]),
@@ -605,6 +637,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "seq" => self.lower_builtin_seq(args[0], args[1]),
             "id" => self.lower_expr(args[0]),
             "const" => self.lower_expr(args[0]),
+            "not" => self.lower_builtin_not(args[0]),
+            "otherwise" => Ok(Some(self.type_mapper().i64_type().const_int(1, false).into())),
 
             // IO operations
             "putStrLn" => self.lower_builtin_put_str_ln(args[0]),
@@ -613,7 +647,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "print" => self.lower_builtin_print(args[0]),
             "getLine" => self.lower_builtin_get_line(),
 
-            _ => Err(CodegenError::Internal(format!("unknown builtin: {}", name))),
+            _ => {
+                // Check for field selector pattern: $sel_N
+                if name.starts_with("$sel_") {
+                    if let Ok(field_index) = name[5..].parse::<u32>() {
+                        return self.lower_builtin_field_selector(args[0], field_index);
+                    }
+                }
+                Err(CodegenError::Internal(format!("unknown builtin: {}", name)))
+            }
         }
     }
 
@@ -839,6 +881,590 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(count_phi.as_basic_value()))
     }
 
+    /// Lower `take` - take first n elements of a list.
+    /// Implemented iteratively: collect n elements in reverse, then reverse the result.
+    fn lower_builtin_take(&mut self, n_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let n_val = self.lower_expr(n_expr)?.ok_or_else(|| {
+            CodegenError::Internal("take: n has no value".to_string())
+        })?;
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("take: list has no value".to_string())
+        })?;
+
+        let n = self.to_int_value(n_val)?;
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("take expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Phase 1: Collect n elements into a reversed accumulator
+        let collect_header = self.llvm_context().append_basic_block(current_fn, "take_collect_header");
+        let collect_body = self.llvm_context().append_basic_block(current_fn, "take_collect_body");
+        let collect_exit = self.llvm_context().append_basic_block(current_fn, "take_collect_exit");
+        // Phase 2: Reverse the accumulator
+        let rev_header = self.llvm_context().append_basic_block(current_fn, "take_rev_header");
+        let rev_body = self.llvm_context().append_basic_block(current_fn, "take_rev_body");
+        let rev_exit = self.llvm_context().append_basic_block(current_fn, "take_rev_exit");
+
+        // Build nil in entry block before branching
+        let nil = self.build_nil()?;
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(collect_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Collect loop header
+        self.builder().position_at_end(collect_header);
+        let acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let count_phi = self.builder()
+            .build_phi(tm.i64_type(), "count")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Check if count <= 0 (taken enough)
+        let count = count_phi.as_basic_value().into_int_value();
+        let count_le_0 = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLE, count, tm.i64_type().const_zero(), "count_le_0")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        // Check if list is empty
+        let current_list = list_phi.as_basic_value().into_pointer_value();
+        let tag = self.extract_adt_tag(current_list)?;
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        // Exit if count <= 0 OR list is empty
+        let should_exit = self.builder()
+            .build_or(count_le_0, is_empty, "should_exit")
+            .map_err(|e| CodegenError::Internal(format!("failed to build or: {:?}", e)))?;
+        self.builder().build_conditional_branch(should_exit, collect_exit, collect_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Collect loop body: cons head onto accumulator (in reverse), advance
+        self.builder().position_at_end(collect_body);
+        let head_ptr = self.extract_adt_field(current_list, 2, 0)?;
+        let tail_ptr = self.extract_adt_field(current_list, 2, 1)?;
+        let new_acc = self.build_cons(head_ptr.into(), acc_phi.as_basic_value())?;
+        let new_count = self.builder()
+            .build_int_sub(count, tm.i64_type().const_int(1, false), "new_count")
+            .map_err(|e| CodegenError::Internal(format!("failed to sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(collect_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, collect_body)]);
+        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, collect_body)]);
+        count_phi.add_incoming(&[(&n, entry_block), (&new_count, collect_body)]);
+
+        // collect_exit: build nil for reverse phase and branch to rev_header
+        self.builder().position_at_end(collect_exit);
+        let nil2 = self.build_nil()?;
+        // Save the collected accumulator (will be used as rev_list input)
+        let collected_acc = acc_phi.as_basic_value().into_pointer_value();
+        self.builder().build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Reverse loop header
+        self.builder().position_at_end(rev_header);
+        let rev_acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "rev_acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let rev_list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "rev_list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        let rev_current = rev_list_phi.as_basic_value().into_pointer_value();
+        let rev_tag = self.extract_adt_tag(rev_current)?;
+        let rev_is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, rev_tag, tm.i64_type().const_zero(), "rev_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(rev_is_empty, rev_exit, rev_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Reverse loop body
+        self.builder().position_at_end(rev_body);
+        let rev_head = self.extract_adt_field(rev_current, 2, 0)?;
+        let rev_tail = self.extract_adt_field(rev_current, 2, 1)?;
+        let new_rev_acc = self.build_cons(rev_head.into(), rev_acc_phi.as_basic_value())?;
+        self.builder().build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Add phi incoming edges
+        rev_acc_phi.add_incoming(&[(&nil2, collect_exit), (&new_rev_acc, rev_body)]);
+        rev_list_phi.add_incoming(&[(&collected_acc, collect_exit), (&rev_tail, rev_body)]);
+
+        // Return result
+        self.builder().position_at_end(rev_exit);
+        Ok(Some(rev_acc_phi.as_basic_value()))
+    }
+
+    /// Lower `drop` - drop first n elements of a list.
+    /// drop n xs | n <= 0 = xs
+    /// drop _ [] = []
+    /// drop n (_:xs) = drop (n-1) xs
+    fn lower_builtin_drop(&mut self, n_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let n_val = self.lower_expr(n_expr)?.ok_or_else(|| {
+            CodegenError::Internal("drop: n has no value".to_string())
+        })?;
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("drop: list has no value".to_string())
+        })?;
+
+        let n = self.to_int_value(n_val)?;
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("drop expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Create loop blocks for iterative drop
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "drop_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "drop_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "drop_exit");
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Loop header: phi for remaining count and current list
+        self.builder().position_at_end(loop_header);
+        let count_phi = self.builder()
+            .build_phi(tm.i64_type(), "count")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Check if count <= 0 (done dropping)
+        let count_le_0 = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLE, count_phi.as_basic_value().into_int_value(), tm.i64_type().const_zero(), "count_le_0")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        // Check if list is empty
+        let current_list = list_phi.as_basic_value().into_pointer_value();
+        let tag = self.extract_adt_tag(current_list)?;
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+
+        // Exit if count <= 0 OR list is empty
+        let should_exit = self.builder()
+            .build_or(count_le_0, is_empty, "should_exit")
+            .map_err(|e| CodegenError::Internal(format!("failed to build or: {:?}", e)))?;
+        self.builder().build_conditional_branch(should_exit, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop body: decrement count, advance to tail
+        self.builder().position_at_end(loop_body);
+        let new_count = self.builder()
+            .build_int_sub(count_phi.as_basic_value().into_int_value(), tm.i64_type().const_int(1, false), "new_count")
+            .map_err(|e| CodegenError::Internal(format!("failed to sub: {:?}", e)))?;
+        let tail_ptr = self.extract_adt_field(current_list, 2, 1)?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Add phi incoming edges
+        count_phi.add_incoming(&[(&n, entry_block), (&new_count, loop_body)]);
+        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, loop_body)]);
+
+        // Loop exit: return current list
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(list_phi.as_basic_value()))
+    }
+
+    /// Lower `reverse` - reverse a list.
+    fn lower_builtin_reverse(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| {
+            CodegenError::Internal("reverse: list has no value".to_string())
+        })?;
+
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("reverse expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Create loop blocks for iterative reverse
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "rev_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "rev_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "rev_exit");
+
+        // Start with empty accumulator
+        let nil = self.build_nil()?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Loop header
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Check if list is empty
+        let current_list = list_phi.as_basic_value().into_pointer_value();
+        let tag = self.extract_adt_tag(current_list)?;
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_empty, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop body: cons head onto accumulator, advance to tail
+        self.builder().position_at_end(loop_body);
+        let head_ptr = self.extract_adt_field(current_list, 2, 0)?;
+        let tail_ptr = self.extract_adt_field(current_list, 2, 1)?;
+        let new_acc = self.build_cons(head_ptr.into(), acc_phi.as_basic_value())?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Add phi incoming edges
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, loop_body)]);
+
+        // Loop exit: return accumulator
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `append` / `++` - concatenate two lists.
+    fn lower_builtin_append(&mut self, list1_expr: &Expr, list2_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list1_val = self.lower_expr(list1_expr)?.ok_or_else(|| {
+            CodegenError::Internal("append: list1 has no value".to_string())
+        })?;
+        let list2_val = self.lower_expr(list2_expr)?.ok_or_else(|| {
+            CodegenError::Internal("append: list2 has no value".to_string())
+        })?;
+
+        let list1_ptr = match list1_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("append expects a list".to_string())),
+        };
+        let list2_ptr = match list2_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("append expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // First reverse list1, then fold onto list2
+        // This is: append xs ys = foldl (flip (:)) ys (reverse xs)
+        // Or equivalently: go [] xs where go acc [] = acc ++ ys; go acc (x:xs) = go (x:acc) xs
+
+        // Step 1: Reverse list1
+        let rev_header = self.llvm_context().append_basic_block(current_fn, "app_rev_header");
+        let rev_body = self.llvm_context().append_basic_block(current_fn, "app_rev_body");
+        let rev_exit = self.llvm_context().append_basic_block(current_fn, "app_rev_exit");
+        let fold_header = self.llvm_context().append_basic_block(current_fn, "app_fold_header");
+        let fold_body = self.llvm_context().append_basic_block(current_fn, "app_fold_body");
+        let fold_exit = self.llvm_context().append_basic_block(current_fn, "app_fold_exit");
+
+        // Start with empty accumulator for reverse
+        let nil = self.build_nil()?;
+        self.builder().build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Reverse loop header
+        self.builder().position_at_end(rev_header);
+        let rev_acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "rev_acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let rev_list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "rev_list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        let rev_current = rev_list_phi.as_basic_value().into_pointer_value();
+        let rev_tag = self.extract_adt_tag(rev_current)?;
+        let rev_is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, rev_tag, tm.i64_type().const_zero(), "rev_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(rev_is_empty, rev_exit, rev_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Reverse loop body
+        self.builder().position_at_end(rev_body);
+        let rev_head = self.extract_adt_field(rev_current, 2, 0)?;
+        let rev_tail = self.extract_adt_field(rev_current, 2, 1)?;
+        let rev_new_acc = self.build_cons(rev_head.into(), rev_acc_phi.as_basic_value())?;
+        self.builder().build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        rev_acc_phi.add_incoming(&[(&nil, entry_block), (&rev_new_acc, rev_body)]);
+        rev_list_phi.add_incoming(&[(&list1_ptr, entry_block), (&rev_tail, rev_body)]);
+
+        // After reversing, fold reversed list onto list2
+        self.builder().position_at_end(rev_exit);
+        self.builder().build_unconditional_branch(fold_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Fold loop header
+        self.builder().position_at_end(fold_header);
+        let fold_acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "fold_acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let fold_list_phi = self.builder()
+            .build_phi(tm.ptr_type(), "fold_list")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        let fold_current = fold_list_phi.as_basic_value().into_pointer_value();
+        let fold_tag = self.extract_adt_tag(fold_current)?;
+        let fold_is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, fold_tag, tm.i64_type().const_zero(), "fold_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(fold_is_empty, fold_exit, fold_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Fold loop body: cons head of reversed list onto accumulator
+        self.builder().position_at_end(fold_body);
+        let fold_head = self.extract_adt_field(fold_current, 2, 0)?;
+        let fold_tail = self.extract_adt_field(fold_current, 2, 1)?;
+        let fold_new_acc = self.build_cons(fold_head.into(), fold_acc_phi.as_basic_value())?;
+        self.builder().build_unconditional_branch(fold_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        fold_acc_phi.add_incoming(&[
+            (&list2_ptr, rev_exit),
+            (&fold_new_acc, fold_body),
+        ]);
+        fold_list_phi.add_incoming(&[
+            (&rev_acc_phi.as_basic_value().into_pointer_value(), rev_exit),
+            (&fold_tail, fold_body),
+        ]);
+
+        // Return result
+        self.builder().position_at_end(fold_exit);
+        Ok(Some(fold_acc_phi.as_basic_value()))
+    }
+
+    /// Lower `enumFromTo` - generate a list [from..to].
+    fn lower_builtin_enum_from_to(&mut self, from_expr: &Expr, to_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let from_val = self.lower_expr(from_expr)?.ok_or_else(|| {
+            CodegenError::Internal("enumFromTo: from has no value".to_string())
+        })?;
+        let to_val = self.lower_expr(to_expr)?.ok_or_else(|| {
+            CodegenError::Internal("enumFromTo: to has no value".to_string())
+        })?;
+
+        let from = self.to_int_value(from_val)?;
+        let to = self.to_int_value(to_val)?;
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Build list backwards from to down to from, then we have [from..to]
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "enum_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "enum_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "enum_exit");
+
+        // Start with empty list, current = to
+        let nil = self.build_nil()?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Loop header
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let current_phi = self.builder()
+            .build_phi(tm.i64_type(), "current")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Check if current < from (done)
+        let current = current_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, current, from, "done")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop body: cons current onto accumulator, decrement current
+        self.builder().position_at_end(loop_body);
+        let boxed_current = self.box_int(current)?;
+        let new_acc = self.build_cons(boxed_current.into(), acc_phi.as_basic_value())?;
+        let prev_current = self.builder()
+            .build_int_sub(current, tm.i64_type().const_int(1, false), "prev")
+            .map_err(|e| CodegenError::Internal(format!("failed to sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        current_phi.add_incoming(&[(&to, entry_block), (&prev_current, loop_body)]);
+
+        // Return result
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `replicate` - create a list with n copies of an element.
+    fn lower_builtin_replicate(&mut self, n_expr: &Expr, elem_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let n_val = self.lower_expr(n_expr)?.ok_or_else(|| {
+            CodegenError::Internal("replicate: n has no value".to_string())
+        })?;
+        let elem_val = self.lower_expr(elem_expr)?.ok_or_else(|| {
+            CodegenError::Internal("replicate: elem has no value".to_string())
+        })?;
+
+        let n = self.to_int_value(n_val)?;
+        let elem_ptr = self.value_to_ptr(elem_val)?;
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Build list by consing n times
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "rep_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "rep_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "rep_exit");
+
+        // Start with empty list
+        let nil = self.build_nil()?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Loop header
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder()
+            .build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        let count_phi = self.builder()
+            .build_phi(tm.i64_type(), "count")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+
+        // Check if count <= 0
+        let count = count_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLE, count, tm.i64_type().const_zero(), "done")
+            .map_err(|e| CodegenError::Internal(format!("failed to compare: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // Loop body: cons elem onto accumulator, decrement count
+        self.builder().position_at_end(loop_body);
+        let new_acc = self.build_cons(elem_ptr.into(), acc_phi.as_basic_value())?;
+        let new_count = self.builder()
+            .build_int_sub(count, tm.i64_type().const_int(1, false), "new_count")
+            .map_err(|e| CodegenError::Internal(format!("failed to sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        count_phi.add_incoming(&[(&n, entry_block), (&new_count, loop_body)]);
+
+        // Return result
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Build an empty list (Nil / []).
+    fn build_nil(&self) -> CodegenResult<inkwell::values::PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        // Nil is represented as ADT with tag 0 and no fields
+        // Allocate space: tag (i64) only
+        let size = tm.i64_type().const_int(8, false);
+        let alloc_fn = self.functions.get(&VarId::new(1005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+        let alloc_call = self.builder()
+            .build_call(*alloc_fn, &[size.into()], "nil_alloc")
+            .map_err(|e| CodegenError::Internal(format!("failed to call alloc: {:?}", e)))?;
+        let nil_ptr = alloc_call.try_as_basic_value().left().ok_or_else(|| {
+            CodegenError::Internal("alloc returned void".to_string())
+        })?.into_pointer_value();
+
+        // Store tag = 0
+        self.builder()
+            .build_store(nil_ptr, tm.i64_type().const_zero())
+            .map_err(|e| CodegenError::Internal(format!("failed to store tag: {:?}", e)))?;
+
+        Ok(nil_ptr)
+    }
+
+    /// Build a cons cell (x : xs).
+    fn build_cons(&self, head: BasicValueEnum<'ctx>, tail: BasicValueEnum<'ctx>) -> CodegenResult<inkwell::values::PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        // Cons is represented as ADT with tag 1 and 2 fields (head, tail)
+        // Allocate space: tag (i64) + head (ptr) + tail (ptr) = 24 bytes
+        let size = tm.i64_type().const_int(24, false);
+        let alloc_fn = self.functions.get(&VarId::new(1005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+        let alloc_call = self.builder()
+            .build_call(*alloc_fn, &[size.into()], "cons_alloc")
+            .map_err(|e| CodegenError::Internal(format!("failed to call alloc: {:?}", e)))?;
+        let cons_ptr = alloc_call.try_as_basic_value().left().ok_or_else(|| {
+            CodegenError::Internal("alloc returned void".to_string())
+        })?.into_pointer_value();
+
+        // Store tag = 1
+        self.builder()
+            .build_store(cons_ptr, tm.i64_type().const_int(1, false))
+            .map_err(|e| CodegenError::Internal(format!("failed to store tag: {:?}", e)))?;
+
+        // Store head at offset 8
+        let head_ptr = unsafe {
+            self.builder()
+                .build_gep(tm.i64_type(), cons_ptr, &[tm.i64_type().const_int(1, false)], "head_ptr")
+                .map_err(|e| CodegenError::Internal(format!("failed to build gep: {:?}", e)))?
+        };
+        let head_as_ptr = self.value_to_ptr(head)?;
+        self.builder()
+            .build_store(head_ptr, head_as_ptr)
+            .map_err(|e| CodegenError::Internal(format!("failed to store head: {:?}", e)))?;
+
+        // Store tail at offset 16
+        let tail_slot = unsafe {
+            self.builder()
+                .build_gep(tm.i64_type(), cons_ptr, &[tm.i64_type().const_int(2, false)], "tail_ptr")
+                .map_err(|e| CodegenError::Internal(format!("failed to build gep: {:?}", e)))?
+        };
+        let tail_as_ptr = self.value_to_ptr(tail)?;
+        self.builder()
+            .build_store(tail_slot, tail_as_ptr)
+            .map_err(|e| CodegenError::Internal(format!("failed to store tail: {:?}", e)))?;
+
+        Ok(cons_ptr)
+    }
+
     /// Lower `fst` - extract first element of a pair.
     fn lower_builtin_fst(&mut self, pair_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let pair_val = self.lower_expr(pair_expr)?.ok_or_else(|| {
@@ -869,6 +1495,51 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Extract field 1 (second element)
         let snd_ptr = self.extract_adt_field(pair_ptr, 2, 1)?;
         Ok(Some(snd_ptr.into()))
+    }
+
+    /// Lower `$sel_N` - extract Nth field from a tuple/dictionary.
+    ///
+    /// Field selectors are used for type class dictionary method extraction.
+    /// The dictionary is represented as a tuple (ADT with tag 0 and N fields),
+    /// and $sel_N extracts the Nth field.
+    ///
+    /// Memory layout of a tuple: { i64 tag, ptr field_0, ptr field_1, ... }
+    /// So field N is at byte offset: 8 + N * 8 = (1 + N) * 8
+    fn lower_builtin_field_selector(&mut self, tuple_expr: &Expr, field_index: u32) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let tuple_val = self.lower_expr(tuple_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("$sel_{}: tuple has no value", field_index))
+        })?;
+
+        let tuple_ptr = match tuple_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError(format!("$sel_{} expects a tuple/dictionary", field_index))),
+        };
+
+        let tm = self.type_mapper();
+
+        // Use raw pointer arithmetic to access the field at the correct offset.
+        // ADT layout: { i64 tag, ptr field_0, ptr field_1, ... }
+        // Field N is at index (1 + N) when treating as array of i64-sized elements.
+        let field_offset = 1 + field_index; // Skip tag (index 0)
+
+        let field_ptr = unsafe {
+            self.builder()
+                .build_gep(
+                    tm.i64_type(), // Treating memory as array of 8-byte slots
+                    tuple_ptr,
+                    &[tm.i64_type().const_int(field_offset as u64, false)],
+                    &format!("field_ptr_{}", field_index),
+                )
+                .map_err(|e| CodegenError::Internal(format!("failed to build field gep: {:?}", e)))?
+        };
+
+        // Load the field value (which is a pointer)
+        let field_val = self
+            .builder()
+            .build_load(tm.ptr_type(), field_ptr, &format!("field_{}", field_index))
+            .map_err(|e| CodegenError::Internal(format!("failed to load field: {:?}", e)))?;
+
+        Ok(Some(field_val))
     }
 
     /// Lower `fromJust` - extract value from Just, error on Nothing.
@@ -1079,6 +1750,44 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let _a = self.lower_expr(a_expr)?;
         // Return second argument
         self.lower_expr(b_expr)
+    }
+
+    /// Lower `not` - boolean negation.
+    fn lower_builtin_not(&mut self, bool_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let bool_val = self.lower_expr(bool_expr)?.ok_or_else(|| {
+            CodegenError::Internal("not: argument has no value".to_string())
+        })?;
+
+        let tm = self.type_mapper();
+
+        // Handle different representations of Bool
+        let result = match bool_val {
+            BasicValueEnum::IntValue(i) => {
+                // XOR with 1 to flip the boolean
+                let one = i.get_type().const_int(1, false);
+                self.builder()
+                    .build_xor(i, one, "not_result")
+                    .map_err(|e| CodegenError::Internal(format!("failed to build not: {:?}", e)))?
+                    .into()
+            }
+            BasicValueEnum::PointerValue(p) => {
+                // Convert pointer to int, XOR with 1, convert back
+                let int_val = self.builder()
+                    .build_ptr_to_int(p, tm.i64_type(), "bool_to_int")
+                    .map_err(|e| CodegenError::Internal(format!("failed to convert bool: {:?}", e)))?;
+                let one = tm.i64_type().const_int(1, false);
+                let xored = self.builder()
+                    .build_xor(int_val, one, "not_result")
+                    .map_err(|e| CodegenError::Internal(format!("failed to build not: {:?}", e)))?;
+                self.builder()
+                    .build_int_to_ptr(xored, tm.ptr_type(), "not_to_ptr")
+                    .map_err(|e| CodegenError::Internal(format!("failed to convert not result: {:?}", e)))?
+                    .into()
+            }
+            _ => return Err(CodegenError::TypeError("not expects a boolean".to_string())),
+        };
+
+        Ok(Some(result))
     }
 
     // ========================================================================
@@ -1357,6 +2066,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "LT" => return Some((0, 0)),     // tag=0, arity=0
             "EQ" => return Some((1, 0)),     // tag=1, arity=0
             "GT" => return Some((2, 0)),     // tag=2, arity=0
+
+            // Tuple constructors - used for type class dictionaries
+            "(,)" => return Some((0, 2)),      // 2-tuple
+            "(,,)" => return Some((0, 3)),     // 3-tuple
+            "(,,,)" => return Some((0, 4)),    // 4-tuple
+            "(,,,,)" => return Some((0, 5)),   // 5-tuple
+            "(,,,,,)" => return Some((0, 6)),  // 6-tuple
+            "(,,,,,,)" => return Some((0, 7)), // 7-tuple
+            "(,,,,,,,)" => return Some((0, 8)), // 8-tuple
 
             _ => {}
         }
@@ -1654,6 +2372,169 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(elem_val.into_pointer_value())
     }
 
+    // ========================================================================
+    // Thunk Support
+    // ========================================================================
+    //
+    // Thunks are suspended computations for lazy evaluation.
+    //
+    // Memory Layout:
+    //   struct Thunk {
+    //       i64   tag;       // -1 = unevaluated, -2 = blackhole, >= 0 = evaluated
+    //       ptr   eval_fn;   // Function to evaluate (when unevaluated)
+    //       i64   env_size;  // Number of captured variables
+    //       ptr[] env;       // Captured environment
+    //   }
+    //
+    // The eval_fn has signature: extern "C" fn(env: *mut u8) -> *mut u8
+    // It takes the environment pointer and returns the evaluated value.
+    // ========================================================================
+
+    /// Tag constant for unevaluated thunks.
+    const THUNK_TAG: i64 = -1;
+
+    /// Get the LLVM struct type for a thunk with the given environment size.
+    ///
+    /// Thunk layout: { i64 tag, ptr eval_fn, i64 env_size, [env_size x ptr] env }
+    fn thunk_type(&self, env_size: u32) -> inkwell::types::StructType<'ctx> {
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let i64_type = tm.i64_type();
+
+        // Create array type for environment
+        let env_type = ptr_type.array_type(env_size);
+
+        // Struct: { i64 tag, ptr eval_fn, i64 env_size, [env_size x ptr] env }
+        self.llvm_ctx.struct_type(
+            &[i64_type.into(), ptr_type.into(), i64_type.into(), env_type.into()],
+            false,
+        )
+    }
+
+    /// Allocate a thunk with the given evaluation function and captured variables.
+    fn alloc_thunk(
+        &self,
+        eval_fn: PointerValue<'ctx>,
+        captured_vars: &[(VarId, BasicValueEnum<'ctx>)],
+    ) -> CodegenResult<PointerValue<'ctx>> {
+        let tm = self.type_mapper();
+        let env_size = captured_vars.len() as u32;
+        let thunk_ty = self.thunk_type(env_size);
+
+        // Calculate size: sizeof(i64) + sizeof(ptr) + sizeof(i64) + env_size * sizeof(ptr)
+        let size = 8 + 8 + 8 + (env_size as u64) * 8;
+
+        // Call bhc_alloc
+        let alloc_fn = self.functions.get(&VarId::new(1005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+
+        let size_val = tm.i64_type().const_int(size, false);
+        let raw_ptr = self
+            .builder()
+            .build_call(*alloc_fn, &[size_val.into()], "thunk_alloc")
+            .map_err(|e| CodegenError::Internal(format!("failed to call bhc_alloc: {:?}", e)))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::Internal("bhc_alloc returned void".to_string()))?;
+
+        let thunk_ptr = raw_ptr.into_pointer_value();
+
+        // Store tag = -1 (THUNK_TAG) at offset 0
+        let tag_slot = self
+            .builder()
+            .build_struct_gep(thunk_ty, thunk_ptr, 0, "thunk_tag_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get tag slot: {:?}", e)))?;
+
+        let tag_val = tm.i64_type().const_int(Self::THUNK_TAG as u64, true);
+        self.builder()
+            .build_store(tag_slot, tag_val)
+            .map_err(|e| CodegenError::Internal(format!("failed to store thunk tag: {:?}", e)))?;
+
+        // Store eval function pointer at offset 1
+        let eval_fn_slot = self
+            .builder()
+            .build_struct_gep(thunk_ty, thunk_ptr, 1, "thunk_eval_fn_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get eval_fn slot: {:?}", e)))?;
+
+        self.builder()
+            .build_store(eval_fn_slot, eval_fn)
+            .map_err(|e| CodegenError::Internal(format!("failed to store eval_fn: {:?}", e)))?;
+
+        // Store env_size at offset 2
+        let env_size_slot = self
+            .builder()
+            .build_struct_gep(thunk_ty, thunk_ptr, 2, "thunk_env_size_slot")
+            .map_err(|e| CodegenError::Internal(format!("failed to get env_size slot: {:?}", e)))?;
+
+        let env_size_val = tm.i64_type().const_int(env_size as u64, false);
+        self.builder()
+            .build_store(env_size_slot, env_size_val)
+            .map_err(|e| CodegenError::Internal(format!("failed to store env_size: {:?}", e)))?;
+
+        // Store captured variables in environment array
+        if env_size > 0 {
+            let env_slot = self
+                .builder()
+                .build_struct_gep(thunk_ty, thunk_ptr, 3, "thunk_env_slot")
+                .map_err(|e| CodegenError::Internal(format!("failed to get env slot: {:?}", e)))?;
+
+            for (i, (_var_id, val)) in captured_vars.iter().enumerate() {
+                let elem_ptr = unsafe {
+                    self.builder()
+                        .build_in_bounds_gep(
+                            tm.ptr_type().array_type(env_size),
+                            env_slot,
+                            &[
+                                tm.i64_type().const_zero(),
+                                tm.i64_type().const_int(i as u64, false),
+                            ],
+                            &format!("thunk_env_{}", i),
+                        )
+                        .map_err(|e| CodegenError::Internal(format!("failed to get env elem: {:?}", e)))?
+                };
+
+                // Convert value to pointer if needed
+                let ptr_val = self.value_to_ptr(*val)?;
+                self.builder()
+                    .build_store(elem_ptr, ptr_val)
+                    .map_err(|e| CodegenError::Internal(format!("failed to store thunk env elem: {:?}", e)))?;
+            }
+        }
+
+        Ok(thunk_ptr)
+    }
+
+    /// Generate a call to bhc_force to evaluate a thunk to WHNF.
+    fn build_force(&self, val: BasicValueEnum<'ctx>) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let ptr = match val {
+            BasicValueEnum::PointerValue(p) => p,
+            // Non-pointers don't need forcing (primitives)
+            _ => return Ok(val),
+        };
+
+        let force_fn = self.functions.get(&VarId::new(1011)).ok_or_else(|| {
+            CodegenError::Internal("bhc_force not declared".to_string())
+        })?;
+
+        let result = self
+            .builder()
+            .build_call(*force_fn, &[ptr.into()], "forced")
+            .map_err(|e| CodegenError::Internal(format!("failed to call bhc_force: {:?}", e)))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CodegenError::Internal("bhc_force returned void".to_string()))?;
+
+        Ok(result)
+    }
+
+    /// Generate a unique name for a thunk evaluation function.
+    fn next_thunk_name(&mut self) -> String {
+        let name = format!("__thunk_eval_{}", self.closure_counter);
+        self.closure_counter += 1;
+        name
+    }
+
     /// Generate a unique name for a closure function.
     fn next_closure_name(&mut self) -> String {
         let name = format!("__closure_{}", self.closure_counter);
@@ -1813,19 +2694,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     fn declare_function_from_expr(&self, var: &Var, expr: &Expr) -> CodegenResult<FunctionValue<'ctx>> {
         let param_count = self.count_lambda_params(expr);
 
-        // Only infer types for functions with parameters
-        // For CAFs (0 parameters), use the original type lowering
-        let fn_type = if param_count > 0 && self.type_needs_inference(&var.ty) {
-            // Infer function type from the expression structure
+        // Only use fallback typing for functions with parameters and Error types
+        // For type variables, lower_function_type handles them correctly (as pointers)
+        let fn_type = if param_count > 0 && matches!(&var.ty, Ty::Error) {
+            // Fallback for Error types only - use pointers for uniform calling convention
             let tm = self.type_mapper();
 
-            // Use i64 as default parameter type (most common for numeric code)
+            // Use pointer type for all parameters (handles closures, polymorphic values)
             let param_types: Vec<_> = (0..param_count)
-                .map(|_| tm.i64_type().into())
+                .map(|_| tm.ptr_type().into())
                 .collect();
 
-            // Default return type is i64
-            tm.i64_type().fn_type(&param_types, false)
+            // Default return type is pointer
+            tm.ptr_type().fn_type(&param_types, false)
         } else {
             self.lower_function_type(&var.ty)?
         };
@@ -1857,7 +2738,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Lower a function definition.
     fn lower_function_def(&mut self, var: &Var, expr: &Expr) -> CodegenResult<()> {
-        eprintln!("[DEBUG] lower_function_def: {}", var.name.as_str());
         let fn_val = self.functions.get(&var.id).copied().ok_or_else(|| {
             CodegenError::Internal(format!("function not declared: {}", var.name.as_str()))
         })?;
@@ -1878,8 +2758,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 .build_return(None)
                 .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
         } else if let Some(val) = result {
+            // Convert to pointer if return type is pointer (uniform calling convention)
+            let ret_val: BasicValueEnum<'ctx> = if ret_type == Some(self.type_mapper().ptr_type().into()) {
+                self.value_to_ptr(val)?.into()
+            } else {
+                val
+            };
             self.builder()
-                .build_return(Some(&val))
+                .build_return(Some(&ret_val))
                 .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
         } else {
             // Function expects a return value but body produced none
@@ -1930,8 +2816,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                             Ok(None)
                         }
                     } else {
-                        // Function with parameters - return as pointer for potential partial application
-                        Ok(Some(fn_val.as_global_value().as_pointer_value().into()))
+                        // Function with parameters - wrap in closure for uniform calling convention
+                        let fn_ptr = fn_val.as_global_value().as_pointer_value();
+                        let closure_ptr = self.alloc_closure(fn_ptr, &[])?;
+                        Ok(Some(closure_ptr.into()))
                     }
                 } else {
                     Err(CodegenError::Internal(format!(
@@ -1963,9 +2851,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
 
             Expr::Lazy(inner, _span) => {
-                // For now, just evaluate eagerly
-                // Full thunk support requires RTS integration
-                self.lower_expr(inner)
+                // Create a thunk for lazy evaluation
+                self.lower_lazy(inner)
             }
 
             Expr::Cast(inner, _coercion, _span) => {
@@ -2109,8 +2996,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
         }
 
-        // Lower the body
+        // Lower the body in tail position (enables tail call optimization)
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = true;
         let result = self.lower_expr(current_body)?;
+        self.in_tail_position = was_tail;
 
         // Build return
         if let Some(val) = result {
@@ -2140,6 +3030,108 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let closure_ptr = self.alloc_closure(fn_ptr, &captured)?;
 
         Ok(Some(closure_ptr.into()))
+    }
+
+    /// Lower a lazy expression to a thunk.
+    ///
+    /// Creates a thunk that suspends the evaluation of the inner expression.
+    /// The thunk is evaluated when forced (via bhc_force).
+    fn lower_lazy(&mut self, inner: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Compute free variables in the lazy expression
+        let free = self.free_vars(inner);
+
+        // Collect the values of free variables from current environment
+        let mut captured: Vec<(VarId, BasicValueEnum<'ctx>)> = Vec::new();
+        for var_id in &free {
+            if let Some(val) = self.env.get(var_id) {
+                captured.push((*var_id, *val));
+            }
+        }
+
+        // Save current insertion point
+        let current_block = self.builder().get_insert_block();
+
+        // Generate unique name for the thunk evaluation function
+        let fn_name = self.next_thunk_name();
+
+        // Build the function type for the eval function:
+        // fn(env: *mut u8) -> *mut u8
+        // The env pointer points to the captured variables array
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+
+        let fn_type = ptr_type.fn_type(&[ptr_type.into()], false);
+
+        // Create the thunk evaluation function
+        let eval_fn = self.module.add_function(&fn_name, fn_type);
+
+        // Create entry block for the eval function
+        let entry = self.llvm_context().append_basic_block(eval_fn, "entry");
+        self.builder().position_at_end(entry);
+
+        // Save old environment and create new scope
+        let old_env = std::mem::take(&mut self.env);
+
+        // Bind captured variables from environment parameter
+        if !captured.is_empty() {
+            let env_ptr = eval_fn.get_first_param()
+                .ok_or_else(|| CodegenError::Internal("missing env param".to_string()))?
+                .into_pointer_value();
+
+            for (i, (var_id, _)) in captured.iter().enumerate() {
+                // Load variable from env array
+                let elem_ptr = unsafe {
+                    self.builder()
+                        .build_in_bounds_gep(
+                            tm.ptr_type().array_type(captured.len() as u32),
+                            env_ptr,
+                            &[
+                                tm.i64_type().const_zero(),
+                                tm.i64_type().const_int(i as u64, false),
+                            ],
+                            &format!("thunk_env_load_{}", i),
+                        )
+                        .map_err(|e| CodegenError::Internal(format!("failed to get env elem ptr: {:?}", e)))?
+                };
+
+                let elem_val = self
+                    .builder()
+                    .build_load(tm.ptr_type(), elem_ptr, &format!("thunk_env_val_{}", i))
+                    .map_err(|e| CodegenError::Internal(format!("failed to load env elem: {:?}", e)))?;
+
+                self.env.insert(*var_id, elem_val);
+            }
+        }
+
+        // Lower the inner expression (this produces the actual computation)
+        let result = self.lower_expr(inner)?;
+
+        // Build return
+        if let Some(val) = result {
+            let ret_ptr = self.value_to_ptr(val)?;
+            self.builder()
+                .build_return(Some(&ret_ptr))
+                .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
+        } else {
+            let null = ptr_type.const_null();
+            self.builder()
+                .build_return(Some(&null))
+                .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
+        }
+
+        // Restore old environment
+        self.env = old_env;
+
+        // Restore insertion point
+        if let Some(block) = current_block {
+            self.builder().position_at_end(block);
+        }
+
+        // Allocate thunk with eval function pointer and captured values
+        let fn_ptr = eval_fn.as_global_value().as_pointer_value();
+        let thunk_ptr = self.alloc_thunk(fn_ptr, &captured)?;
+
+        Ok(Some(thunk_ptr.into()))
     }
 
     // ========================================================================
@@ -2280,6 +3272,27 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    /// Unbox a value to an integer if it's a pointer (boxed int).
+    fn unbox_to_int(&self, val: BasicValueEnum<'ctx>) -> CodegenResult<inkwell::values::IntValue<'ctx>> {
+        match val {
+            BasicValueEnum::IntValue(i) => Ok(i),
+            BasicValueEnum::PointerValue(p) => {
+                // Unbox: pointer stores int value directly using ptr_to_int
+                self.builder()
+                    .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_int")
+                    .map_err(|e| CodegenError::Internal(format!("failed to unbox int: {:?}", e)))
+            }
+            _ => Err(CodegenError::TypeError("expected int or boxed int".to_string())),
+        }
+    }
+
+    /// Box an integer to a pointer.
+    fn box_int(&self, val: inkwell::values::IntValue<'ctx>) -> CodegenResult<inkwell::values::PointerValue<'ctx>> {
+        self.builder()
+            .build_int_to_ptr(val, self.type_mapper().ptr_type(), "box_int")
+            .map_err(|e| CodegenError::Internal(format!("failed to box int: {:?}", e)))
+    }
+
     /// Lower a binary arithmetic operation.
     fn lower_binary_arith(
         &self,
@@ -2288,6 +3301,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         rhs: BasicValueEnum<'ctx>,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         // Check if we're dealing with integers or floats
+        // Handle boxed values (pointers) by unboxing first
         match (lhs, rhs) {
             (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
                 let result = match op {
@@ -2315,6 +3329,24 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     .map(|v| Some(v.into()))
                     .map_err(|e| CodegenError::Internal(format!("failed to build float op: {:?}", e)))
             }
+            // Handle boxed integers (pointers) - unbox, compute, rebox
+            (BasicValueEnum::PointerValue(_), _) | (_, BasicValueEnum::PointerValue(_)) => {
+                let l = self.unbox_to_int(lhs)?;
+                let r = self.unbox_to_int(rhs)?;
+                let result = match op {
+                    PrimOp::Add => self.builder().build_int_add(l, r, "add"),
+                    PrimOp::Sub => self.builder().build_int_sub(l, r, "sub"),
+                    PrimOp::Mul => self.builder().build_int_mul(l, r, "mul"),
+                    PrimOp::Div | PrimOp::Quot => self.builder().build_int_signed_div(l, r, "div"),
+                    PrimOp::Mod | PrimOp::Rem => self.builder().build_int_signed_rem(l, r, "rem"),
+                    _ => return Err(CodegenError::Internal("invalid arith op".to_string())),
+                };
+                let int_result = result
+                    .map_err(|e| CodegenError::Internal(format!("failed to build int op: {:?}", e)))?;
+                // Box the result back to pointer for uniform calling convention
+                let boxed = self.box_int(int_result)?;
+                Ok(Some(boxed.into()))
+            }
             _ => Err(CodegenError::TypeError(
                 "arithmetic operations require matching numeric types".to_string(),
             )),
@@ -2328,28 +3360,33 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Helper to do int comparison and return boxed result
+        let do_int_cmp = |this: &Self, l: inkwell::values::IntValue<'ctx>, r: inkwell::values::IntValue<'ctx>| -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+            use inkwell::IntPredicate;
+            let pred = match op {
+                PrimOp::Eq => IntPredicate::EQ,
+                PrimOp::Ne => IntPredicate::NE,
+                PrimOp::Lt => IntPredicate::SLT,
+                PrimOp::Le => IntPredicate::SLE,
+                PrimOp::Gt => IntPredicate::SGT,
+                PrimOp::Ge => IntPredicate::SGE,
+                _ => return Err(CodegenError::Internal("invalid comparison op".to_string())),
+            };
+            let cmp = this.builder()
+                .build_int_compare(pred, l, r, "cmp")
+                .map_err(|e| CodegenError::Internal(format!("failed to build int cmp: {:?}", e)))?;
+
+            // Convert i1 to i64 (0 or 1) for consistency with our Bool representation
+            let result = this.builder()
+                .build_int_z_extend(cmp, this.type_mapper().i64_type(), "cmp_ext")
+                .map_err(|e| CodegenError::Internal(format!("failed to extend cmp: {:?}", e)))?;
+
+            Ok(Some(result.into()))
+        };
+
         match (lhs, rhs) {
             (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-                use inkwell::IntPredicate;
-                let pred = match op {
-                    PrimOp::Eq => IntPredicate::EQ,
-                    PrimOp::Ne => IntPredicate::NE,
-                    PrimOp::Lt => IntPredicate::SLT,
-                    PrimOp::Le => IntPredicate::SLE,
-                    PrimOp::Gt => IntPredicate::SGT,
-                    PrimOp::Ge => IntPredicate::SGE,
-                    _ => return Err(CodegenError::Internal("invalid comparison op".to_string())),
-                };
-                let cmp = self.builder()
-                    .build_int_compare(pred, l, r, "cmp")
-                    .map_err(|e| CodegenError::Internal(format!("failed to build int cmp: {:?}", e)))?;
-
-                // Convert i1 to i64 (0 or 1) for consistency with our Bool representation
-                let result = self.builder()
-                    .build_int_z_extend(cmp, self.type_mapper().i64_type(), "cmp_ext")
-                    .map_err(|e| CodegenError::Internal(format!("failed to extend cmp: {:?}", e)))?;
-
-                Ok(Some(result.into()))
+                do_int_cmp(self, l, r)
             }
             (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
                 use inkwell::FloatPredicate;
@@ -2372,6 +3409,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::Internal(format!("failed to extend fcmp: {:?}", e)))?;
 
                 Ok(Some(result.into()))
+            }
+            // Handle boxed integers (pointers)
+            (BasicValueEnum::PointerValue(_), _) | (_, BasicValueEnum::PointerValue(_)) => {
+                let l = self.unbox_to_int(lhs)?;
+                let r = self.unbox_to_int(rhs)?;
+                do_int_cmp(self, l, r)
             }
             _ => Err(CodegenError::TypeError(
                 "comparison operations require matching types".to_string(),
@@ -2682,11 +3725,18 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let was_tail = self.in_tail_position;
         self.in_tail_position = false;
 
-        // Lower arguments
+        // All functions take (env_ptr, args...) for uniform calling convention
         let mut llvm_args = Vec::new();
+        // First arg is env/closure pointer (null for direct calls)
+        let null_env = self.type_mapper().ptr_type().const_null();
+        llvm_args.push(null_env.into());
+
+        // Lower remaining arguments and convert to pointers
         for arg_expr in args {
             if let Some(val) = self.lower_expr(arg_expr)? {
-                llvm_args.push(val.into());
+                // Box non-pointer values to pointers for uniform calling convention
+                let ptr_val = self.value_to_ptr(val)?;
+                llvm_args.push(ptr_val.into());
             }
         }
 
@@ -2801,13 +3851,18 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     fn lower_let(&mut self, bind: &Bind, body: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         match bind {
             Bind::NonRec(var, rhs) => {
-                // Lower the right-hand side
-                if let Some(val) = self.lower_expr(rhs.as_ref())? {
+                // Lower the right-hand side (NOT in tail position)
+                let was_tail = self.in_tail_position;
+                self.in_tail_position = false;
+                let rhs_result = self.lower_expr(rhs.as_ref())?;
+                self.in_tail_position = was_tail;
+
+                if let Some(val) = rhs_result {
                     // Bind the variable
                     self.env.insert(var.id, val);
                 }
 
-                // Lower the body
+                // Lower the body (preserves tail position from parent)
                 let result = self.lower_expr(body)?;
 
                 // Remove the binding (for proper scoping)
@@ -2870,10 +3925,16 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Handle lambda parameters
         let result = self.lower_function_body(fn_val, expr)?;
 
-        // Build return
+        // Build return - convert to pointer if return type is pointer (uniform calling convention)
+        let ret_type = fn_val.get_type().get_return_type();
         if let Some(val) = result {
+            let ret_val: BasicValueEnum<'ctx> = if ret_type == Some(self.type_mapper().ptr_type().into()) {
+                self.value_to_ptr(val)?.into()
+            } else {
+                val
+            };
             self.builder()
-                .build_return(Some(&val))
+                .build_return(Some(&ret_val))
                 .map_err(|e| CodegenError::Internal(format!("failed to build return: {:?}", e)))?;
         } else {
             self.builder()
@@ -2891,8 +3952,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         // If the expression is a lambda, bind parameters to function arguments
+        // Note: param_idx starts at 1 because index 0 is the env/closure pointer
         let mut current = expr;
-        let mut param_idx = 0;
+        let mut param_idx = 1;
 
         while let Expr::Lam(param, body, _span) = current {
             if let Some(arg) = fn_val.get_nth_param(param_idx) {
@@ -2902,8 +3964,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             current = body.as_ref();
         }
 
-        // Lower the body
-        self.lower_expr(current)
+        // Lower the body in tail position (enables tail call optimization)
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = true;
+        let result = self.lower_expr(current);
+        self.in_tail_position = was_tail;
+        result
     }
 
     /// Lower a case expression.
@@ -2917,14 +3983,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut: &Expr,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        eprintln!("[DEBUG] lower_case with {} alternatives", alts.len());
-        eprintln!("[DEBUG]   scrut: {:?}", scrut);
-        for (i, alt) in alts.iter().enumerate() {
-            eprintln!("[DEBUG]   alt[{}] con: {:?}", i, alt.con);
-        }
+        // Scrutinee is NOT in tail position
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = false;
         let scrut_val = self.lower_expr(scrut)?.ok_or_else(|| {
             CodegenError::Internal("scrutinee has no value".to_string())
         })?;
+        self.in_tail_position = was_tail;
 
         // Check if all alternatives are Default (no actual pattern matching needed)
         // This happens for simple variable patterns like `f n = 42`
@@ -2938,7 +4003,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 self.env.insert(binder.id, scrut_val);
             }
 
-            // Lower the RHS
+            // Lower the RHS (inherits tail position from parent case)
             let result = self.lower_expr(&alt.rhs)?;
 
             // Clean up bindings
@@ -2963,13 +4028,29 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
         });
 
-        if is_bool_case && matches!(scrut_val, BasicValueEnum::IntValue(_)) {
-            // Bool case with integer scrutinee - use direct integer comparison
-            return self.lower_case_bool_as_int(scrut_val, alts);
+        if is_bool_case {
+            // Bool case - convert scrutinee to integer if needed
+            let int_scrut = match scrut_val {
+                BasicValueEnum::IntValue(_) => scrut_val,
+                BasicValueEnum::PointerValue(p) => {
+                    // Boxed boolean - unbox to integer
+                    let int_val = self.builder()
+                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_bool")
+                        .map_err(|e| CodegenError::Internal(format!("failed to unbox bool: {:?}", e)))?;
+                    int_val.into()
+                }
+                _ => scrut_val, // Fall through to datacon handling
+            };
+            if matches!(int_scrut, BasicValueEnum::IntValue(_)) {
+                return self.lower_case_bool_as_int(int_scrut, alts);
+            }
         }
 
+        // Get the scrutinee's type for determining binder types
+        let scrut_ty = scrut.ty();
+
         if has_datacon {
-            self.lower_case_datacon(scrut_val, alts)
+            self.lower_case_datacon(scrut_val, alts, &scrut_ty)
         } else {
             self.lower_case_literal(scrut_val, alts)
         }
@@ -2998,11 +4079,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_int: IntValue<'ctx>,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        eprintln!("[DEBUG] lower_case_literal_int called with {} alts", alts.len());
-        for (i, alt) in alts.iter().enumerate() {
-            eprintln!("[DEBUG]   alt {}: {:?}", i, alt.con);
-        }
-
         let current_fn = self.builder()
             .get_insert_block()
             .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
@@ -3406,8 +4482,16 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         &mut self,
         scrut_val: BasicValueEnum<'ctx>,
         alts: &[Alt],
+        scrut_ty: &Ty,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        eprintln!("[DEBUG] lower_case_datacon with {} alts, scrut_val: {:?}", alts.len(), scrut_val.get_type());
+        // Count existing case_alt blocks before we add more
+        let current_fn = self.builder()
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+            .get_parent()
+            .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+        let existing_blocks: Vec<_> = current_fn.get_basic_block_iter().collect();
+
         // For constructor patterns, scrutinee must be a pointer (ADT value)
         let scrut_ptr = match scrut_val {
             BasicValueEnum::PointerValue(p) => p,
@@ -3491,7 +4575,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
 
         // Generate code for each alternative with field extraction
-        self.lower_case_datacon_alternatives(alts, &blocks, merge_block, scrut_ptr, &datacon_info)
+        let result = self.lower_case_datacon_alternatives(alts, &blocks, merge_block, scrut_ptr, &datacon_info, scrut_ty)?;
+
+        Ok(result)
     }
 
     /// Lower case alternatives (shared logic for RHS generation).
@@ -3499,20 +4585,22 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     /// Uses a two-pass approach to avoid inserting instructions after terminators:
     /// 1. First pass: lower all RHS expressions and collect (value, block) pairs
     /// 2. Second pass: coerce values if needed, then build branches
+    ///
+    /// Each alternative's RHS is in tail position if the case expression itself is.
     fn lower_case_alternatives(
         &mut self,
         alts: &[Alt],
         blocks: &[inkwell::basic_block::BasicBlock<'ctx>],
         merge_block: inkwell::basic_block::BasicBlock<'ctx>,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        eprintln!("[DEBUG] lower_case_alternatives with {} alts, {} blocks", alts.len(), blocks.len());
         // Pass 1: Lower all expressions and collect values WITHOUT building branches
+        // Each alternative's RHS is in tail position if the case expression is
         let mut collected: Vec<(Option<BasicValueEnum<'ctx>>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
         for (i, alt) in alts.iter().enumerate() {
-            eprintln!("[DEBUG]   processing alt {}: {:?}", i, alt.con);
             self.builder().position_at_end(blocks[i]);
 
+            // RHS is in tail position (inherits from parent case expression)
             let result = self.lower_expr(&alt.rhs)?;
 
             // Get the ACTUAL current block (lower_expr may have created nested blocks)
@@ -3533,28 +4621,34 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Position at the end of the block where the value was produced
             self.builder().position_at_end(block);
 
-            if let Some(val) = result {
-                // Coerce if needed (BEFORE building the branch)
-                let final_val = if let Some(target) = target_type {
-                    if val.get_type() != target {
-                        self.coerce_to_type(val, target)?
+            // Only add to phi_values if we will branch to merge_block
+            // If the block already has a terminator (e.g., error call with unreachable),
+            // it doesn't reach merge_block and shouldn't contribute to the PHI
+            if block.get_terminator().is_none() {
+                if let Some(val) = result {
+                    // Coerce if needed (BEFORE building the branch)
+                    let final_val = if let Some(target) = target_type {
+                        if val.get_type() != target {
+                            self.coerce_to_type(val, target)?
+                        } else {
+                            val
+                        }
                     } else {
                         val
-                    }
-                } else {
-                    val
-                };
+                    };
 
-                // Get the current block
-                let final_block = self.builder().get_insert_block()
-                    .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
-                phi_values.push((final_val, final_block));
+                    // Get the current block
+                    let final_block = self.builder().get_insert_block()
+                        .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
+                    phi_values.push((final_val, final_block));
+                }
+
+                // Build the branch to merge_block
+                self.builder()
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
             }
-
-            // NOW build the branch (after any coercion)
-            self.builder()
-                .build_unconditional_branch(merge_block)
-                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+            // If block already has a terminator, skip it entirely for PHI
         }
 
         // Build phi node in merge block
@@ -3640,6 +4734,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("failed to build cond branch: {:?}", e)))?;
 
         // Pass 1: Lower both branches and collect values WITHOUT building terminators
+        // Each branch RHS inherits tail position from parent case expression
+
         // True branch
         self.builder().position_at_end(true_block);
         let true_rhs = if let Some(alt) = true_alt {
@@ -3671,45 +4767,49 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Pass 2: Coerce values and build branches
         let mut phi_values: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
-        // True branch: coerce and terminate
+        // True branch: coerce and terminate (only if block reaches merge)
         self.builder().position_at_end(true_end_block);
-        if let Some(val) = true_rhs {
-            let final_val = if let Some(target) = target_type {
-                if val.get_type() != target {
-                    self.coerce_to_type(val, target)?
+        if true_end_block.get_terminator().is_none() {
+            if let Some(val) = true_rhs {
+                let final_val = if let Some(target) = target_type {
+                    if val.get_type() != target {
+                        self.coerce_to_type(val, target)?
+                    } else {
+                        val
+                    }
                 } else {
                     val
-                }
-            } else {
-                val
-            };
-            let final_block = self.builder().get_insert_block()
-                .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
-            phi_values.push((final_val, final_block));
+                };
+                let final_block = self.builder().get_insert_block()
+                    .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
+                phi_values.push((final_val, final_block));
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
         }
-        self.builder()
-            .build_unconditional_branch(merge_block)
-            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
 
-        // False branch: coerce and terminate
+        // False branch: coerce and terminate (only if block reaches merge)
         self.builder().position_at_end(false_end_block);
-        if let Some(val) = false_rhs {
-            let final_val = if let Some(target) = target_type {
-                if val.get_type() != target {
-                    self.coerce_to_type(val, target)?
+        if false_end_block.get_terminator().is_none() {
+            if let Some(val) = false_rhs {
+                let final_val = if let Some(target) = target_type {
+                    if val.get_type() != target {
+                        self.coerce_to_type(val, target)?
+                    } else {
+                        val
+                    }
                 } else {
                     val
-                }
-            } else {
-                val
-            };
-            let final_block = self.builder().get_insert_block()
-                .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
-            phi_values.push((final_val, final_block));
+                };
+                let final_block = self.builder().get_insert_block()
+                    .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
+                phi_values.push((final_val, final_block));
+            }
+            self.builder()
+                .build_unconditional_branch(merge_block)
+                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
         }
-        self.builder()
-            .build_unconditional_branch(merge_block)
-            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
 
         // Build phi node in merge block
         self.builder().position_at_end(merge_block);
@@ -3744,14 +4844,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         merge_block: inkwell::basic_block::BasicBlock<'ctx>,
         scrut_ptr: PointerValue<'ctx>,
         datacon_info: &[Option<&DataCon>],
+        scrut_ty: &Ty,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        eprintln!("[DEBUG] lower_case_datacon_alternatives with {} alts, {} blocks", alts.len(), blocks.len());
         // Pass 1: Lower all expressions and collect values WITHOUT building branches
         // We collect (Option<value>, block) so we know which block each value came from
         let mut collected: Vec<(Option<BasicValueEnum<'ctx>>, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
 
         for (i, alt) in alts.iter().enumerate() {
-            eprintln!("[DEBUG]   processing alt {}: {:?}", i, alt.con);
             self.builder().position_at_end(blocks[i]);
 
             // Extract fields and bind to pattern variables
@@ -3763,14 +4862,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     if field_idx < arity as usize {
                         let field_ptr = self.extract_adt_field(scrut_ptr, arity, field_idx as u32)?;
 
+                        // Determine the field type:
+                        // - Use binder.ty if it's not Error
+                        // - Otherwise, infer from scrutinee type (e.g., for list elements)
+                        let field_ty = if matches!(&binder.ty, Ty::Error) {
+                            self.infer_field_type(scrut_ty, con, field_idx)
+                        } else {
+                            binder.ty.clone()
+                        };
+
                         // Determine if we need to unbox the field
-                        let field_val = self.ptr_to_value(field_ptr, &binder.ty)?;
+                        let field_val = self.ptr_to_value(field_ptr, &field_ty)?;
                         self.env.insert(binder.id, field_val);
                     }
                 }
             }
 
-            // Lower the RHS with bound variables
+            // Lower the RHS with bound variables (inherits tail position from parent case)
             let result = self.lower_expr(&alt.rhs)?;
 
             // Remove bindings (for proper scoping)
@@ -3796,28 +4904,34 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Position at the end of the block where the value was produced
             self.builder().position_at_end(block);
 
-            if let Some(val) = result {
-                // Coerce if needed (BEFORE building the branch)
-                let final_val = if let Some(target) = target_type {
-                    if val.get_type() != target {
-                        self.coerce_to_type(val, target)?
+            // Only add to phi_values if we will branch to merge_block
+            // If the block already has a terminator (e.g., error call with unreachable),
+            // it doesn't reach merge_block and shouldn't contribute to the PHI
+            if block.get_terminator().is_none() {
+                if let Some(val) = result {
+                    // Coerce if needed (BEFORE building the branch)
+                    let final_val = if let Some(target) = target_type {
+                        if val.get_type() != target {
+                            self.coerce_to_type(val, target)?
+                        } else {
+                            val
+                        }
                     } else {
                         val
-                    }
-                } else {
-                    val
-                };
+                    };
 
-                // Get the current block (coercion doesn't change it)
-                let final_block = self.builder().get_insert_block()
-                    .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
-                phi_values.push((final_val, final_block));
+                    // Get the current block (coercion doesn't change it)
+                    let final_block = self.builder().get_insert_block()
+                        .ok_or_else(|| CodegenError::Internal("no current block after coercion".to_string()))?;
+                    phi_values.push((final_val, final_block));
+                }
+
+                // Build the branch to merge_block
+                self.builder()
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
             }
-
-            // NOW build the branch (after any coercion)
-            self.builder()
-                .build_unconditional_branch(merge_block)
-                .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+            // If block already has a terminator, skip it entirely for PHI
         }
 
         // Build phi node in merge block
@@ -3837,6 +4951,57 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
 
             Ok(Some(phi.as_basic_value()))
+        }
+    }
+
+    /// Infer the type of a field from a data constructor based on the scrutinee type.
+    ///
+    /// This is used when pattern binders have `Ty::Error` type (which happens when
+    /// HIR-to-Core lowering doesn't preserve types). We can infer the field types
+    /// from the scrutinee type.
+    ///
+    /// For lists:
+    /// - Cons `:` (tag 1, arity 2): field 0 is element type, field 1 is list type
+    /// - Nil `[]` (tag 0, arity 0): no fields
+    fn infer_field_type(&self, scrut_ty: &Ty, con: &DataCon, field_idx: usize) -> Ty {
+        match scrut_ty {
+            Ty::List(elem_ty) => {
+                // List cons `:` has tag 1, arity 2
+                // field 0: head element (elem_ty)
+                // field 1: tail (list type)
+                if con.tag == 1 && con.arity == 2 {
+                    match field_idx {
+                        0 => (**elem_ty).clone(),  // head: element type
+                        1 => scrut_ty.clone(),     // tail: list type
+                        _ => Ty::Error,
+                    }
+                } else {
+                    // Nil has no fields
+                    Ty::Error
+                }
+            }
+            Ty::Tuple(elem_tys) => {
+                // Tuple fields correspond directly to element types
+                if field_idx < elem_tys.len() {
+                    elem_tys[field_idx].clone()
+                } else {
+                    Ty::Error
+                }
+            }
+            Ty::App(con_ty, arg_ty) => {
+                // For type applications like `Maybe Int`, we need to look up
+                // the constructor's field types and substitute type arguments.
+                // For now, just propagate the argument type for single-arg constructors.
+                if con.arity == 1 && field_idx == 0 {
+                    (**arg_ty).clone()
+                } else {
+                    Ty::Error
+                }
+            }
+            _ => {
+                // For other types, we can't infer - return Error and let codegen handle it
+                Ty::Error
+            }
         }
     }
 
@@ -3969,27 +5134,36 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Convert a Core type to an LLVM function type.
+    ///
+    /// Uses pointer types for all parameters to enable uniform calling convention
+    /// for higher-order functions and closures.
+    /// All functions take an env_ptr as the first parameter (even if unused)
+    /// to enable uniform closure calling convention.
     fn lower_function_type(
         &self,
         ty: &Ty,
     ) -> CodegenResult<inkwell::types::FunctionType<'ctx>> {
-        // Collect argument types and return type
-        let mut arg_types = Vec::new();
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+
+        // Count the number of parameters
+        let mut param_count = 0;
         let mut current = ty;
 
-        while let Ty::Fun(arg, ret) = current {
-            let llvm_arg = self.lower_type(arg)?;
-            arg_types.push(llvm_arg.into());
+        while let Ty::Fun(_, ret) = current {
+            param_count += 1;
             current = ret;
         }
 
-        let ret_type = self.lower_basic_type(current)?;
-
-        if let Some(ret) = ret_type {
-            Ok(ret.fn_type(&arg_types, false))
-        } else {
-            Ok(self.type_mapper().void_type().fn_type(&arg_types, false))
+        // All functions take (env_ptr, args...) for uniform closure calling convention
+        let mut arg_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+        arg_types.push(ptr_type.into()); // env/closure pointer (may be unused)
+        for _ in 0..param_count {
+            arg_types.push(ptr_type.into());
         }
+
+        // Return type is also pointer for uniformity
+        Ok(ptr_type.fn_type(&arg_types, false))
     }
 
     /// Convert a Core type to an LLVM basic type (for function return).

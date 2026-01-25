@@ -526,6 +526,7 @@ mod tests {
         // Build: let x = 5
         let lit_5 = ast::Expr::Lit(ast::Lit::Int(5), Span::default());
         let let_decl = ast::Decl::FunBind(ast::FunBind {
+            doc: None,
             name: x_ident,
             clauses: vec![ast::Clause {
                 pats: vec![],
