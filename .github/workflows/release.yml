@@ -28,12 +28,6 @@ jobs:
             artifact_name: bhc
             asset_name: bhc-x86_64-linux
 
-          # macOS x86_64 (Intel) - cross-compiled on ARM runner
-          - os: macos-14
-            target: x86_64-apple-darwin
-            artifact_name: bhc
-            asset_name: bhc-x86_64-darwin
-
           # macOS aarch64 (Apple Silicon)
           - os: macos-14
             target: aarch64-apple-darwin
@@ -168,10 +162,9 @@ jobs:
 
           This release includes binaries for:
           - Linux x86_64
-          - macOS x86_64 (Intel)
           - macOS aarch64 (Apple Silicon)
 
-          Windows and Linux aarch64 binaries will be available in a future release.
+          Windows, Linux aarch64, and macOS x86_64 (Intel) binaries will be available in a future release.
 
           ### Checksums
 
