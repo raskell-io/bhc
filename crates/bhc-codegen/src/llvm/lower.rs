@@ -2801,12 +2801,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     Ok(Some(*val))
                 } else if let Some(fn_val) = self.functions.get(&var.id) {
                     // It's a function reference
-                    // Check if it's a CAF (zero-argument function)
+                    // Check if it's a CAF (only env pointer, no real arguments)
+                    // All functions have at least 1 param (env pointer) due to uniform calling convention
                     let fn_type = fn_val.get_type();
-                    if fn_type.count_param_types() == 0 {
-                        // CAF - call the function to get its value
+                    if fn_type.count_param_types() <= 1 {
+                        // CAF - call the function with null env to get its value
+                        let null_env = self.type_mapper().ptr_type().const_null();
                         let call_result = self.builder()
-                            .build_call(*fn_val, &[], "caf_result")
+                            .build_call(*fn_val, &[null_env.into()], "caf_result")
                             .map_err(|e| CodegenError::Internal(format!("failed to call CAF: {:?}", e)))?;
                         // Get the return value
                         if let Some(ret_val) = call_result.try_as_basic_value().left() {
