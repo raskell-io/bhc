@@ -83,64 +83,67 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.92"
+rust-version = "1.82"
 license = "BSD-3-Clause"
 repository = "https://github.com/raskell-io/bhc"
-homepage = "https://github.com/raskell-io/bhc"
+homepage = "https://bhc.raskell.io"
 authors = ["BHC Contributors"]
+keywords = ["haskell", "compiler", "llvm", "functional"]
+categories = ["compilers", "development-tools"]
+readme = "README.md"
 
 [workspace.dependencies]
 # Internal crates
-bhc-span = { path = "crates/bhc-span" }
-bhc-arena = { path = "crates/bhc-arena" }
-bhc-intern = { path = "crates/bhc-intern" }
-bhc-index = { path = "crates/bhc-index" }
-bhc-data-structures = { path = "crates/bhc-data-structures" }
-bhc-diagnostics = { path = "crates/bhc-diagnostics" }
-bhc-lexer = { path = "crates/bhc-lexer" }
-bhc-ast = { path = "crates/bhc-ast" }
-bhc-parser = { path = "crates/bhc-parser" }
-bhc-types = { path = "crates/bhc-types" }
-bhc-typeck = { path = "crates/bhc-typeck" }
-bhc-lower = { path = "crates/bhc-lower" }
-bhc-hir-to-core = { path = "crates/bhc-hir-to-core" }
-bhc-hir = { path = "crates/bhc-hir" }
-bhc-core = { path = "crates/bhc-core" }
-bhc-tensor-ir = { path = "crates/bhc-tensor-ir" }
-bhc-loop-ir = { path = "crates/bhc-loop-ir" }
-bhc-session = { path = "crates/bhc-session" }
-bhc-query = { path = "crates/bhc-query" }
-bhc-driver = { path = "crates/bhc-driver" }
-bhc-target = { path = "crates/bhc-target" }
-bhc-codegen = { path = "crates/bhc-codegen" }
-bhc-gpu = { path = "crates/bhc-gpu" }
-bhc-wasm = { path = "crates/bhc-wasm" }
-bhc-linker = { path = "crates/bhc-linker" }
-bhc-ffi = { path = "crates/bhc-ffi" }
-bhc-package = { path = "crates/bhc-package" }
-bhc-interface = { path = "crates/bhc-interface" }
-bhc-macros = { path = "crates/bhc-macros" }
-bhc-playground = { path = "crates/bhc-playground" }
+bhc-span = { version = "0.2.0", path = "crates/bhc-span" }
+bhc-arena = { version = "0.2.0", path = "crates/bhc-arena" }
+bhc-intern = { version = "0.2.0", path = "crates/bhc-intern" }
+bhc-index = { version = "0.2.0", path = "crates/bhc-index" }
+bhc-data-structures = { version = "0.2.0", path = "crates/bhc-data-structures" }
+bhc-diagnostics = { version = "0.2.0", path = "crates/bhc-diagnostics" }
+bhc-lexer = { version = "0.2.0", path = "crates/bhc-lexer" }
+bhc-ast = { version = "0.2.0", path = "crates/bhc-ast" }
+bhc-parser = { version = "0.2.0", path = "crates/bhc-parser" }
+bhc-types = { version = "0.2.0", path = "crates/bhc-types" }
+bhc-typeck = { version = "0.2.0", path = "crates/bhc-typeck" }
+bhc-lower = { version = "0.2.0", path = "crates/bhc-lower" }
+bhc-hir-to-core = { version = "0.2.0", path = "crates/bhc-hir-to-core" }
+bhc-hir = { version = "0.2.0", path = "crates/bhc-hir" }
+bhc-core = { version = "0.2.0", path = "crates/bhc-core" }
+bhc-tensor-ir = { version = "0.2.0", path = "crates/bhc-tensor-ir" }
+bhc-loop-ir = { version = "0.2.0", path = "crates/bhc-loop-ir" }
+bhc-session = { version = "0.2.0", path = "crates/bhc-session" }
+bhc-query = { version = "0.2.0", path = "crates/bhc-query" }
+bhc-driver = { version = "0.2.0", path = "crates/bhc-driver" }
+bhc-target = { version = "0.2.0", path = "crates/bhc-target" }
+bhc-codegen = { version = "0.2.0", path = "crates/bhc-codegen" }
+bhc-gpu = { version = "0.2.0", path = "crates/bhc-gpu" }
+bhc-wasm = { version = "0.2.0", path = "crates/bhc-wasm" }
+bhc-linker = { version = "0.2.0", path = "crates/bhc-linker" }
+bhc-ffi = { version = "0.2.0", path = "crates/bhc-ffi" }
+bhc-package = { version = "0.2.0", path = "crates/bhc-package" }
+bhc-interface = { version = "0.2.0", path = "crates/bhc-interface" }
+bhc-macros = { version = "0.2.0", path = "crates/bhc-macros" }
+bhc-playground = { version = "0.2.0", path = "crates/bhc-playground" }
 
 # RTS crates
-bhc-rts = { path = "rts/bhc-rts" }
-bhc-rts-gc = { path = "rts/bhc-rts-gc" }
-bhc-rts-arena = { path = "rts/bhc-rts-arena" }
-bhc-rts-scheduler = { path = "rts/bhc-rts-scheduler" }
-bhc-rts-alloc = { path = "rts/bhc-rts-alloc" }
+bhc-rts = { version = "0.2.0", path = "rts/bhc-rts" }
+bhc-rts-gc = { version = "0.2.0", path = "rts/bhc-rts-gc" }
+bhc-rts-arena = { version = "0.2.0", path = "rts/bhc-rts-arena" }
+bhc-rts-scheduler = { version = "0.2.0", path = "rts/bhc-rts-scheduler" }
+bhc-rts-alloc = { version = "0.2.0", path = "rts/bhc-rts-alloc" }
 
 # Standard library crates
-bhc-prelude = { path = "stdlib/bhc-prelude" }
-bhc-base = { path = "stdlib/bhc-base" }
-bhc-containers = { path = "stdlib/bhc-containers" }
-bhc-text = { path = "stdlib/bhc-text" }
-bhc-transformers = { path = "stdlib/bhc-transformers" }
-bhc-numeric = { path = "stdlib/bhc-numeric" }
-bhc-concurrent = { path = "stdlib/bhc-concurrent" }
-bhc-system = { path = "stdlib/bhc-system" }
-bhc-utils = { path = "stdlib/bhc-utils" }
+bhc-prelude = { version = "0.2.0", path = "stdlib/bhc-prelude" }
+bhc-base = { version = "0.2.0", path = "stdlib/bhc-base" }
+bhc-containers = { version = "0.2.0", path = "stdlib/bhc-containers" }
+bhc-text = { version = "0.2.0", path = "stdlib/bhc-text" }
+bhc-transformers = { version = "0.2.0", path = "stdlib/bhc-transformers" }
+bhc-numeric = { version = "0.2.0", path = "stdlib/bhc-numeric" }
+bhc-concurrent = { version = "0.2.0", path = "stdlib/bhc-concurrent" }
+bhc-system = { version = "0.2.0", path = "stdlib/bhc-system" }
+bhc-utils = { version = "0.2.0", path = "stdlib/bhc-utils" }
 
 # External dependencies
 thiserror = "1.0"

@@ -13,7 +13,7 @@ Tracking all places where bhc is or could be available.
 
 | Channel | Priority | Notes |
 |---------|----------|-------|
-| Cargo | Medium | `cargo install bhc` - requires crates.io publish |
+| Cargo | Ready | `cargo install bhc` - publishes on stable release (requires LLVM 18) |
 | Nix Flake | Medium | `nix run github:raskell-io/bhc` |
 | Scoop | Low | Windows support needed first |
 

@@ -189,3 +189,95 @@ jobs:
             SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    # Only publish on non-prerelease tags
+    if: ${{ !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18 all
+          sudo apt-get install -y libpolly-18-dev libzstd-dev
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates
+        run: |
+          # Foundation crates (no internal dependencies)
+          cargo publish -p bhc-macros --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-span --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-arena --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-intern --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-index --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-data-structures --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Diagnostics
+          cargo publish -p bhc-diagnostics --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Parsing
+          cargo publish -p bhc-lexer --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-ast --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-parser --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Type system
+          cargo publish -p bhc-types --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-typeck --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # IRs
+          cargo publish -p bhc-hir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-tensor-ir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-loop-ir --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Lowering
+          cargo publish -p bhc-lower --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-hir-to-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Compilation infrastructure
+          cargo publish -p bhc-target --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-session --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-query --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Code generation
+          cargo publish -p bhc-ffi --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-codegen --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc-linker --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+
+          # Driver and CLI
+          cargo publish -p bhc-driver --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+          sleep 30
+          cargo publish -p bhc --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || true
+        continue-on-error: true
