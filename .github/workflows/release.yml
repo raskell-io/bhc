@@ -75,11 +75,13 @@ jobs:
 
       - name: Prepare artifact
         run: |
-          mkdir -p dist/lib
+          mkdir -p dist/lib dist/examples
           cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dist/
           chmod +x dist/${{ matrix.artifact_name }}
           # Copy RTS static library
           cp target/${{ matrix.target }}/release/libbhc_rts.a dist/lib/
+          # Copy examples
+          cp -r examples/* dist/examples/
           cd dist && tar -czvf ../${{ matrix.asset_name }}.tar.gz *
 
       - name: Upload artifact
