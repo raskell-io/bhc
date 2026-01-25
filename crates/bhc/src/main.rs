@@ -3,7 +3,9 @@
 //! BHC is a next-generation Haskell compiler targeting the Haskell 2026 Platform.
 
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::{generate, Shell};
+use std::io;
 use std::path::PathBuf;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -37,9 +39,13 @@ struct Cli {
     #[arg(short = 'O', long, default_value = "0")]
     opt_level: u8,
 
-    /// Enable verbose output
+    /// Increase output verbosity (-v info, -vv debug, -vvv trace)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    /// Suppress non-error output
     #[arg(short, long)]
-    verbose: bool,
+    quiet: bool,
 
     /// Emit kernel fusion report (Numeric profile)
     #[arg(long)]
@@ -116,13 +122,32 @@ enum Commands {
 
     /// Show version information
     Version,
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Set up logging
-    let log_level = if cli.verbose { Level::DEBUG } else { Level::INFO };
+    // Set up logging based on verbosity flags
+    // Default: WARN (quiet operation), -v: INFO, -vv: DEBUG, -vvv: TRACE
+    // --quiet: ERROR only
+    let log_level = if cli.quiet {
+        Level::ERROR
+    } else {
+        match cli.verbose {
+            0 => Level::WARN,   // Default: only warnings and errors
+            1 => Level::INFO,   // -v: informational messages
+            2 => Level::DEBUG,  // -vv: debug output
+            _ => Level::TRACE,  // -vvv: trace everything
+        }
+    };
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(log_level)
         .with_target(false)
@@ -148,6 +173,9 @@ fn main() -> Result<()> {
         Some(Commands::Version) => {
             print_version();
         }
+        Some(Commands::Completions { shell }) => {
+            generate_completions(shell);
+        }
         None => {
             if cli.files.is_empty() {
                 // No files specified, print help
@@ -163,6 +191,12 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Generate shell completions
+fn generate_completions(shell: Shell) {
+    let mut cmd = Cli::command();
+    generate(shell, &mut cmd, "bhc", &mut io::stdout());
 }
 
 /// Compile source files
@@ -207,13 +241,19 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
 
     match compiler.compile_files(utf8_paths.iter().map(|p| p.as_path())) {
         Ok(outputs) => {
-            for output in outputs {
+            for output in &outputs {
                 tracing::info!("Generated: {}", output.path);
+            }
+            // Print final output path (always visible unless --quiet)
+            if !cli.quiet {
+                if let Some(output) = outputs.last() {
+                    println!("{}", output.path);
+                }
             }
             Ok(())
         }
         Err(e) => {
-            eprintln!("Compilation error: {}", e);
+            eprintln!("error: {}", e);
             std::process::exit(1);
         }
     }

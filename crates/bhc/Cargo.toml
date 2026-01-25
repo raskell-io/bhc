@@ -21,6 +21,7 @@ bhc-session = { workspace = true }
 bhc-driver = { workspace = true }
 
 clap = { workspace = true }
+clap_complete = { workspace = true }
 anyhow = { workspace = true }
 camino = { workspace = true }
 tracing = { workspace = true }
