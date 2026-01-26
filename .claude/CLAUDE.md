@@ -389,7 +389,7 @@ cargo bench
 
 ### Current Status: Beta
 
-The compiler is feature-complete through Phase 5. Native code generation works via LLVM. WebAssembly compilation works via bhc-wasm. The runtime system includes a generational GC, work-stealing scheduler, and full STM support. Structured concurrency with cancellation propagation is implemented. Real Haskell programs compile and run on native and WASM targets.
+The compiler is feature-complete through Phase 7. Native code generation works via LLVM. WebAssembly compilation works via bhc-wasm. The runtime system includes a generational GC with incremental marking support, work-stealing scheduler, and full STM support. Structured concurrency with cancellation propagation is implemented. Real Haskell programs compile and run on native and WASM targets. Realtime profile supports bounded-pause GC (<1ms). Embedded profile supports static-only allocation with no GC.
 
 ### Phase 1: Core Compilation ✅ COMPLETE
 
@@ -485,18 +485,20 @@ The compiler is feature-complete through Phase 5. Native code generation works v
 
 **Notes:** End-to-end testing blocked by LLVM version mismatch (system LLVM 21 vs expected LLVM 18)
 
-### Phase 7: Advanced Profiles
+### Phase 7: Advanced Profiles ✅ IN PROGRESS
 
 **Goal:** Realtime and Embedded profiles.
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 7.1 Incremental GC | 🔴 | bhc-rts-gc | Bounded pause GC for realtime |
-| 7.2 Arena per-frame | 🔴 | bhc-rts | Per-frame arena allocation |
-| 7.3 No-GC Mode | 🔴 | bhc-rts | Static allocation only (embedded) |
-| 7.4 Bare Metal | 🔴 | bhc-codegen | No-OS code generation |
+| 7.1 Incremental GC | 🟢 | bhc-rts-gc | Pause measurement, tri-color marking, SATB barriers |
+| 7.2 Arena per-frame | 🟢 | bhc-rts-arena | FrameArena with begin/end lifecycle, double buffering |
+| 7.3 No-GC Mode | 🟢 | bhc-rts-alloc | StaticAllocator, BoundedAllocator, Embedded profile |
+| 7.4 Bare Metal | 🟡 | bhc-codegen | No-OS code generation (deferred - needs LLVM target work) |
 
 **Exit Criteria:** Game loop demo with <1ms GC pauses.
+
+**Notes:** Realtime and Embedded profiles added to RTS. Pause tracking with P99 percentiles, threshold violations, and ring buffer history. Incremental marking supports time-budgeted work increments (default 500μs).
 
 ### Phase 8: Ecosystem
 
