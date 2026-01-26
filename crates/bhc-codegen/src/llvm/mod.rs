@@ -6,15 +6,18 @@
 //! - Creating and managing LLVM contexts and modules
 //! - Type mapping from BHC types to LLVM types
 //! - Code generation from Core IR to LLVM IR
+//! - Code generation from Loop IR to LLVM IR (Numeric Profile)
 //! - Optimization passes
 //! - Object file emission
 
 mod context;
+mod loop_lower;
 mod lower;
 mod module;
 mod types;
 
 pub use context::LlvmContext;
+pub use loop_lower::{lower_loop_ir, lower_loop_irs, LoopLowering};
 pub use lower::{lower_core_module, Lowering};
 pub use module::{LlvmModule, LlvmModuleExt};
 pub use types::TypeMapper;

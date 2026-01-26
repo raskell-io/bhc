@@ -422,21 +422,21 @@ The compiler is functional end-to-end. Native code generation works via LLVM. Th
 
 **Exit Criteria:** ✅ Recursive Fibonacci compiles and runs correctly.
 
-### Phase 3: Numeric Profile
+### Phase 3: Numeric Profile ✅ COMPLETE
 
 **Goal:** Deliver promised numeric performance features.
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 3.1 Core → Tensor IR | 🟡 | bhc-tensor-ir | Lower numeric Core to Tensor IR |
+| 3.1 Core → Tensor IR | 🟢 | bhc-tensor-ir | Lower numeric Core to Tensor IR |
 | 3.2 Fusion Passes | 🟢 | bhc-tensor-ir | All 4 guaranteed patterns per H26-SPEC |
-| 3.3 Tensor → Loop IR | 🟡 | bhc-loop-ir | Lower Tensor IR to explicit loops |
-| 3.4 Vectorization | 🟡 | bhc-loop-ir | SIMD auto-vectorization pass |
-| 3.5 Parallelization | 🟡 | bhc-loop-ir | Parallel loop detection and codegen |
-| 3.6 Loop → LLVM | 🔴 | bhc-codegen | Emit LLVM IR from Loop IR |
-| 3.7 Hot Arena | 🟡 | bhc-rts | Arena allocator infrastructure in place |
-| 3.8 Pinned Buffers | 🟡 | bhc-rts | Pinned object support in GC |
-| 3.9 Kernel Reports | 🟡 | bhc-driver | `--kernel-report` diagnostics |
+| 3.3 Tensor → Loop IR | 🟢 | bhc-loop-ir | Lower Tensor IR to explicit loops |
+| 3.4 Vectorization | 🟢 | bhc-loop-ir | SIMD auto-vectorization pass |
+| 3.5 Parallelization | 🟢 | bhc-loop-ir | Parallel loop detection and codegen |
+| 3.6 Loop → LLVM | 🟢 | bhc-codegen | Loop IR to LLVM IR lowering |
+| 3.7 Hot Arena | 🟢 | bhc-rts-arena | Bump allocator, scope-based lifetime |
+| 3.8 Pinned Buffers | 🟢 | bhc-rts-alloc | PinnedAllocator, PinnedBuffer, FFI API |
+| 3.9 Kernel Reports | 🟢 | bhc-tensor-ir | Fusion report generation |
 
 **Exit Criteria:** `sum (map (*2) [1..1000000])` fuses to single loop, runs 10x faster than interpreted.
 
