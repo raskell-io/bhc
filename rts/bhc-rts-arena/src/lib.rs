@@ -34,6 +34,8 @@
 #![warn(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod frame;
+
 use bhc_rts_alloc::{align_up, AllocError, AllocResult, Alignment, AllocStats, MemoryRegion};
 use std::alloc::{alloc, dealloc, Layout};
 use std::cell::Cell;

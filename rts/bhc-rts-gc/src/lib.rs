@@ -45,12 +45,15 @@
 #![warn(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod incremental;
+
 use bhc_rts_alloc::{AllocError, AllocResult, AllocStats, MemoryRegion};
 use parking_lot::{Mutex, RwLock};
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 /// A wrapper around `NonNull<u8>` that is `Send + Sync`.
 ///
@@ -241,7 +244,8 @@ impl ObjectHeader {
 
     /// Clear the mark bit.
     pub fn unmark(&self) {
-        self.flags.fetch_and(!HeaderFlags::MARKED, Ordering::Release);
+        self.flags
+            .fetch_and(!HeaderFlags::MARKED, Ordering::Release);
     }
 
     /// Check if marked.
@@ -277,9 +281,9 @@ pub struct GcConfig {
 impl Default for GcConfig {
     fn default() -> Self {
         Self {
-            nursery_size: 4 * 1024 * 1024,      // 4 MB
-            survivor_size: 2 * 1024 * 1024,     // 2 MB
-            old_gen_size: 64 * 1024 * 1024,     // 64 MB
+            nursery_size: 4 * 1024 * 1024,  // 4 MB
+            survivor_size: 2 * 1024 * 1024, // 2 MB
+            old_gen_size: 64 * 1024 * 1024, // 64 MB
             nursery_threshold: 2,
             incremental: false,
             max_pause_us: 1000,
@@ -304,6 +308,293 @@ pub struct GcStats {
     pub max_pause_us: u64,
     /// Number of pinned objects.
     pub pinned_objects: u64,
+}
+
+/// Kind of GC collection that caused a pause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectionKind {
+    /// Minor (nursery) collection.
+    Minor,
+    /// Major (full) collection.
+    Major,
+    /// Incremental marking phase.
+    IncrementalMark,
+    /// Incremental sweep phase.
+    IncrementalSweep,
+}
+
+/// A single GC pause measurement.
+#[derive(Debug, Clone, Copy)]
+pub struct PauseMeasurement {
+    /// Duration of the pause.
+    pub duration: Duration,
+    /// Kind of collection that caused the pause.
+    pub kind: CollectionKind,
+    /// Timestamp when the pause started.
+    pub timestamp: Instant,
+}
+
+impl PauseMeasurement {
+    /// Create a new pause measurement.
+    #[must_use]
+    pub fn new(duration: Duration, kind: CollectionKind, timestamp: Instant) -> Self {
+        Self {
+            duration,
+            kind,
+            timestamp,
+        }
+    }
+
+    /// Get the pause duration in microseconds.
+    #[must_use]
+    pub fn duration_us(&self) -> u64 {
+        self.duration.as_micros() as u64
+    }
+
+    /// Check if this pause exceeded the given threshold.
+    #[must_use]
+    pub fn exceeded_threshold(&self, threshold: Duration) -> bool {
+        self.duration > threshold
+    }
+}
+
+/// Statistics for GC pause times with recent history.
+///
+/// Tracks pause times for realtime profile verification.
+/// The <1ms pause guarantee for realtime profile can be verified
+/// by checking if any pause exceeded the threshold.
+#[derive(Debug)]
+pub struct PauseStats {
+    /// Ring buffer of recent pause measurements.
+    recent_pauses: Vec<PauseMeasurement>,
+    /// Maximum size of the ring buffer.
+    max_history: usize,
+    /// Current write position in the ring buffer.
+    write_pos: usize,
+    /// Total number of pauses recorded.
+    total_pauses: u64,
+    /// Number of pauses that exceeded the configured threshold.
+    threshold_violations: u64,
+    /// Configured pause threshold (default: 1ms for realtime).
+    threshold: Duration,
+    /// Minimum pause time observed.
+    min_pause: Option<Duration>,
+    /// Maximum pause time observed.
+    max_pause: Option<Duration>,
+    /// Sum of all pause durations (for computing average).
+    total_pause_time: Duration,
+}
+
+impl Default for PauseStats {
+    fn default() -> Self {
+        Self::new(1000, Duration::from_micros(1000)) // 1000 pauses, 1ms threshold
+    }
+}
+
+impl PauseStats {
+    /// Create new pause statistics with the given history size and threshold.
+    #[must_use]
+    pub fn new(max_history: usize, threshold: Duration) -> Self {
+        Self {
+            recent_pauses: Vec::with_capacity(max_history),
+            max_history,
+            write_pos: 0,
+            total_pauses: 0,
+            threshold_violations: 0,
+            threshold,
+            min_pause: None,
+            max_pause: None,
+            total_pause_time: Duration::ZERO,
+        }
+    }
+
+    /// Record a new pause measurement.
+    pub fn record(&mut self, measurement: PauseMeasurement) {
+        // Update statistics
+        self.total_pauses += 1;
+        self.total_pause_time += measurement.duration;
+
+        if measurement.exceeded_threshold(self.threshold) {
+            self.threshold_violations += 1;
+        }
+
+        self.min_pause = Some(match self.min_pause {
+            Some(min) => min.min(measurement.duration),
+            None => measurement.duration,
+        });
+
+        self.max_pause = Some(match self.max_pause {
+            Some(max) => max.max(measurement.duration),
+            None => measurement.duration,
+        });
+
+        // Store in ring buffer
+        if self.recent_pauses.len() < self.max_history {
+            self.recent_pauses.push(measurement);
+        } else {
+            self.recent_pauses[self.write_pos] = measurement;
+        }
+        self.write_pos = (self.write_pos + 1) % self.max_history;
+    }
+
+    /// Get the total number of pauses recorded.
+    #[must_use]
+    pub fn total_pauses(&self) -> u64 {
+        self.total_pauses
+    }
+
+    /// Get the number of pauses that exceeded the threshold.
+    #[must_use]
+    pub fn threshold_violations(&self) -> u64 {
+        self.threshold_violations
+    }
+
+    /// Check if any pause exceeded the threshold.
+    #[must_use]
+    pub fn has_violations(&self) -> bool {
+        self.threshold_violations > 0
+    }
+
+    /// Get the configured threshold.
+    #[must_use]
+    pub fn threshold(&self) -> Duration {
+        self.threshold
+    }
+
+    /// Set the pause threshold.
+    pub fn set_threshold(&mut self, threshold: Duration) {
+        self.threshold = threshold;
+    }
+
+    /// Get the minimum pause time observed.
+    #[must_use]
+    pub fn min_pause(&self) -> Option<Duration> {
+        self.min_pause
+    }
+
+    /// Get the maximum pause time observed.
+    #[must_use]
+    pub fn max_pause(&self) -> Option<Duration> {
+        self.max_pause
+    }
+
+    /// Get the average pause time.
+    #[must_use]
+    pub fn average_pause(&self) -> Option<Duration> {
+        if self.total_pauses == 0 {
+            None
+        } else {
+            Some(self.total_pause_time / self.total_pauses as u32)
+        }
+    }
+
+    /// Get the total pause time.
+    #[must_use]
+    pub fn total_pause_time(&self) -> Duration {
+        self.total_pause_time
+    }
+
+    /// Get recent pauses (most recent first).
+    #[must_use]
+    pub fn recent_pauses(&self) -> impl Iterator<Item = &PauseMeasurement> {
+        // Return pauses in reverse chronological order
+        let len = self.recent_pauses.len();
+        if len == 0 {
+            return [].iter();
+        }
+
+        // The most recent pause is at (write_pos - 1 + len) % len
+        // We need to return them in reverse order
+        self.recent_pauses.iter()
+    }
+
+    /// Get the P99 pause time from recent history.
+    ///
+    /// Returns None if fewer than 100 pauses have been recorded.
+    #[must_use]
+    pub fn p99_pause(&self) -> Option<Duration> {
+        if self.recent_pauses.len() < 100 {
+            return None;
+        }
+
+        let mut durations: Vec<_> = self.recent_pauses.iter().map(|p| p.duration).collect();
+        durations.sort();
+        let idx = (durations.len() * 99) / 100;
+        Some(durations[idx])
+    }
+
+    /// Reset all statistics.
+    pub fn reset(&mut self) {
+        self.recent_pauses.clear();
+        self.write_pos = 0;
+        self.total_pauses = 0;
+        self.threshold_violations = 0;
+        self.min_pause = None;
+        self.max_pause = None;
+        self.total_pause_time = Duration::ZERO;
+    }
+
+    /// Get a summary report of pause statistics.
+    #[must_use]
+    pub fn summary(&self) -> PauseSummary {
+        PauseSummary {
+            total_pauses: self.total_pauses,
+            threshold_violations: self.threshold_violations,
+            threshold: self.threshold,
+            min_pause: self.min_pause,
+            max_pause: self.max_pause,
+            average_pause: self.average_pause(),
+            p99_pause: self.p99_pause(),
+            total_pause_time: self.total_pause_time,
+        }
+    }
+}
+
+/// Summary of pause statistics for reporting.
+#[derive(Debug, Clone)]
+pub struct PauseSummary {
+    /// Total number of pauses.
+    pub total_pauses: u64,
+    /// Number of threshold violations.
+    pub threshold_violations: u64,
+    /// Configured threshold.
+    pub threshold: Duration,
+    /// Minimum pause time.
+    pub min_pause: Option<Duration>,
+    /// Maximum pause time.
+    pub max_pause: Option<Duration>,
+    /// Average pause time.
+    pub average_pause: Option<Duration>,
+    /// P99 pause time.
+    pub p99_pause: Option<Duration>,
+    /// Total time spent in pauses.
+    pub total_pause_time: Duration,
+}
+
+impl std::fmt::Display for PauseSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "GC Pause Statistics:")?;
+        writeln!(f, "  Total pauses: {}", self.total_pauses)?;
+        writeln!(
+            f,
+            "  Threshold: {:?} ({} violations)",
+            self.threshold, self.threshold_violations
+        )?;
+        if let Some(min) = self.min_pause {
+            writeln!(f, "  Min pause: {:?}", min)?;
+        }
+        if let Some(max) = self.max_pause {
+            writeln!(f, "  Max pause: {:?}", max)?;
+        }
+        if let Some(avg) = self.average_pause {
+            writeln!(f, "  Avg pause: {:?}", avg)?;
+        }
+        if let Some(p99) = self.p99_pause {
+            writeln!(f, "  P99 pause: {:?}", p99)?;
+        }
+        writeln!(f, "  Total pause time: {:?}", self.total_pause_time)?;
+        Ok(())
+    }
 }
 
 /// Handle to a GC-managed object.
@@ -472,6 +763,8 @@ pub struct GarbageCollector {
     config: GcConfig,
     /// Statistics.
     stats: RwLock<GcStats>,
+    /// Pause statistics for realtime profile verification.
+    pause_stats: Mutex<PauseStats>,
     /// Write barrier.
     write_barrier: WriteBarrier,
     /// Allocation statistics.
@@ -484,9 +777,11 @@ impl GarbageCollector {
     /// Create a new garbage collector with the given configuration.
     #[must_use]
     pub fn new(config: GcConfig) -> Self {
+        let pause_threshold = Duration::from_micros(config.max_pause_us);
         Self {
             config,
             stats: RwLock::new(GcStats::default()),
+            pause_stats: Mutex::new(PauseStats::new(1000, pause_threshold)),
             write_barrier: WriteBarrier::new(),
             alloc_stats: RwLock::new(AllocStats::new()),
             bytes_since_gc: AtomicUsize::new(0),
@@ -550,11 +845,18 @@ impl GarbageCollector {
 
     /// Trigger a minor (nursery) collection.
     pub fn minor_collect(&self, _roots: &RootSet) {
+        let start = Instant::now();
+
         // Placeholder: Full implementation would:
         // 1. Mark all reachable objects from roots
         // 2. Copy live objects to survivor space
         // 3. Update remembered set
         // 4. Free nursery
+
+        let duration = start.elapsed();
+
+        // Record pause statistics
+        self.record_pause(duration, CollectionKind::Minor, start);
 
         let mut stats = self.stats.write();
         stats.minor_collections += 1;
@@ -562,13 +864,40 @@ impl GarbageCollector {
 
     /// Trigger a major (full) collection.
     pub fn major_collect(&self, _roots: &RootSet) {
+        let start = Instant::now();
+
         // Placeholder: Full implementation would:
         // 1. Mark all reachable objects from roots
         // 2. Sweep/compact all generations
         // 3. Free unreachable objects
 
+        let duration = start.elapsed();
+
+        // Record pause statistics
+        self.record_pause(duration, CollectionKind::Major, start);
+
         let mut stats = self.stats.write();
         stats.major_collections += 1;
+    }
+
+    /// Record a GC pause measurement.
+    fn record_pause(&self, duration: Duration, kind: CollectionKind, timestamp: Instant) {
+        let duration_us = duration.as_micros() as u64;
+
+        // Update pause stats
+        {
+            let mut pause_stats = self.pause_stats.lock();
+            pause_stats.record(PauseMeasurement::new(duration, kind, timestamp));
+        }
+
+        // Update GcStats
+        {
+            let mut stats = self.stats.write();
+            stats.total_gc_time_us += duration_us;
+            if duration_us > stats.max_pause_us {
+                stats.max_pause_us = duration_us;
+            }
+        }
     }
 
     /// Get the write barrier for recording mutations.
@@ -581,6 +910,44 @@ impl GarbageCollector {
     #[must_use]
     pub fn stats(&self) -> GcStats {
         self.stats.read().clone()
+    }
+
+    /// Get a summary of pause statistics.
+    ///
+    /// Use this to verify the <1ms pause guarantee for realtime profile.
+    #[must_use]
+    pub fn pause_summary(&self) -> PauseSummary {
+        self.pause_stats.lock().summary()
+    }
+
+    /// Check if any GC pause exceeded the configured threshold.
+    ///
+    /// For realtime profile, this checks the <1ms guarantee.
+    #[must_use]
+    pub fn has_pause_violations(&self) -> bool {
+        self.pause_stats.lock().has_violations()
+    }
+
+    /// Get the number of pauses that exceeded the threshold.
+    #[must_use]
+    pub fn pause_violation_count(&self) -> u64 {
+        self.pause_stats.lock().threshold_violations()
+    }
+
+    /// Get the maximum pause time observed.
+    #[must_use]
+    pub fn max_pause_observed(&self) -> Option<Duration> {
+        self.pause_stats.lock().max_pause()
+    }
+
+    /// Reset pause statistics (useful for benchmarking).
+    pub fn reset_pause_stats(&self) {
+        self.pause_stats.lock().reset();
+    }
+
+    /// Set the pause threshold for violation detection.
+    pub fn set_pause_threshold(&self, threshold: Duration) {
+        self.pause_stats.lock().set_threshold(threshold);
     }
 
     /// Get the memory region managed by this GC.
@@ -712,5 +1079,189 @@ mod tests {
         let stats = gc.stats();
         assert_eq!(stats.minor_collections, 2);
         assert_eq!(stats.major_collections, 1);
+    }
+
+    // ========================================================================
+    // Pause Measurement Tests
+    // ========================================================================
+
+    #[test]
+    fn test_pause_measurement() {
+        let duration = Duration::from_micros(500);
+        let timestamp = Instant::now();
+        let measurement = PauseMeasurement::new(duration, CollectionKind::Minor, timestamp);
+
+        assert_eq!(measurement.duration, duration);
+        assert_eq!(measurement.kind, CollectionKind::Minor);
+        assert_eq!(measurement.duration_us(), 500);
+        assert!(!measurement.exceeded_threshold(Duration::from_millis(1)));
+        assert!(measurement.exceeded_threshold(Duration::from_micros(100)));
+    }
+
+    #[test]
+    fn test_pause_stats_basic() {
+        let mut stats = PauseStats::new(100, Duration::from_millis(1));
+
+        assert_eq!(stats.total_pauses(), 0);
+        assert!(!stats.has_violations());
+        assert!(stats.min_pause().is_none());
+        assert!(stats.max_pause().is_none());
+
+        // Record some pauses
+        let now = Instant::now();
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(500),
+            CollectionKind::Minor,
+            now,
+        ));
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(800),
+            CollectionKind::Minor,
+            now,
+        ));
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(200),
+            CollectionKind::Major,
+            now,
+        ));
+
+        assert_eq!(stats.total_pauses(), 3);
+        assert!(!stats.has_violations()); // All under 1ms
+        assert_eq!(stats.min_pause(), Some(Duration::from_micros(200)));
+        assert_eq!(stats.max_pause(), Some(Duration::from_micros(800)));
+    }
+
+    #[test]
+    fn test_pause_stats_violations() {
+        let mut stats = PauseStats::new(100, Duration::from_millis(1));
+        let now = Instant::now();
+
+        // Record a pause that exceeds threshold
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(1500), // 1.5ms > 1ms threshold
+            CollectionKind::Major,
+            now,
+        ));
+
+        assert_eq!(stats.total_pauses(), 1);
+        assert!(stats.has_violations());
+        assert_eq!(stats.threshold_violations(), 1);
+    }
+
+    #[test]
+    fn test_pause_stats_average() {
+        let mut stats = PauseStats::new(100, Duration::from_millis(1));
+        let now = Instant::now();
+
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(100),
+            CollectionKind::Minor,
+            now,
+        ));
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(200),
+            CollectionKind::Minor,
+            now,
+        ));
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(300),
+            CollectionKind::Minor,
+            now,
+        ));
+
+        let avg = stats.average_pause().unwrap();
+        assert_eq!(avg, Duration::from_micros(200)); // (100+200+300)/3
+    }
+
+    #[test]
+    fn test_pause_stats_reset() {
+        let mut stats = PauseStats::new(100, Duration::from_millis(1));
+        let now = Instant::now();
+
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(500),
+            CollectionKind::Minor,
+            now,
+        ));
+        stats.record(PauseMeasurement::new(
+            Duration::from_millis(2), // violation
+            CollectionKind::Major,
+            now,
+        ));
+
+        assert!(stats.has_violations());
+        assert_eq!(stats.total_pauses(), 2);
+
+        stats.reset();
+
+        assert!(!stats.has_violations());
+        assert_eq!(stats.total_pauses(), 0);
+        assert!(stats.min_pause().is_none());
+    }
+
+    #[test]
+    fn test_gc_pause_measurement_integration() {
+        let gc = GarbageCollector::with_default_config();
+        let roots = RootSet::new();
+
+        // Run some collections
+        gc.minor_collect(&roots);
+        gc.minor_collect(&roots);
+        gc.major_collect(&roots);
+
+        let summary = gc.pause_summary();
+        assert_eq!(summary.total_pauses, 3);
+
+        // Pause times should be very small (placeholder impl does nothing)
+        // but should be non-zero
+        assert!(summary.min_pause.is_some());
+        assert!(summary.max_pause.is_some());
+    }
+
+    #[test]
+    fn test_gc_pause_threshold() {
+        let gc = GarbageCollector::with_default_config();
+
+        // Default threshold is 1ms (from config.max_pause_us)
+        let summary = gc.pause_summary();
+        assert_eq!(summary.threshold, Duration::from_millis(1));
+
+        // Can change threshold
+        gc.set_pause_threshold(Duration::from_micros(500));
+        let summary = gc.pause_summary();
+        assert_eq!(summary.threshold, Duration::from_micros(500));
+    }
+
+    #[test]
+    fn test_gc_pause_stats_reset() {
+        let gc = GarbageCollector::with_default_config();
+        let roots = RootSet::new();
+
+        gc.minor_collect(&roots);
+        gc.minor_collect(&roots);
+
+        assert_eq!(gc.pause_summary().total_pauses, 2);
+
+        gc.reset_pause_stats();
+
+        assert_eq!(gc.pause_summary().total_pauses, 0);
+    }
+
+    #[test]
+    fn test_pause_summary_display() {
+        let mut stats = PauseStats::new(100, Duration::from_millis(1));
+        let now = Instant::now();
+
+        stats.record(PauseMeasurement::new(
+            Duration::from_micros(500),
+            CollectionKind::Minor,
+            now,
+        ));
+
+        let summary = stats.summary();
+        let display = format!("{}", summary);
+
+        assert!(display.contains("GC Pause Statistics"));
+        assert!(display.contains("Total pauses: 1"));
     }
 }

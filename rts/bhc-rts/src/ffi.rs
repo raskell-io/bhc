@@ -365,7 +365,11 @@ pub unsafe extern "C" fn bhc_error(msg: *const c_char) -> ! {
 /// This function is safe to call from C code.
 #[no_mangle]
 pub extern "C" fn bhc_is_debug() -> c_int {
-    if global().config().debug_mode { 1 } else { 0 }
+    if global().config().debug_mode {
+        1
+    } else {
+        0
+    }
 }
 
 /// Get the current profile.
@@ -539,7 +543,11 @@ pub unsafe extern "C" fn bhc_is_thunk(obj: *const u8) -> c_int {
 /// Int equality
 #[no_mangle]
 pub extern "C" fn bhc_eq_int(a: i64, b: i64) -> i32 {
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Int comparison (returns Ordering: -1=LT, 0=EQ, 1=GT)
@@ -555,25 +563,41 @@ pub extern "C" fn bhc_compare_int(a: i64, b: i64) -> i32 {
 /// Int less than
 #[no_mangle]
 pub extern "C" fn bhc_lt_int(a: i64, b: i64) -> i32 {
-    if a < b { 1 } else { 0 }
+    if a < b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Int less than or equal
 #[no_mangle]
 pub extern "C" fn bhc_le_int(a: i64, b: i64) -> i32 {
-    if a <= b { 1 } else { 0 }
+    if a <= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Int greater than
 #[no_mangle]
 pub extern "C" fn bhc_gt_int(a: i64, b: i64) -> i32 {
-    if a > b { 1 } else { 0 }
+    if a > b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Int greater than or equal
 #[no_mangle]
 pub extern "C" fn bhc_ge_int(a: i64, b: i64) -> i32 {
-    if a >= b { 1 } else { 0 }
+    if a >= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Int addition
@@ -675,7 +699,11 @@ pub extern "C" fn bhc_show_int(n: i64) -> *mut c_char {
 /// Float equality
 #[no_mangle]
 pub extern "C" fn bhc_eq_float(a: f32, b: f32) -> i32 {
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Float comparison
@@ -692,25 +720,41 @@ pub extern "C" fn bhc_compare_float(a: f32, b: f32) -> i32 {
 /// Float less than
 #[no_mangle]
 pub extern "C" fn bhc_lt_float(a: f32, b: f32) -> i32 {
-    if a < b { 1 } else { 0 }
+    if a < b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Float less than or equal
 #[no_mangle]
 pub extern "C" fn bhc_le_float(a: f32, b: f32) -> i32 {
-    if a <= b { 1 } else { 0 }
+    if a <= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Float greater than
 #[no_mangle]
 pub extern "C" fn bhc_gt_float(a: f32, b: f32) -> i32 {
-    if a > b { 1 } else { 0 }
+    if a > b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Float greater than or equal
 #[no_mangle]
 pub extern "C" fn bhc_ge_float(a: f32, b: f32) -> i32 {
-    if a >= b { 1 } else { 0 }
+    if a >= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Float addition
@@ -876,7 +920,11 @@ pub extern "C" fn bhc_show_float(n: f32) -> *mut c_char {
 /// Double equality
 #[no_mangle]
 pub extern "C" fn bhc_eq_double(a: f64, b: f64) -> i32 {
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Double comparison
@@ -893,25 +941,41 @@ pub extern "C" fn bhc_compare_double(a: f64, b: f64) -> i32 {
 /// Double less than
 #[no_mangle]
 pub extern "C" fn bhc_lt_double(a: f64, b: f64) -> i32 {
-    if a < b { 1 } else { 0 }
+    if a < b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Double less than or equal
 #[no_mangle]
 pub extern "C" fn bhc_le_double(a: f64, b: f64) -> i32 {
-    if a <= b { 1 } else { 0 }
+    if a <= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Double greater than
 #[no_mangle]
 pub extern "C" fn bhc_gt_double(a: f64, b: f64) -> i32 {
-    if a > b { 1 } else { 0 }
+    if a > b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Double greater than or equal
 #[no_mangle]
 pub extern "C" fn bhc_ge_double(a: f64, b: f64) -> i32 {
-    if a >= b { 1 } else { 0 }
+    if a >= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Double addition
@@ -1077,7 +1141,11 @@ pub extern "C" fn bhc_show_double(n: f64) -> *mut c_char {
 /// Char equality
 #[no_mangle]
 pub extern "C" fn bhc_eq_char(a: u32, b: u32) -> i32 {
-    if a == b { 1 } else { 0 }
+    if a == b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Char comparison
@@ -1093,25 +1161,41 @@ pub extern "C" fn bhc_compare_char(a: u32, b: u32) -> i32 {
 /// Char less than
 #[no_mangle]
 pub extern "C" fn bhc_lt_char(a: u32, b: u32) -> i32 {
-    if a < b { 1 } else { 0 }
+    if a < b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Char less than or equal
 #[no_mangle]
 pub extern "C" fn bhc_le_char(a: u32, b: u32) -> i32 {
-    if a <= b { 1 } else { 0 }
+    if a <= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Char greater than
 #[no_mangle]
 pub extern "C" fn bhc_gt_char(a: u32, b: u32) -> i32 {
-    if a > b { 1 } else { 0 }
+    if a > b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Char greater than or equal
 #[no_mangle]
 pub extern "C" fn bhc_ge_char(a: u32, b: u32) -> i32 {
-    if a >= b { 1 } else { 0 }
+    if a >= b {
+        1
+    } else {
+        0
+    }
 }
 
 /// Char to Int (Unicode code point)
@@ -1200,8 +1284,8 @@ mod tests {
     #[test]
     fn test_int_compare() {
         assert_eq!(bhc_compare_int(1, 2), -1); // LT
-        assert_eq!(bhc_compare_int(2, 2), 0);  // EQ
-        assert_eq!(bhc_compare_int(3, 2), 1);  // GT
+        assert_eq!(bhc_compare_int(2, 2), 0); // EQ
+        assert_eq!(bhc_compare_int(3, 2), 1); // GT
     }
 
     #[test]
@@ -1212,8 +1296,8 @@ mod tests {
         assert_eq!(bhc_negate_int(42), -42);
         assert_eq!(bhc_quot_int(7, 3), 2);
         assert_eq!(bhc_rem_int(7, 3), 1);
-        assert_eq!(bhc_div_int(-7, 3), -3);  // Euclidean division
-        assert_eq!(bhc_mod_int(-7, 3), 2);   // Euclidean modulus
+        assert_eq!(bhc_div_int(-7, 3), -3); // Euclidean division
+        assert_eq!(bhc_mod_int(-7, 3), 2); // Euclidean modulus
     }
 
     #[test]

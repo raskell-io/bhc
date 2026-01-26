@@ -91,8 +91,12 @@ pub enum Profile {
     Server,
     /// Numeric profile: strict-by-default, minimal GC, arena allocation.
     Numeric,
-    /// Edge profile: minimal runtime footprint, no GC.
+    /// Edge profile: minimal runtime footprint, reduced GC.
     Edge,
+    /// Realtime profile: bounded GC pauses (<1ms), arena per-frame.
+    Realtime,
+    /// Embedded profile: no GC, static allocation only.
+    Embedded,
 }
 
 impl Profile {
@@ -107,14 +111,29 @@ impl Profile {
                 ..GcConfig::default()
             },
             Self::Numeric => GcConfig {
-                nursery_size: 1024 * 1024,  // Smaller nursery
+                nursery_size: 1024 * 1024, // Smaller nursery
                 ..GcConfig::default()
             },
             Self::Edge => GcConfig {
-                nursery_size: 256 * 1024,   // Minimal
+                nursery_size: 256 * 1024, // Minimal
                 survivor_size: 128 * 1024,
                 old_gen_size: 1024 * 1024,
                 ..GcConfig::default()
+            },
+            Self::Realtime => GcConfig {
+                incremental: true,
+                max_pause_us: 1000, // 1ms max pause
+                nursery_size: 512 * 1024,
+                ..GcConfig::default()
+            },
+            Self::Embedded => GcConfig {
+                // Minimal GC config - GC should not run in embedded mode
+                nursery_size: 0,
+                survivor_size: 0,
+                old_gen_size: 0,
+                incremental: false,
+                max_pause_us: 0,
+                nursery_threshold: 0,
             },
         }
     }
@@ -133,10 +152,48 @@ impl Profile {
                 ..SchedulerConfig::default()
             },
             Self::Edge => SchedulerConfig {
-                num_workers: 1,  // Single-threaded for minimal footprint
+                num_workers: 1, // Single-threaded for minimal footprint
                 stack_size: 512 * 1024,
                 work_stealing: false,
             },
+            Self::Realtime => SchedulerConfig {
+                num_workers: 2, // Limited parallelism
+                stack_size: 256 * 1024,
+                work_stealing: false, // Deterministic scheduling
+            },
+            Self::Embedded => SchedulerConfig {
+                num_workers: 1,        // Single-threaded
+                stack_size: 64 * 1024, // Minimal stack
+                work_stealing: false,
+            },
+        }
+    }
+
+    /// Check if this profile uses GC.
+    #[must_use]
+    pub const fn uses_gc(&self) -> bool {
+        !matches!(self, Self::Embedded)
+    }
+
+    /// Check if this profile has bounded pause times.
+    #[must_use]
+    pub const fn has_bounded_pauses(&self) -> bool {
+        matches!(self, Self::Server | Self::Realtime)
+    }
+
+    /// Check if this profile uses static allocation.
+    #[must_use]
+    pub const fn uses_static_allocation(&self) -> bool {
+        matches!(self, Self::Embedded)
+    }
+
+    /// Get the pause time guarantee in microseconds (if any).
+    #[must_use]
+    pub const fn pause_guarantee_us(&self) -> Option<u64> {
+        match self {
+            Self::Server => Some(500),
+            Self::Realtime => Some(1000),
+            _ => None,
         }
     }
 }
@@ -181,13 +238,17 @@ impl RuntimeConfig {
     /// Get the effective GC configuration.
     #[must_use]
     pub fn effective_gc_config(&self) -> GcConfig {
-        self.gc_config.clone().unwrap_or_else(|| self.profile.gc_config())
+        self.gc_config
+            .clone()
+            .unwrap_or_else(|| self.profile.gc_config())
     }
 
     /// Get the effective scheduler configuration.
     #[must_use]
     pub fn effective_scheduler_config(&self) -> SchedulerConfig {
-        self.scheduler_config.clone().unwrap_or_else(|| self.profile.scheduler_config())
+        self.scheduler_config
+            .clone()
+            .unwrap_or_else(|| self.profile.scheduler_config())
     }
 }
 
@@ -408,10 +469,44 @@ mod tests {
 
     #[test]
     fn test_runtime_profiles() {
-        for profile in [Profile::Default, Profile::Server, Profile::Numeric, Profile::Edge] {
+        for profile in [
+            Profile::Default,
+            Profile::Server,
+            Profile::Numeric,
+            Profile::Edge,
+            Profile::Realtime,
+            Profile::Embedded,
+        ] {
             let runtime = Runtime::for_profile(profile);
             assert_eq!(runtime.config().profile, profile);
         }
+    }
+
+    #[test]
+    fn test_profile_gc_characteristics() {
+        assert!(Profile::Default.uses_gc());
+        assert!(Profile::Server.uses_gc());
+        assert!(Profile::Numeric.uses_gc());
+        assert!(Profile::Edge.uses_gc());
+        assert!(Profile::Realtime.uses_gc());
+        assert!(!Profile::Embedded.uses_gc());
+    }
+
+    #[test]
+    fn test_profile_pause_guarantees() {
+        assert!(Profile::Server.has_bounded_pauses());
+        assert!(Profile::Realtime.has_bounded_pauses());
+        assert!(!Profile::Default.has_bounded_pauses());
+
+        assert_eq!(Profile::Server.pause_guarantee_us(), Some(500));
+        assert_eq!(Profile::Realtime.pause_guarantee_us(), Some(1000));
+        assert_eq!(Profile::Default.pause_guarantee_us(), None);
+    }
+
+    #[test]
+    fn test_profile_static_allocation() {
+        assert!(!Profile::Default.uses_static_allocation());
+        assert!(Profile::Embedded.uses_static_allocation());
     }
 
     #[test]
