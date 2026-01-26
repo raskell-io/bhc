@@ -52,11 +52,7 @@ pub fn compile_kernel(kernel: &Kernel, device: &DeviceInfo) -> GpuResult<Compile
     // Generate kernel code
     generate_kernel_code(&mut code, &params, kernel, device)?;
 
-    let mut module = CompiledModule::from_text(
-        params.name.clone(),
-        code,
-        device.arch_name(),
-    );
+    let mut module = CompiledModule::from_text(params.name.clone(), code, device.arch_name());
     module.add_entry_point(params.name);
 
     Ok(module)
@@ -69,18 +65,34 @@ fn generate_kernel_metadata(
     device: &DeviceInfo,
 ) -> GpuResult<()> {
     writeln!(code, ".amdhsa_kernel {}", params.name).unwrap();
-    writeln!(code, "    .amdhsa_group_segment_fixed_size {}", params.shared_memory).unwrap();
+    writeln!(
+        code,
+        "    .amdhsa_group_segment_fixed_size {}",
+        params.shared_memory
+    )
+    .unwrap();
     writeln!(code, "    .amdhsa_private_segment_fixed_size 0").unwrap();
-    writeln!(code, "    .amdhsa_kernarg_size {}", (params.inputs.len() + params.outputs.len()) * 8).unwrap();
+    writeln!(
+        code,
+        "    .amdhsa_kernarg_size {}",
+        (params.inputs.len() + params.outputs.len()) * 8
+    )
+    .unwrap();
     writeln!(code, "    .amdhsa_user_sgpr_kernarg_segment_ptr 1").unwrap();
 
     // Wavefront size
-    let wavefront_size = if device.arch_name().starts_with("gfx10") || device.arch_name().starts_with("gfx11") {
-        32 // RDNA
-    } else {
-        64 // GCN/CDNA
-    };
-    writeln!(code, "    .amdhsa_wavefront_size32 {}", wavefront_size == 32).unwrap();
+    let wavefront_size =
+        if device.arch_name().starts_with("gfx10") || device.arch_name().starts_with("gfx11") {
+            32 // RDNA
+        } else {
+            64 // GCN/CDNA
+        };
+    writeln!(
+        code,
+        "    .amdhsa_wavefront_size32 {}",
+        wavefront_size == 32
+    )
+    .unwrap();
 
     writeln!(code, ".end_amdhsa_kernel").unwrap();
     writeln!(code).unwrap();
@@ -101,21 +113,39 @@ fn generate_kernel_code(
     writeln!(code, "{}:", params.name).unwrap();
 
     // Determine wavefront size
-    let wave_size = if device.arch_name().starts_with("gfx10") || device.arch_name().starts_with("gfx11") {
-        32
-    } else {
-        64
-    };
+    let wave_size =
+        if device.arch_name().starts_with("gfx10") || device.arch_name().starts_with("gfx11") {
+            32
+        } else {
+            64
+        };
 
     // Load kernel arguments
     writeln!(code, "    ; Load kernel arguments").unwrap();
-    writeln!(code, "    s_load_dwordx2 s[0:1], s[4:5], 0x0    ; Load first arg pointer").unwrap();
+    writeln!(
+        code,
+        "    s_load_dwordx2 s[0:1], s[4:5], 0x0    ; Load first arg pointer"
+    )
+    .unwrap();
 
     // Get thread ID
     writeln!(code, "    ; Calculate global thread ID").unwrap();
-    writeln!(code, "    v_mov_b32 v0, s6                      ; workgroup_id_x").unwrap();
-    writeln!(code, "    v_lshlrev_b32 v0, {}, v0            ; * workgroup_size", (params.block_size as f64).log2() as u32).unwrap();
-    writeln!(code, "    v_add_u32 v0, v0, v1                  ; + local_id_x").unwrap();
+    writeln!(
+        code,
+        "    v_mov_b32 v0, s6                      ; workgroup_id_x"
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    v_lshlrev_b32 v0, {}, v0            ; * workgroup_size",
+        (params.block_size as f64).log2() as u32
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    v_add_u32 v0, v0, v1                  ; + local_id_x"
+    )
+    .unwrap();
 
     // Generate kernel body
     match &kernel.body {
@@ -340,7 +370,8 @@ mod tests {
         device.kind = crate::device::DeviceKind::Rocm;
         device.compute_capability = (9, 8);
 
-        let code = generate_elementwise_kernel("add_kernel", BinaryOp::Add, DType::Float32, &device);
+        let code =
+            generate_elementwise_kernel("add_kernel", BinaryOp::Add, DType::Float32, &device);
 
         assert!(code.contains(".globl add_kernel"));
         assert!(code.contains("v_add_f32"));

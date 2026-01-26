@@ -258,12 +258,9 @@ impl LaunchConfig {
     /// Get total number of threads.
     #[must_use]
     pub const fn total_threads(&self) -> u64 {
-        let grid = (self.grid_dim.0 as u64)
-            * (self.grid_dim.1 as u64)
-            * (self.grid_dim.2 as u64);
-        let block = (self.block_dim.0 as u64)
-            * (self.block_dim.1 as u64)
-            * (self.block_dim.2 as u64);
+        let grid = (self.grid_dim.0 as u64) * (self.grid_dim.1 as u64) * (self.grid_dim.2 as u64);
+        let block =
+            (self.block_dim.0 as u64) * (self.block_dim.1 as u64) * (self.block_dim.2 as u64);
         grid * block
     }
 

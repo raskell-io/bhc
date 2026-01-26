@@ -288,8 +288,7 @@ impl<T: FfiSafe> DeviceBuffer<T> {
     /// Get the memory layout of the buffer.
     #[must_use]
     pub fn layout(&self) -> Layout {
-        Layout::from_size_align(self.size_bytes(), std::mem::align_of::<T>())
-            .expect("valid layout")
+        Layout::from_size_align(self.size_bytes(), std::mem::align_of::<T>()).expect("valid layout")
     }
 
     /// Get a raw byte view of the buffer.
@@ -485,7 +484,11 @@ impl AllocFlags {
 }
 
 /// Allocate device memory.
-fn allocate_device_memory(size: usize, _device: DeviceId, kind: DeviceKind) -> GpuResult<DevicePtr> {
+fn allocate_device_memory(
+    size: usize,
+    _device: DeviceId,
+    kind: DeviceKind,
+) -> GpuResult<DevicePtr> {
     if size == 0 {
         return Ok(DevicePtr::null());
     }
@@ -499,9 +502,8 @@ fn allocate_device_memory(size: usize, _device: DeviceId, kind: DeviceKind) -> G
 
         DeviceKind::Mock | _ => {
             // Mock allocation: use host memory
-            let layout = Layout::from_size_align(size, 256).map_err(|_| {
-                GpuError::AllocationFailed { size }
-            })?;
+            let layout = Layout::from_size_align(size, 256)
+                .map_err(|_| GpuError::AllocationFailed { size })?;
 
             // Safety: layout is valid
             let ptr = unsafe { std::alloc::alloc(layout) };

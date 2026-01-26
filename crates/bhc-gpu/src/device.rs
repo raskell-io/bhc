@@ -170,7 +170,10 @@ impl DeviceInfo {
     pub fn arch_name(&self) -> String {
         match self.kind {
             DeviceKind::Cuda => {
-                format!("sm_{}{}", self.compute_capability.0, self.compute_capability.1)
+                format!(
+                    "sm_{}{}",
+                    self.compute_capability.0, self.compute_capability.1
+                )
             }
             DeviceKind::Rocm => {
                 format!(

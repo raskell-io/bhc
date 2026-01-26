@@ -83,6 +83,7 @@ pub mod codegen;
 pub mod context;
 pub mod device;
 pub mod kernel;
+pub mod lower;
 pub mod memory;
 pub mod runtime;
 pub mod transfer;
@@ -96,6 +97,7 @@ use thiserror::Error;
 pub use context::GpuContext;
 pub use device::{DeviceId, DeviceInfo, DeviceKind};
 pub use kernel::{GpuKernel, KernelConfig, LaunchConfig};
+pub use lower::{CompiledKernel, GpuLowering, GpuSuitability, LoweringConfig};
 pub use memory::{DeviceBuffer, DevicePtr};
 pub use transfer::{Transfer, TransferHandle, TransferQueue};
 

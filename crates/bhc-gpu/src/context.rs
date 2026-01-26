@@ -295,22 +295,18 @@ impl GpuContext {
 
         match self.device.kind {
             #[cfg(feature = "cuda")]
-            DeviceKind::Cuda => {
-                crate::runtime::cuda::memcpy_host_to_device(
-                    dst.as_ptr(),
-                    src.as_ptr() as *const u8,
-                    size,
-                )
-            }
+            DeviceKind::Cuda => crate::runtime::cuda::memcpy_host_to_device(
+                dst.as_ptr(),
+                src.as_ptr() as *const u8,
+                size,
+            ),
 
             #[cfg(feature = "rocm")]
-            DeviceKind::Rocm => {
-                crate::runtime::rocm::memcpy_host_to_device(
-                    dst.as_ptr(),
-                    src.as_ptr() as *const u8,
-                    size,
-                )
-            }
+            DeviceKind::Rocm => crate::runtime::rocm::memcpy_host_to_device(
+                dst.as_ptr(),
+                src.as_ptr() as *const u8,
+                size,
+            ),
 
             DeviceKind::Mock | _ => {
                 // Mock: direct memcpy
@@ -344,22 +340,18 @@ impl GpuContext {
 
         match self.device.kind {
             #[cfg(feature = "cuda")]
-            DeviceKind::Cuda => {
-                crate::runtime::cuda::memcpy_device_to_host(
-                    dst.as_mut_ptr() as *mut u8,
-                    src.as_ptr(),
-                    size,
-                )
-            }
+            DeviceKind::Cuda => crate::runtime::cuda::memcpy_device_to_host(
+                dst.as_mut_ptr() as *mut u8,
+                src.as_ptr(),
+                size,
+            ),
 
             #[cfg(feature = "rocm")]
-            DeviceKind::Rocm => {
-                crate::runtime::rocm::memcpy_device_to_host(
-                    dst.as_mut_ptr() as *mut u8,
-                    src.as_ptr(),
-                    size,
-                )
-            }
+            DeviceKind::Rocm => crate::runtime::rocm::memcpy_device_to_host(
+                dst.as_mut_ptr() as *mut u8,
+                src.as_ptr(),
+                size,
+            ),
 
             DeviceKind::Mock | _ => {
                 // Mock: direct memcpy

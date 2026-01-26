@@ -359,7 +359,10 @@ mod tests {
 
     #[test]
     fn test_transfer_direction() {
-        assert_ne!(TransferDirection::HostToDevice, TransferDirection::DeviceToHost);
+        assert_ne!(
+            TransferDirection::HostToDevice,
+            TransferDirection::DeviceToHost
+        );
     }
 
     #[test]

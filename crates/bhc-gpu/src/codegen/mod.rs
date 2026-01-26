@@ -41,7 +41,7 @@ pub mod ptx;
 use crate::device::DeviceInfo;
 use crate::kernel::CompiledModule;
 use crate::GpuResult;
-use bhc_tensor_ir::{Kernel, DType, Shape};
+use bhc_tensor_ir::{DType, Kernel, Shape};
 
 /// Generate a mock compiled kernel for testing.
 pub fn mock_compile_kernel(kernel: &Kernel, device: &DeviceInfo) -> GpuResult<CompiledModule> {
