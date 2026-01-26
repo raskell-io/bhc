@@ -387,40 +387,40 @@ cargo bench
 
 ## Implementation Roadmap
 
-### Current Status: Pre-Alpha
+### Current Status: Alpha
 
-The compiler frontend (parsing, type checking) is functional. The interpreter works. Native code generation is not yet implemented.
+The compiler is functional end-to-end. Native code generation works via LLVM. The runtime system includes a generational GC. Real Haskell programs (recursive functions, pattern matching, IO) compile and run.
 
-### Phase 1: Core Compilation (Target: Native Hello World)
+### Phase 1: Core Compilation ✅ COMPLETE
 
 **Goal:** Compile and run `main = putStrLn "Hello, World!"` to a native executable.
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 1.1 LLVM Integration | 🔴 | bhc-codegen | Integrate inkwell/llvm-sys for real LLVM IR emission |
-| 1.2 Core → LLVM | 🔴 | bhc-codegen | Lower Core IR to LLVM IR |
-| 1.3 RTS Bootstrap | 🔴 | bhc-rts | Minimal runtime: entry point, allocation, GC roots |
-| 1.4 Basic GC | 🔴 | bhc-rts-gc | Simple mark-sweep collector |
-| 1.5 Linking | 🔴 | bhc-linker | Link object files + RTS into executable |
-| 1.6 IO Primitives | 🔴 | bhc-rts | putStrLn, getLine via FFI to libc |
+| 1.1 LLVM Integration | 🟢 | bhc-codegen | inkwell/llvm-sys integrated, multi-target support |
+| 1.2 Core → LLVM | 🟢 | bhc-codegen | 8,000+ lines: literals, functions, case, ADTs, closures |
+| 1.3 RTS Bootstrap | 🟢 | bhc-rts | Entry points, allocation, GC roots, profile configs |
+| 1.4 Basic GC | 🟢 | bhc-rts-gc | Generational collector (nursery/survivor/old) |
+| 1.5 Linking | 🟢 | bhc-linker | Multi-platform (Unix/Windows/WASM), static/dynamic |
+| 1.6 IO Primitives | 🟢 | bhc-rts | putStrLn, print, putChar via FFI |
 
-**Exit Criteria:** `bhc Main.hs -o main && ./main` prints "Hello, World!"
+**Exit Criteria:** ✅ `bhc Main.hs -o main && ./main` prints "Hello, World!"
 
-### Phase 2: Language Completeness
+### Phase 2: Language Completeness 🟡 ~90% COMPLETE
 
 **Goal:** Compile real Haskell programs (e.g., small utilities).
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 2.1 Pattern Matching Codegen | 🔴 | bhc-codegen | Compile case expressions to native code |
-| 2.2 Closures | 🔴 | bhc-codegen | Closure representation and calling convention |
-| 2.3 Thunks & Laziness | 🔴 | bhc-rts | Thunk representation, forcing, update frames |
-| 2.4 Type Classes | 🟡 | bhc-typeck | Dictionary passing compilation |
-| 2.5 Let/Where Bindings | 🔴 | bhc-codegen | Local binding compilation |
-| 2.6 Recursion | 🔴 | bhc-codegen | Recursive bindings, tail call optimization |
-| 2.7 Prelude | 🔴 | stdlib | Basic Prelude functions compiled |
+| 2.1 Pattern Matching Codegen | 🟢 | bhc-codegen | Full ADT matching, nested patterns, tag dispatch |
+| 2.2 Closures | 🟢 | bhc-codegen | Free variable capture, closure allocation/invocation |
+| 2.3 Thunks & Laziness | 🟢 | bhc-rts | Thunk creation, forcing, blackhole detection |
+| 2.4 Type Classes | 🟡 | bhc-typeck | Dictionary passing works, some edge cases remain |
+| 2.5 Let/Where Bindings | 🟢 | bhc-codegen | Recursive and non-recursive, proper scoping |
+| 2.6 Recursion | 🟢 | bhc-codegen | Mutual recursion, tail call optimization |
+| 2.7 Prelude | 🟡 | stdlib | 50+ builtins (map, filter, fold, IO, etc.) |
 
-**Exit Criteria:** Compile and run a recursive Fibonacci program.
+**Exit Criteria:** ✅ Recursive Fibonacci compiles and runs correctly.
 
 ### Phase 3: Numeric Profile
 
@@ -429,13 +429,13 @@ The compiler frontend (parsing, type checking) is functional. The interpreter wo
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
 | 3.1 Core → Tensor IR | 🟡 | bhc-tensor-ir | Lower numeric Core to Tensor IR |
-| 3.2 Fusion Passes | 🟡 | bhc-tensor-ir | Implement guaranteed fusion patterns |
+| 3.2 Fusion Passes | 🟢 | bhc-tensor-ir | All 4 guaranteed patterns per H26-SPEC |
 | 3.3 Tensor → Loop IR | 🟡 | bhc-loop-ir | Lower Tensor IR to explicit loops |
 | 3.4 Vectorization | 🟡 | bhc-loop-ir | SIMD auto-vectorization pass |
 | 3.5 Parallelization | 🟡 | bhc-loop-ir | Parallel loop detection and codegen |
 | 3.6 Loop → LLVM | 🔴 | bhc-codegen | Emit LLVM IR from Loop IR |
-| 3.7 Hot Arena | 🔴 | bhc-rts | Arena allocator for kernel temporaries |
-| 3.8 Pinned Buffers | 🔴 | bhc-rts | Non-moving memory for FFI |
+| 3.7 Hot Arena | 🟡 | bhc-rts | Arena allocator infrastructure in place |
+| 3.8 Pinned Buffers | 🟡 | bhc-rts | Pinned object support in GC |
 | 3.9 Kernel Reports | 🟡 | bhc-driver | `--kernel-report` diagnostics |
 
 **Exit Criteria:** `sum (map (*2) [1..1000000])` fuses to single loop, runs 10x faster than interpreted.
@@ -446,10 +446,10 @@ The compiler frontend (parsing, type checking) is functional. The interpreter wo
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 4.1 WASM Emitter | 🟡 | bhc-wasm | Emit WASM binary from IR |
-| 4.2 WASI Runtime | 🔴 | bhc-wasm | WASI imports for IO |
-| 4.3 Edge Profile RTS | 🔴 | bhc-rts | Minimal runtime for WASM |
-| 4.4 Memory Model | 🔴 | bhc-wasm | Linear memory management |
+| 4.1 WASM Emitter | 🟢 | bhc-wasm | Binary emission, instruction encoding |
+| 4.2 WASI Runtime | 🟢 | bhc-wasm | fd_write, proc_exit, runtime functions |
+| 4.3 Edge Profile RTS | 🟡 | bhc-rts | Minimal runtime for WASM |
+| 4.4 Memory Model | 🟡 | bhc-wasm | Linear memory, arena allocator |
 
 **Exit Criteria:** `bhc --target=wasi Main.hs -o app.wasm && wasmtime app.wasm` works.
 
