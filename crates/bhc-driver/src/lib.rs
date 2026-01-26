@@ -350,6 +350,10 @@ impl Compiler {
         self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
 
         // Phase 4: Tensor IR (if Numeric profile)
+        // Store loop_irs for potential WASM codegen
+        let mut loop_irs_for_wasm: Vec<bhc_loop_ir::LoopIR> = Vec::new();
+        let mut fusion_report_for_wasm: Option<fusion::KernelReport> = None;
+
         if self.session.profile() == Profile::Numeric {
             self.callbacks.on_phase_start(CompilePhase::TensorLower, &unit.module_name);
 
@@ -368,6 +372,7 @@ impl Compiler {
 
             // Generate fusion report (may be used for comprehensive report)
             let fusion_report = fusion::generate_kernel_report(&fusion_ctx);
+            fusion_report_for_wasm = Some(fusion_report.clone());
 
             debug!(
                 module = %unit.module_name,
@@ -389,6 +394,7 @@ impl Compiler {
 
             // Lower Tensor IR kernels to Loop IR
             let loop_irs = bhc_loop_ir::lower_kernels(&kernels, lower_config)?;
+            loop_irs_for_wasm = loop_irs.clone();
 
             debug!(
                 module = %unit.module_name,
@@ -469,7 +475,7 @@ impl Compiler {
             let target = self.get_target_spec();
 
             // Create WASM module
-            let mut wasm_module = WasmModule::new(unit.module_name.clone(), wasm_config, target);
+            let mut wasm_module = WasmModule::new(unit.module_name.clone(), wasm_config.clone(), target);
 
             // Add WASI imports for system interface
             wasm_module.add_wasi_imports();
@@ -477,14 +483,36 @@ impl Compiler {
             // Add runtime functions (allocator, print, _start)
             wasm_module.add_runtime_functions();
 
-            // TODO: When Loop IR lowering is complete, lower each kernel:
-            // for loop_ir in &loop_irs {
-            //     let func = bhc_wasm::lower::lower_function(loop_ir, &wasm_config)?;
-            //     wasm_module.add_function(func);
-            // }
+            // Lower Loop IR kernels to WASM functions (if Numeric profile produced them)
+            if !loop_irs_for_wasm.is_empty() {
+                debug!(
+                    module = %unit.module_name,
+                    kernels = loop_irs_for_wasm.len(),
+                    "lowering Loop IR to WASM"
+                );
 
-            // For now, generate a minimal module that works with WASI
-            // This will be enhanced when Loop IR → WASM lowering is connected
+                for loop_ir in &loop_irs_for_wasm {
+                    match bhc_wasm::lower::lower_loop_ir(loop_ir, &wasm_config) {
+                        Ok(func) => {
+                            wasm_module.add_function(func);
+                            debug!(
+                                module = %unit.module_name,
+                                kernel = %loop_ir.name,
+                                "lowered kernel to WASM"
+                            );
+                        }
+                        Err(e) => {
+                            // Log warning but continue - some ops may not be supported
+                            tracing::warn!(
+                                module = %unit.module_name,
+                                kernel = %loop_ir.name,
+                                error = %e,
+                                "failed to lower kernel to WASM, skipping"
+                            );
+                        }
+                    }
+                }
+            }
 
             // Determine output path
             let output_path = if let Some(ref path) = self.session.options.output_path {

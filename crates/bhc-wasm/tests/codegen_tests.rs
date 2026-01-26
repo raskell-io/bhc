@@ -443,3 +443,268 @@ fn test_simd_function() {
 
     assert!(module.verify().is_ok());
 }
+
+// ============================================================================
+// Loop IR to WASM Lowering Tests
+// ============================================================================
+
+mod loop_ir_lowering {
+    use bhc_index::Idx;
+    use bhc_intern::Symbol;
+    use bhc_loop_ir::{Body, LoopIR, LoopType, Param, ScalarType, Stmt, Value, ValueId};
+    use bhc_wasm::lower::lower_loop_ir;
+    use bhc_wasm::{WasmConfig, WasmType};
+
+    /// Create a simple identity function: fn test(x: i32) -> i32 { return x; }
+    fn make_identity_function() -> LoopIR {
+        LoopIR {
+            name: Symbol::intern("identity"),
+            params: vec![Param {
+                name: Symbol::intern("x"),
+                ty: LoopType::Scalar(ScalarType::I32),
+                is_ptr: false,
+            }],
+            return_ty: LoopType::Scalar(ScalarType::I32),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![Stmt::Return(Some(Value::Var(
+                    ValueId::new(0),
+                    LoopType::Scalar(ScalarType::I32),
+                )))],
+            },
+            loop_info: vec![],
+        }
+    }
+
+    /// Create a function that returns an i32 constant.
+    fn make_const_function(value: i64) -> LoopIR {
+        LoopIR {
+            name: Symbol::intern("const_42"),
+            params: vec![],
+            return_ty: LoopType::Scalar(ScalarType::I32),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![Stmt::Return(Some(Value::IntConst(value, ScalarType::I32)))],
+            },
+            loop_info: vec![],
+        }
+    }
+
+    /// Create an add function: fn add(a: i32, b: i32) -> i32 { return a + b; }
+    fn make_add_function() -> LoopIR {
+        use bhc_loop_ir::{BinOp, Expr};
+
+        LoopIR {
+            name: Symbol::intern("add"),
+            params: vec![
+                Param {
+                    name: Symbol::intern("a"),
+                    ty: LoopType::Scalar(ScalarType::I32),
+                    is_ptr: false,
+                },
+                Param {
+                    name: Symbol::intern("b"),
+                    ty: LoopType::Scalar(ScalarType::I32),
+                    is_ptr: false,
+                },
+            ],
+            return_ty: LoopType::Scalar(ScalarType::I32),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![
+                    // result = a + b
+                    Stmt::Assign(
+                        ValueId::new(2),
+                        LoopType::Scalar(ScalarType::I32),
+                        Expr::BinOp(
+                            BinOp::Add,
+                            Value::Var(ValueId::new(0), LoopType::Scalar(ScalarType::I32)),
+                            Value::Var(ValueId::new(1), LoopType::Scalar(ScalarType::I32)),
+                        ),
+                    ),
+                    // return result
+                    Stmt::Return(Some(Value::Var(
+                        ValueId::new(2),
+                        LoopType::Scalar(ScalarType::I32),
+                    ))),
+                ],
+            },
+            loop_info: vec![],
+        }
+    }
+
+    /// Create a float multiply function: fn fmul(a: f32, b: f32) -> f32 { return a * b; }
+    fn make_fmul_function() -> LoopIR {
+        use bhc_loop_ir::{BinOp, Expr};
+
+        LoopIR {
+            name: Symbol::intern("fmul"),
+            params: vec![
+                Param {
+                    name: Symbol::intern("a"),
+                    ty: LoopType::Scalar(ScalarType::F32),
+                    is_ptr: false,
+                },
+                Param {
+                    name: Symbol::intern("b"),
+                    ty: LoopType::Scalar(ScalarType::F32),
+                    is_ptr: false,
+                },
+            ],
+            return_ty: LoopType::Scalar(ScalarType::F32),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![
+                    Stmt::Assign(
+                        ValueId::new(2),
+                        LoopType::Scalar(ScalarType::F32),
+                        Expr::BinOp(
+                            BinOp::Mul,
+                            Value::Var(ValueId::new(0), LoopType::Scalar(ScalarType::F32)),
+                            Value::Var(ValueId::new(1), LoopType::Scalar(ScalarType::F32)),
+                        ),
+                    ),
+                    Stmt::Return(Some(Value::Var(
+                        ValueId::new(2),
+                        LoopType::Scalar(ScalarType::F32),
+                    ))),
+                ],
+            },
+            loop_info: vec![],
+        }
+    }
+
+    #[test]
+    fn test_lower_identity_function() {
+        let ir = make_identity_function();
+        let config = WasmConfig::default();
+
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        // Check function name
+        assert_eq!(func.name.as_deref(), Some("identity"));
+
+        // Check signature: (param i32) (result i32)
+        assert_eq!(func.ty.params.len(), 1);
+        assert_eq!(func.ty.params[0], WasmType::I32);
+        assert_eq!(func.ty.results.len(), 1);
+        assert_eq!(func.ty.results[0], WasmType::I32);
+
+        // Body should have instructions
+        assert!(!func.body.is_empty());
+    }
+
+    #[test]
+    fn test_lower_const_function() {
+        let ir = make_const_function(42);
+        let config = WasmConfig::default();
+
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        // No params, returns i32
+        assert!(func.ty.params.is_empty());
+        assert_eq!(func.ty.results.len(), 1);
+        assert_eq!(func.ty.results[0], WasmType::I32);
+    }
+
+    #[test]
+    fn test_lower_add_function() {
+        let ir = make_add_function();
+        let config = WasmConfig::default();
+
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        // Check signature: (param i32 i32) (result i32)
+        assert_eq!(func.ty.params.len(), 2);
+        assert_eq!(func.ty.params[0], WasmType::I32);
+        assert_eq!(func.ty.params[1], WasmType::I32);
+        assert_eq!(func.ty.results.len(), 1);
+        assert_eq!(func.ty.results[0], WasmType::I32);
+
+        // Should have at least one local for the result
+        assert!(!func.locals.is_empty() || !func.body.is_empty());
+    }
+
+    #[test]
+    fn test_lower_float_function() {
+        let ir = make_fmul_function();
+        let config = WasmConfig::default();
+
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        // Check signature: (param f32 f32) (result f32)
+        assert_eq!(func.ty.params.len(), 2);
+        assert_eq!(func.ty.params[0], WasmType::F32);
+        assert_eq!(func.ty.params[1], WasmType::F32);
+        assert_eq!(func.ty.results.len(), 1);
+        assert_eq!(func.ty.results[0], WasmType::F32);
+    }
+
+    #[test]
+    fn test_lower_with_edge_config() {
+        let ir = make_identity_function();
+        let config = WasmConfig::edge_profile();
+
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        // Edge profile should still produce valid function
+        assert_eq!(func.name.as_deref(), Some("identity"));
+        assert!(!func.body.is_empty());
+    }
+
+    #[test]
+    fn test_lower_64bit_types() {
+        // Test i64 function
+        let ir = LoopIR {
+            name: Symbol::intern("identity_i64"),
+            params: vec![Param {
+                name: Symbol::intern("x"),
+                ty: LoopType::Scalar(ScalarType::I64),
+                is_ptr: false,
+            }],
+            return_ty: LoopType::Scalar(ScalarType::I64),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![Stmt::Return(Some(Value::Var(
+                    ValueId::new(0),
+                    LoopType::Scalar(ScalarType::I64),
+                )))],
+            },
+            loop_info: vec![],
+        };
+
+        let config = WasmConfig::default();
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        assert_eq!(func.ty.params[0], WasmType::I64);
+        assert_eq!(func.ty.results[0], WasmType::I64);
+    }
+
+    #[test]
+    fn test_lower_f64_types() {
+        // Test f64 function
+        let ir = LoopIR {
+            name: Symbol::intern("identity_f64"),
+            params: vec![Param {
+                name: Symbol::intern("x"),
+                ty: LoopType::Scalar(ScalarType::F64),
+                is_ptr: false,
+            }],
+            return_ty: LoopType::Scalar(ScalarType::F64),
+            allocs: vec![],
+            body: Body {
+                stmts: vec![Stmt::Return(Some(Value::Var(
+                    ValueId::new(0),
+                    LoopType::Scalar(ScalarType::F64),
+                )))],
+            },
+            loop_info: vec![],
+        };
+
+        let config = WasmConfig::default();
+        let func = lower_loop_ir(&ir, &config).expect("lowering should succeed");
+
+        assert_eq!(func.ty.params[0], WasmType::F64);
+        assert_eq!(func.ty.results[0], WasmType::F64);
+    }
+}
