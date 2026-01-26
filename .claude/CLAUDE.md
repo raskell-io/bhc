@@ -469,19 +469,21 @@ The compiler is feature-complete through Phase 5. Native code generation works v
 
 **Exit Criteria:** ✅ All M5 exit criteria tests pass (11 tests), structured concurrency guarantees verified.
 
-### Phase 6: GPU Backend
+### Phase 6: GPU Backend ✅ IN PROGRESS
 
 **Goal:** Offload numeric kernels to GPU.
 
 | Task | Status | Crate | Description |
 |------|--------|-------|-------------|
-| 6.1 PTX Codegen | 🟡 | bhc-gpu | NVIDIA PTX emission |
-| 6.2 AMDGCN Codegen | 🟡 | bhc-gpu | AMD AMDGCN emission |
-| 6.3 Device Memory | 🔴 | bhc-gpu | Host/device transfer management |
-| 6.4 Kernel Launch | 🔴 | bhc-gpu | GPU kernel invocation |
-| 6.5 Tensor → GPU | 🔴 | bhc-gpu | Lower Tensor IR to GPU kernels |
+| 6.1 PTX Codegen | 🟢 | bhc-gpu | NVIDIA PTX emission (Map, ZipWith, Reduce with parallel reduction) |
+| 6.2 AMDGCN Codegen | 🟡 | bhc-gpu | AMD AMDGCN emission (structure complete, needs testing) |
+| 6.3 Device Memory | 🟢 | bhc-gpu | Host/device transfer management via CUDA FFI |
+| 6.4 Kernel Launch | 🟢 | bhc-gpu | GPU kernel invocation with dynamic CUDA loading |
+| 6.5 Tensor → GPU | 🟢 | bhc-gpu | Lower Tensor IR to GPU kernels with caching |
 
 **Exit Criteria:** Matrix multiplication runs on GPU, 100x faster than CPU for large matrices.
+
+**Notes:** End-to-end testing blocked by LLVM version mismatch (system LLVM 21 vs expected LLVM 18)
 
 ### Phase 7: Advanced Profiles
 
