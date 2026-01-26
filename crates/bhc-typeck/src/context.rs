@@ -157,18 +157,68 @@ impl TyCtxt {
             .collect();
     }
 
+    /// Propagate superclass constraints.
+    ///
+    /// For each constraint `C ty` where class C has superclasses S1, S2, ...,
+    /// this generates additional constraints `S1 ty`, `S2 ty`, etc.
+    ///
+    /// For example, if we have `Ord a` and `Ord` has superclass `Eq`,
+    /// this will also generate `Eq a`.
+    fn propagate_superclass_constraints(&mut self) {
+        let mut new_constraints = Vec::new();
+        let mut seen = rustc_hash::FxHashSet::default();
+
+        // Track which (class, type) pairs we've already processed
+        for c in &self.constraints {
+            seen.insert((c.class, c.args.clone()));
+        }
+
+        // Process constraints and generate superclass constraints
+        let mut worklist: Vec<Constraint> = self.constraints.clone();
+
+        while let Some(constraint) = worklist.pop() {
+            // Look up the class to get its superclasses
+            let supers = match self.env.lookup_class(constraint.class) {
+                Some(info) => info.supers.clone(),
+                None => continue, // Unknown class, skip
+            };
+
+            // Generate a constraint for each superclass
+            for super_class in supers {
+                let key = (super_class, constraint.args.clone());
+                if !seen.contains(&key) {
+                    seen.insert(key);
+                    let new_constraint = Constraint {
+                        class: super_class,
+                        args: constraint.args.clone(),
+                        span: constraint.span,
+                    };
+                    new_constraints.push(new_constraint.clone());
+                    worklist.push(new_constraint); // Process transitively
+                }
+            }
+        }
+
+        // Add all new constraints
+        self.constraints.extend(new_constraints);
+    }
+
     /// Solve collected constraints using instance resolution.
     ///
     /// For each constraint:
     /// 1. Apply current substitution to get the concrete type
-    /// 2. Apply functional dependency improvement
-    /// 3. Look up an instance for the class and type
-    /// 4. If found, the constraint is satisfied
-    /// 5. If not found and type is a variable, try defaulting
-    /// 6. If not found and type is concrete, emit an error
+    /// 2. Propagate superclass constraints
+    /// 3. Apply functional dependency improvement
+    /// 4. Look up an instance for the class and type
+    /// 5. If found, the constraint is satisfied
+    /// 6. If not found and type is a variable, try defaulting
+    /// 7. If not found and type is concrete, emit an error
     pub fn solve_constraints(&mut self) {
         // First apply substitution to all constraints
         self.apply_subst_to_constraints();
+
+        // Propagate superclass constraints: if we have `Ord a`, also generate `Eq a`
+        self.propagate_superclass_constraints();
 
         // Apply functional dependency improvement
         // This may add new substitutions based on fundeps
@@ -1200,10 +1250,11 @@ impl TyCtxt {
             self.env.insert_global_by_name(method.name, method.ty.clone());
         }
 
-        // TODO: Type-check default method implementations
-        // for default in &class.defaults {
-        //     self.check_value_def(default);
-        // }
+        // Type-check default method implementations.
+        // Default methods must conform to their declared signatures.
+        for default in &class.defaults {
+            self.check_value_def(default);
+        }
     }
 
     /// Register a type class instance.

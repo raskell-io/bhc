@@ -79,6 +79,163 @@ module BHC.Prelude (
 import GHC.Prim
 import GHC.Types hiding (Module)
 
+-- ============================================================
+-- Primitive Operations (FFI)
+-- ============================================================
+
+-- Int primitives
+foreign import ccall unsafe "bhc_eq_int" primEqInt :: Int -> Int -> Bool
+foreign import ccall unsafe "bhc_compare_int" primCompareInt :: Int -> Int -> Ordering
+foreign import ccall unsafe "bhc_lt_int" primLtInt :: Int -> Int -> Bool
+foreign import ccall unsafe "bhc_le_int" primLeInt :: Int -> Int -> Bool
+foreign import ccall unsafe "bhc_gt_int" primGtInt :: Int -> Int -> Bool
+foreign import ccall unsafe "bhc_ge_int" primGeInt :: Int -> Int -> Bool
+foreign import ccall unsafe "bhc_add_int" primAddInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_sub_int" primSubInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_mul_int" primMulInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_negate_int" primNegateInt :: Int -> Int
+foreign import ccall unsafe "bhc_quot_int" primQuotInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_rem_int" primRemInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_div_int" primDivInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_mod_int" primModInt :: Int -> Int -> Int
+foreign import ccall unsafe "bhc_min_int" primMinInt :: Int
+foreign import ccall unsafe "bhc_max_int" primMaxInt :: Int
+foreign import ccall unsafe "bhc_int_to_integer" primIntToInteger :: Int -> Integer
+foreign import ccall unsafe "bhc_integer_to_int" primIntegerToInt :: Integer -> Int
+foreign import ccall unsafe "bhc_show_int" primShowInt :: Int -> String
+foreign import ccall unsafe "bhc_reads_prec_int" primReadsPrecInt :: Int -> ReadS Int
+
+-- Float primitives
+foreign import ccall unsafe "bhc_eq_float" primEqFloat :: Float -> Float -> Bool
+foreign import ccall unsafe "bhc_compare_float" primCompareFloat :: Float -> Float -> Ordering
+foreign import ccall unsafe "bhc_lt_float" primLtFloat :: Float -> Float -> Bool
+foreign import ccall unsafe "bhc_le_float" primLeFloat :: Float -> Float -> Bool
+foreign import ccall unsafe "bhc_gt_float" primGtFloat :: Float -> Float -> Bool
+foreign import ccall unsafe "bhc_ge_float" primGeFloat :: Float -> Float -> Bool
+foreign import ccall unsafe "bhc_add_float" primAddFloat :: Float -> Float -> Float
+foreign import ccall unsafe "bhc_sub_float" primSubFloat :: Float -> Float -> Float
+foreign import ccall unsafe "bhc_mul_float" primMulFloat :: Float -> Float -> Float
+foreign import ccall unsafe "bhc_div_float" primDivFloat :: Float -> Float -> Float
+foreign import ccall unsafe "bhc_negate_float" primNegateFloat :: Float -> Float
+foreign import ccall unsafe "bhc_abs_float" primAbsFloat :: Float -> Float
+foreign import ccall unsafe "bhc_integer_to_float" primIntegerToFloat :: Integer -> Float
+foreign import ccall unsafe "bhc_rational_to_float" primRationalToFloat :: Rational -> Float
+foreign import ccall unsafe "bhc_float_to_rational" primFloatToRational :: Float -> Rational
+foreign import ccall unsafe "bhc_exp_float" primExpFloat :: Float -> Float
+foreign import ccall unsafe "bhc_log_float" primLogFloat :: Float -> Float
+foreign import ccall unsafe "bhc_sqrt_float" primSqrtFloat :: Float -> Float
+foreign import ccall unsafe "bhc_pow_float" primPowFloat :: Float -> Float -> Float
+foreign import ccall unsafe "bhc_sin_float" primSinFloat :: Float -> Float
+foreign import ccall unsafe "bhc_cos_float" primCosFloat :: Float -> Float
+foreign import ccall unsafe "bhc_tan_float" primTanFloat :: Float -> Float
+foreign import ccall unsafe "bhc_asin_float" primAsinFloat :: Float -> Float
+foreign import ccall unsafe "bhc_acos_float" primAcosFloat :: Float -> Float
+foreign import ccall unsafe "bhc_atan_float" primAtanFloat :: Float -> Float
+foreign import ccall unsafe "bhc_sinh_float" primSinhFloat :: Float -> Float
+foreign import ccall unsafe "bhc_cosh_float" primCoshFloat :: Float -> Float
+foreign import ccall unsafe "bhc_tanh_float" primTanhFloat :: Float -> Float
+foreign import ccall unsafe "bhc_asinh_float" primAsinhFloat :: Float -> Float
+foreign import ccall unsafe "bhc_acosh_float" primAcoshFloat :: Float -> Float
+foreign import ccall unsafe "bhc_atanh_float" primAtanhFloat :: Float -> Float
+foreign import ccall unsafe "bhc_proper_fraction_float" primProperFractionFloat :: Integral b => Float -> (b, Float)
+foreign import ccall unsafe "bhc_truncate_float" primTruncateFloat :: Integral b => Float -> b
+foreign import ccall unsafe "bhc_round_float" primRoundFloat :: Integral b => Float -> b
+foreign import ccall unsafe "bhc_ceiling_float" primCeilingFloat :: Integral b => Float -> b
+foreign import ccall unsafe "bhc_floor_float" primFloorFloat :: Integral b => Float -> b
+foreign import ccall unsafe "bhc_show_float" primShowFloat :: Float -> String
+foreign import ccall unsafe "bhc_reads_prec_float" primReadsPrecFloat :: Int -> ReadS Float
+
+-- Double primitives
+foreign import ccall unsafe "bhc_eq_double" primEqDouble :: Double -> Double -> Bool
+foreign import ccall unsafe "bhc_compare_double" primCompareDouble :: Double -> Double -> Ordering
+foreign import ccall unsafe "bhc_lt_double" primLtDouble :: Double -> Double -> Bool
+foreign import ccall unsafe "bhc_le_double" primLeDouble :: Double -> Double -> Bool
+foreign import ccall unsafe "bhc_gt_double" primGtDouble :: Double -> Double -> Bool
+foreign import ccall unsafe "bhc_ge_double" primGeDouble :: Double -> Double -> Bool
+foreign import ccall unsafe "bhc_add_double" primAddDouble :: Double -> Double -> Double
+foreign import ccall unsafe "bhc_sub_double" primSubDouble :: Double -> Double -> Double
+foreign import ccall unsafe "bhc_mul_double" primMulDouble :: Double -> Double -> Double
+foreign import ccall unsafe "bhc_div_double" primDivDouble :: Double -> Double -> Double
+foreign import ccall unsafe "bhc_negate_double" primNegateDouble :: Double -> Double
+foreign import ccall unsafe "bhc_abs_double" primAbsDouble :: Double -> Double
+foreign import ccall unsafe "bhc_integer_to_double" primIntegerToDouble :: Integer -> Double
+foreign import ccall unsafe "bhc_rational_to_double" primRationalToDouble :: Rational -> Double
+foreign import ccall unsafe "bhc_double_to_rational" primDoubleToRational :: Double -> Rational
+foreign import ccall unsafe "bhc_exp_double" primExpDouble :: Double -> Double
+foreign import ccall unsafe "bhc_log_double" primLogDouble :: Double -> Double
+foreign import ccall unsafe "bhc_sqrt_double" primSqrtDouble :: Double -> Double
+foreign import ccall unsafe "bhc_pow_double" primPowDouble :: Double -> Double -> Double
+foreign import ccall unsafe "bhc_sin_double" primSinDouble :: Double -> Double
+foreign import ccall unsafe "bhc_cos_double" primCosDouble :: Double -> Double
+foreign import ccall unsafe "bhc_tan_double" primTanDouble :: Double -> Double
+foreign import ccall unsafe "bhc_asin_double" primAsinDouble :: Double -> Double
+foreign import ccall unsafe "bhc_acos_double" primAcosDouble :: Double -> Double
+foreign import ccall unsafe "bhc_atan_double" primAtanDouble :: Double -> Double
+foreign import ccall unsafe "bhc_sinh_double" primSinhDouble :: Double -> Double
+foreign import ccall unsafe "bhc_cosh_double" primCoshDouble :: Double -> Double
+foreign import ccall unsafe "bhc_tanh_double" primTanhDouble :: Double -> Double
+foreign import ccall unsafe "bhc_asinh_double" primAsinhDouble :: Double -> Double
+foreign import ccall unsafe "bhc_acosh_double" primAcoshDouble :: Double -> Double
+foreign import ccall unsafe "bhc_atanh_double" primAtanhDouble :: Double -> Double
+foreign import ccall unsafe "bhc_proper_fraction_double" primProperFractionDouble :: Integral b => Double -> (b, Double)
+foreign import ccall unsafe "bhc_truncate_double" primTruncateDouble :: Integral b => Double -> b
+foreign import ccall unsafe "bhc_round_double" primRoundDouble :: Integral b => Double -> b
+foreign import ccall unsafe "bhc_ceiling_double" primCeilingDouble :: Integral b => Double -> b
+foreign import ccall unsafe "bhc_floor_double" primFloorDouble :: Integral b => Double -> b
+foreign import ccall unsafe "bhc_show_double" primShowDouble :: Double -> String
+foreign import ccall unsafe "bhc_reads_prec_double" primReadsPrecDouble :: Int -> ReadS Double
+
+-- Char primitives
+foreign import ccall unsafe "bhc_eq_char" primEqChar :: Char -> Char -> Bool
+foreign import ccall unsafe "bhc_compare_char" primCompareChar :: Char -> Char -> Ordering
+foreign import ccall unsafe "bhc_lt_char" primLtChar :: Char -> Char -> Bool
+foreign import ccall unsafe "bhc_le_char" primLeChar :: Char -> Char -> Bool
+foreign import ccall unsafe "bhc_gt_char" primGtChar :: Char -> Char -> Bool
+foreign import ccall unsafe "bhc_ge_char" primGeChar :: Char -> Char -> Bool
+foreign import ccall unsafe "bhc_char_to_int" primCharToInt :: Char -> Int
+foreign import ccall unsafe "bhc_int_to_char" primIntToChar :: Int -> Char
+foreign import ccall unsafe "bhc_show_char" primShowChar :: Char -> String
+foreign import ccall unsafe "bhc_reads_prec_char" primReadsPrecChar :: Int -> ReadS Char
+
+-- Rational type (for numeric operations)
+type Rational = Ratio Integer
+
+data Ratio a = !a :% !a
+infixl 7 :%
+
+(%) :: Integral a => a -> a -> Ratio a
+x % y = reduce (x * signum y) (abs y)
+  where
+    reduce a b = let g = gcd a b in (a `quot` g) :% (b `quot` g)
+infixl 7 %
+
+numerator, denominator :: Ratio a -> a
+numerator (x :% _) = x
+denominator (_ :% y) = y
+
+instance Integral a => Eq (Ratio a) where
+    (x :% y) == (x' :% y') = x == x' && y == y'
+
+instance Integral a => Ord (Ratio a) where
+    (x :% y) `compare` (x' :% y') = compare (x * y') (x' * y)
+
+instance Integral a => Num (Ratio a) where
+    (x :% y) + (x' :% y') = (x * y' + x' * y) % (y * y')
+    (x :% y) - (x' :% y') = (x * y' - x' * y) % (y * y')
+    (x :% y) * (x' :% y') = (x * x') % (y * y')
+    negate (x :% y) = negate x :% y
+    abs (x :% y) = abs x :% y
+    signum (x :% _) = signum x :% 1
+    fromInteger x = fromInteger x :% 1
+
+instance Integral a => Fractional (Ratio a) where
+    (x :% y) / (x' :% y') = (x * y') % (y * x')
+    recip (x :% y) = y % x
+    fromRational (x :% y) = fromInteger x :% fromInteger y
+
+instance (Integral a, Show a) => Show (Ratio a) where
+    show (x :% y) = show x ++ " % " ++ show y
+
 -- | Boolean type
 data Bool = False | True
     deriving (Eq, Ord, Show, Read, Enum, Bounded)
@@ -628,6 +785,219 @@ class (Functor t, Foldable t) => Traversable t where
     sequence = sequenceA
     {-# MINIMAL traverse | sequenceA #-}
 
+-- ============================================================
+-- Primitive Type Instances
+-- ============================================================
+
+-- Int instances
+instance Eq Int where
+    (==) = primEqInt
+
+instance Ord Int where
+    compare = primCompareInt
+    (<)  = primLtInt
+    (<=) = primLeInt
+    (>)  = primGtInt
+    (>=) = primGeInt
+
+instance Num Int where
+    (+) = primAddInt
+    (-) = primSubInt
+    (*) = primMulInt
+    negate = primNegateInt
+    abs x = if x < 0 then negate x else x
+    signum x = if x < 0 then (-1) else if x > 0 then 1 else 0
+    fromInteger = primIntegerToInt
+
+instance Real Int where
+    toRational x = toInteger x % 1
+
+instance Enum Int where
+    toEnum = id
+    fromEnum = id
+    succ x = x + 1
+    pred x = x - 1
+
+instance Bounded Int where
+    minBound = primMinInt
+    maxBound = primMaxInt
+
+instance Integral Int where
+    quot = primQuotInt
+    rem = primRemInt
+    div = primDivInt
+    mod = primModInt
+    quotRem x y = (quot x y, rem x y)
+    divMod x y = (div x y, mod x y)
+    toInteger = primIntToInteger
+
+instance Show Int where
+    show = primShowInt
+
+instance Read Int where
+    readsPrec = primReadsPrecInt
+
+-- Float instances
+instance Eq Float where
+    (==) = primEqFloat
+
+instance Ord Float where
+    compare = primCompareFloat
+    (<)  = primLtFloat
+    (<=) = primLeFloat
+    (>)  = primGtFloat
+    (>=) = primGeFloat
+
+instance Num Float where
+    (+) = primAddFloat
+    (-) = primSubFloat
+    (*) = primMulFloat
+    negate = primNegateFloat
+    abs = primAbsFloat
+    signum x = if x < 0 then (-1) else if x > 0 then 1 else 0
+    fromInteger = primIntegerToFloat
+
+instance Fractional Float where
+    (/) = primDivFloat
+    recip x = 1 / x
+    fromRational = primRationalToFloat
+
+instance Floating Float where
+    pi = 3.141592653589793
+    exp = primExpFloat
+    log = primLogFloat
+    sqrt = primSqrtFloat
+    (**) = primPowFloat
+    logBase x y = log y / log x
+    sin = primSinFloat
+    cos = primCosFloat
+    tan = primTanFloat
+    asin = primAsinFloat
+    acos = primAcosFloat
+    atan = primAtanFloat
+    sinh = primSinhFloat
+    cosh = primCoshFloat
+    tanh = primTanhFloat
+    asinh = primAsinhFloat
+    acosh = primAcoshFloat
+    atanh = primAtanhFloat
+
+instance Real Float where
+    toRational = primFloatToRational
+
+instance RealFrac Float where
+    properFraction = primProperFractionFloat
+    truncate = primTruncateFloat
+    round = primRoundFloat
+    ceiling = primCeilingFloat
+    floor = primFloorFloat
+
+instance Show Float where
+    show = primShowFloat
+
+instance Read Float where
+    readsPrec = primReadsPrecFloat
+
+-- Double instances
+instance Eq Double where
+    (==) = primEqDouble
+
+instance Ord Double where
+    compare = primCompareDouble
+    (<)  = primLtDouble
+    (<=) = primLeDouble
+    (>)  = primGtDouble
+    (>=) = primGeDouble
+
+instance Num Double where
+    (+) = primAddDouble
+    (-) = primSubDouble
+    (*) = primMulDouble
+    negate = primNegateDouble
+    abs = primAbsDouble
+    signum x = if x < 0 then (-1) else if x > 0 then 1 else 0
+    fromInteger = primIntegerToDouble
+
+instance Fractional Double where
+    (/) = primDivDouble
+    recip x = 1 / x
+    fromRational = primRationalToDouble
+
+instance Floating Double where
+    pi = 3.141592653589793238462643383279
+    exp = primExpDouble
+    log = primLogDouble
+    sqrt = primSqrtDouble
+    (**) = primPowDouble
+    logBase x y = log y / log x
+    sin = primSinDouble
+    cos = primCosDouble
+    tan = primTanDouble
+    asin = primAsinDouble
+    acos = primAcosDouble
+    atan = primAtanDouble
+    sinh = primSinhDouble
+    cosh = primCoshDouble
+    tanh = primTanhDouble
+    asinh = primAsinhDouble
+    acosh = primAcoshDouble
+    atanh = primAtanhDouble
+
+instance Real Double where
+    toRational = primDoubleToRational
+
+instance RealFrac Double where
+    properFraction = primProperFractionDouble
+    truncate = primTruncateDouble
+    round = primRoundDouble
+    ceiling = primCeilingDouble
+    floor = primFloorDouble
+
+instance Show Double where
+    show = primShowDouble
+
+instance Read Double where
+    readsPrec = primReadsPrecDouble
+
+-- Char instances
+instance Eq Char where
+    (==) = primEqChar
+
+instance Ord Char where
+    compare = primCompareChar
+    (<)  = primLtChar
+    (<=) = primLeChar
+    (>)  = primGtChar
+    (>=) = primGeChar
+
+instance Enum Char where
+    toEnum = primIntToChar
+    fromEnum = primCharToInt
+    enumFromTo x y = map toEnum [fromEnum x .. fromEnum y]
+
+instance Bounded Char where
+    minBound = '\0'
+    maxBound = '\x10FFFF'
+
+instance Show Char where
+    show = primShowChar
+    showList cs = ('"' :) . showLitString cs . ('"' :)
+
+instance Read Char where
+    readsPrec = primReadsPrecChar
+
+-- Helper for showing string literals
+showLitString :: String -> ShowS
+showLitString []     s = s
+showLitString (c:cs) s = showLitChar c (showLitString cs s)
+
+showLitChar :: Char -> ShowS
+showLitChar c s
+    | c == '"'  = '\\' : '"' : s
+    | c == '\\' = '\\' : '\\' : s
+    | c >= ' ' && c <= '~' = c : s
+    | otherwise = primShowChar c ++ s
+
 -- List instance
 instance Functor [] where
     fmap = map
@@ -1122,9 +1492,6 @@ foreign import ccall "bhc_bindIO" bindIO :: IO a -> (a -> IO b) -> IO b
 -- Type aliases
 type String = [Char]
 type FilePath = String
-type Rational = Ratio Integer
-
-data Ratio a = !a :% !a
 
 -- Build/augment for fusion
 build :: (forall b. (a -> b -> b) -> b -> b) -> [a]
