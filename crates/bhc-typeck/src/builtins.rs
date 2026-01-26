@@ -515,6 +515,15 @@ impl Builtins {
                     Ty::fun(list_a, Ty::fun(self.int_ty.clone(), Ty::Var(a.clone()))),
                 )
             }),
+            // List difference
+            ("\\\\", {
+                // (\\) :: Eq a => [a] -> [a] -> [a]
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), list_a)),
+                )
+            }),
             // Function composition
             (".", {
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
@@ -538,41 +547,46 @@ impl Builtins {
                     ),
                 )
             }),
-            // Monadic operators (list-specialized)
+            // Monadic operators (polymorphic - works with any monad)
+            // m has kind * -> * (type constructor)
             (">>=", {
-                // (>>=) :: [a] -> (a -> [b]) -> [b] (list monad)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                // (>>=) :: m a -> (a -> m b) -> m b
+                // We represent 'm a' as App(Var(m), Var(a))
+                let m_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let m = TyVar::new(BUILTIN_TYVAR_M, m_kind);
+                let ma = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(a.clone())));
+                let mb = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(b.clone())));
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
-                    Ty::fun(list_a, Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), list_b.clone()),
-                        list_b,
+                    vec![m.clone(), a.clone(), b.clone()],
+                    Ty::fun(ma, Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), mb.clone()),
+                        mb,
                     )),
                 )
             }),
             (">>", {
-                // (>>) :: [a] -> [b] -> [b] (list monad)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
-                Scheme::poly(
-                    vec![a.clone(), b.clone()],
-                    Ty::fun(list_a, Ty::fun(list_b.clone(), list_b)),
+                // (>>) :: IO () -> IO () -> IO () (very specific for debugging)
+                let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
+                Scheme::mono(
+                    Ty::fun(io_unit.clone(), Ty::fun(io_unit.clone(), io_unit)),
                 )
             }),
             ("=<<", {
-                // (=<<) :: (a -> [b]) -> [a] -> [b] (list monad, flipped >>=)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                // (=<<) :: (a -> m b) -> m a -> m b (flipped >>=)
+                let m_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let m = TyVar::new(BUILTIN_TYVAR_M, m_kind);
+                let ma = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(a.clone())));
+                let mb = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(b.clone())));
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![m.clone(), a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), list_b.clone()),
-                        Ty::fun(list_a, list_b),
+                        Ty::fun(Ty::Var(a.clone()), mb.clone()),
+                        Ty::fun(ma, mb),
                     ),
                 )
             }),
             // Applicative/Functor operators (list-specialized)
+            // NOTE: Order MUST match bhc_lower::context::define_builtins
             ("<*>", {
                 // (<*>) :: [a -> b] -> [a] -> [b] (list applicative)
                 let list_fn = Ty::List(Box::new(Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))));
@@ -676,16 +690,21 @@ impl Builtins {
                 let list_list_a = Ty::List(Box::new(list_a.clone()));
                 Scheme::poly(vec![a.clone()], Ty::fun(list_list_a, list_a))
             }),
-            // Monadic operations (list-specialized)
+            // Monadic operations
+            // return and pure are polymorphic - work with any monad/applicative
             ("return", {
-                // return :: a -> [a] (singleton list for list monad)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), list_a))
+                // return :: a -> m a
+                let m_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let m = TyVar::new(BUILTIN_TYVAR_M, m_kind);
+                let ma = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(a.clone())));
+                Scheme::poly(vec![m, a.clone()], Ty::fun(Ty::Var(a.clone()), ma))
             }),
             ("pure", {
-                // pure :: a -> [a] (same as return for lists)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), list_a))
+                // pure :: a -> f a (Applicative, same as return for monads)
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let fa = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(a.clone())));
+                Scheme::poly(vec![f, a.clone()], Ty::fun(Ty::Var(a.clone()), fa))
             }),
             ("join", {
                 // join :: [[a]] -> [a] (same as concat for lists)
@@ -2738,6 +2757,8 @@ const BUILTIN_TYVAR_B: u32 = 0xFFFF_0001;
 const BUILTIN_TYVAR_SHAPE: u32 = 0xFFFF_0002;
 const BUILTIN_TYVAR_R: u32 = 0xFFFF_0003;
 const BUILTIN_TYVAR_SHAPE2: u32 = 0xFFFF_0004;
+const BUILTIN_TYVAR_M: u32 = 0xFFFF_0005; // For monad type constructor variable
+const BUILTIN_TYVAR_F: u32 = 0xFFFF_0006; // For functor type constructor variable
 
 #[cfg(test)]
 mod tests {

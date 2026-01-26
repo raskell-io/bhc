@@ -674,4 +674,69 @@ mod tests {
         assert!(result.is_ok(), "Should compile: {:?}", result.err());
         assert_eq!(result.unwrap().display, "120");
     }
+
+    // =========================================================================
+    // IO Sequencing Tests (>> operator)
+    // =========================================================================
+    //
+    // NOTE: IO actions return (), so the display value is "()" not the printed output.
+    // The printed output goes to stdout (visible in test output when running with --nocapture).
+    // These tests verify that type checking passes for multi-statement IO chains.
+
+    #[test]
+    fn test_io_sequence_two_statements() {
+        // Two IO actions chained with >>
+        let result = compile_and_run("main = print 1 >> print 2");
+        assert!(result.is_ok(), "Two IO actions should type check: {:?}", result.err());
+        // IO () returns "()" - the printed values go to stdout
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_three_statements() {
+        // Three IO actions chained with >> (this was failing before with type error)
+        let result = compile_and_run("main = print 1 >> print 2 >> print 3");
+        assert!(result.is_ok(), "Three IO actions should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_four_statements() {
+        // Four IO actions chained with >>
+        let result = compile_and_run("main = print 1 >> print 2 >> print 3 >> print 4");
+        assert!(result.is_ok(), "Four IO actions should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_five_statements() {
+        // Five IO actions chained with >>
+        let result = compile_and_run("main = print 1 >> print 2 >> print 3 >> print 4 >> print 5");
+        assert!(result.is_ok(), "Five IO actions should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_with_putstrln() {
+        // Mix of putStrLn calls chained
+        let result = compile_and_run(r#"main = putStrLn "a" >> putStrLn "b" >> putStrLn "c""#);
+        assert!(result.is_ok(), "putStrLn chain should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_explicit_parens_right() {
+        // Explicit right-associative parentheses
+        let result = compile_and_run("main = print 1 >> (print 2 >> print 3)");
+        assert!(result.is_ok(), "Right-paren chain should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
+
+    #[test]
+    fn test_io_sequence_explicit_parens_left() {
+        // Explicit left-associative parentheses
+        let result = compile_and_run("main = (print 1 >> print 2) >> print 3");
+        assert!(result.is_ok(), "Left-paren chain should type check: {:?}", result.err());
+        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+    }
 }

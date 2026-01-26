@@ -457,7 +457,7 @@ impl TyCtxt {
     /// correct DefIds so that type checking can find them.
     pub fn register_lowered_builtins(&mut self, defs: &crate::DefMap) {
         use bhc_lower::DefKind;
-        use bhc_types::{TyVar, Kind};
+        use bhc_types::TyVar;
 
         // Type variables for polymorphic types
         let a = TyVar::new_star(0xFFFF_0000);
@@ -741,6 +741,61 @@ impl TyCtxt {
                         ),
                     )
                 }
+                // Monadic operators
+                // (>>) :: IO () -> IO () -> IO () (monomorphic for now)
+                ">>" => {
+                    let io_unit = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::unit()),
+                    );
+                    Scheme::mono(Ty::fun(io_unit.clone(), Ty::fun(io_unit.clone(), io_unit)))
+                }
+                // (>>=) :: IO a -> (a -> IO b) -> IO b
+                ">>=" => {
+                    let io_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    let io_b = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(io_a, Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b.clone()), io_b)),
+                    )
+                }
+                // (=<<) :: (a -> IO b) -> IO a -> IO b (flipped >>=)
+                "=<<" => {
+                    let io_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    let io_b = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b.clone()), Ty::fun(io_a, io_b)),
+                    )
+                }
+                // return :: a -> IO a
+                "return" => {
+                    let io_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), io_a))
+                }
+                // pure :: a -> IO a (same as return for IO)
+                "pure" => {
+                    let io_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), io_a))
+                }
                 // map :: (a -> b) -> [a] -> [b]
                 "map" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
@@ -796,6 +851,28 @@ impl TyCtxt {
                 "sum" | "product" => {
                     let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
                     Scheme::mono(Ty::fun(list_int, self.builtins.int_ty.clone()))
+                }
+                // foldl :: (b -> a -> b) -> b -> [a] -> b
+                "foldl" | "foldl'" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                        ),
+                    )
+                }
+                // foldr :: (a -> b -> b) -> b -> [a] -> b
+                "foldr" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                        ),
+                    )
                 }
                 // maximum, minimum :: [a] -> a
                 "maximum" | "minimum" => {

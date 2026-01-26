@@ -428,3 +428,57 @@ fn test_unbound_variable() {
     let result = run_source("main = undefined_var");
     assert!(result.is_err());
 }
+
+// =========================================================================
+// IO Sequencing Tests (>> operator)
+// =========================================================================
+
+#[test]
+fn test_io_sequence_two() {
+    // Two IO actions chained with >>
+    let (_, display) = run_and_display("main = print 1 >> print 2").unwrap();
+    assert!(display.contains("1"), "Expected '1' in output, got: {}", display);
+    assert!(display.contains("2"), "Expected '2' in output, got: {}", display);
+}
+
+#[test]
+fn test_io_sequence_three() {
+    // Three IO actions chained with >> (this was failing before)
+    let (_, display) = run_and_display("main = print 1 >> print 2 >> print 3").unwrap();
+    assert!(display.contains("1"), "Expected '1' in output, got: {}", display);
+    assert!(display.contains("2"), "Expected '2' in output, got: {}", display);
+    assert!(display.contains("3"), "Expected '3' in output, got: {}", display);
+}
+
+#[test]
+fn test_io_sequence_four() {
+    // Four IO actions chained with >>
+    let (_, display) = run_and_display("main = print 1 >> print 2 >> print 3 >> print 4").unwrap();
+    assert!(display.contains("1") && display.contains("2") &&
+            display.contains("3") && display.contains("4"),
+            "Expected '1', '2', '3', '4' in output, got: {}", display);
+}
+
+#[test]
+fn test_io_sequence_with_putstrln() {
+    // Mix of putStrLn calls
+    let (_, display) = run_and_display(r#"main = putStrLn "a" >> putStrLn "b" >> putStrLn "c""#).unwrap();
+    assert!(display.contains("a") && display.contains("b") && display.contains("c"),
+            "Expected 'a', 'b', 'c' in output, got: {}", display);
+}
+
+#[test]
+fn test_io_sequence_parenthesized() {
+    // Explicit parentheses (right associative)
+    let (_, display) = run_and_display("main = print 1 >> (print 2 >> print 3)").unwrap();
+    assert!(display.contains("1") && display.contains("2") && display.contains("3"),
+            "Expected '1', '2', '3' in output, got: {}", display);
+}
+
+#[test]
+fn test_io_sequence_left_parens() {
+    // Explicit left parentheses
+    let (_, display) = run_and_display("main = (print 1 >> print 2) >> print 3").unwrap();
+    assert!(display.contains("1") && display.contains("2") && display.contains("3"),
+            "Expected '1', '2', '3' in output, got: {}", display);
+}
