@@ -20,10 +20,9 @@
 //! Each increment processes a bounded number of objects to keep pause
 //! times under the configured threshold (default: 1ms for realtime).
 
-use crate::{CollectionKind, GcPtr, ObjectHeader, PauseMeasurement};
+use crate::{CollectionKind, GcPtr, PauseMeasurement};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -365,8 +364,8 @@ impl IncrementalMarker {
         {
             let mut stats = self.stats.lock();
             stats.increments += 1;
-            stats.objects_marked += objects_scanned;
-            stats.bytes_marked += bytes_scanned;
+            stats.objects_marked += objects_scanned as u64;
+            stats.bytes_marked += bytes_scanned as u64;
             stats.mark_time += duration;
             stats.max_gray_set_size = stats.max_gray_set_size.max(self.gray_set.len());
         }
@@ -512,6 +511,7 @@ pub trait Scannable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ptr::NonNull;
 
     fn make_ptr(addr: usize) -> GcPtr {
         GcPtr::new(NonNull::new(addr as *mut u8).unwrap())
@@ -648,8 +648,12 @@ mod tests {
         marker.write_barrier(make_ptr(0x1000));
         assert!(marker.satb_buffer().is_empty());
 
-        // Start marking
-        marker.start_cycle(std::iter::empty());
+        // Start marking with some roots (so state goes to Marking, not Complete)
+        let roots = [make_ptr(0x5000), make_ptr(0x6000)];
+        marker.start_cycle(roots.into_iter());
+
+        // Should be in marking state now
+        assert!(marker.is_marking());
 
         // Now write barrier should record
         marker.write_barrier(make_ptr(0x2000));

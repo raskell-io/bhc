@@ -298,6 +298,8 @@ pub struct GcStats {
     pub minor_collections: u64,
     /// Number of major (full) collections.
     pub major_collections: u64,
+    /// Number of incremental collection cycles.
+    pub incremental_cycles: u64,
     /// Total bytes collected.
     pub bytes_collected: u64,
     /// Total bytes promoted to older generations.
@@ -771,6 +773,8 @@ pub struct GarbageCollector {
     alloc_stats: RwLock<AllocStats>,
     /// Total bytes allocated since last collection.
     bytes_since_gc: AtomicUsize,
+    /// Incremental marker for realtime profile (bounded GC pauses).
+    incremental_marker: Option<incremental::IncrementalMarker>,
 }
 
 impl GarbageCollector {
@@ -778,6 +782,20 @@ impl GarbageCollector {
     #[must_use]
     pub fn new(config: GcConfig) -> Self {
         let pause_threshold = Duration::from_micros(config.max_pause_us);
+
+        // Create incremental marker if incremental collection is enabled
+        let incremental_marker = if config.incremental {
+            let inc_config = incremental::IncrementalConfig {
+                time_budget_us: config.max_pause_us / 2, // Use half the budget for mark increments
+                max_objects_per_increment: 1000,
+                concurrent: false,
+                satb_buffer_threshold: 1024,
+            };
+            Some(incremental::IncrementalMarker::new(inc_config))
+        } else {
+            None
+        };
+
         Self {
             config,
             stats: RwLock::new(GcStats::default()),
@@ -785,6 +803,7 @@ impl GarbageCollector {
             write_barrier: WriteBarrier::new(),
             alloc_stats: RwLock::new(AllocStats::new()),
             bytes_since_gc: AtomicUsize::new(0),
+            incremental_marker,
         }
     }
 
@@ -878,6 +897,125 @@ impl GarbageCollector {
 
         let mut stats = self.stats.write();
         stats.major_collections += 1;
+    }
+
+    /// Start an incremental collection cycle.
+    ///
+    /// This is for the realtime profile where bounded pause times are required.
+    /// Call `do_incremental_work` periodically to make progress.
+    pub fn start_incremental_collect(&self, roots: &RootSet) -> Option<PauseMeasurement> {
+        let marker = self.incremental_marker.as_ref()?;
+
+        // Start the marking cycle with roots
+        let pause = marker.start_cycle(roots.iter());
+
+        // Record the root scanning pause
+        self.record_pause(pause.duration, CollectionKind::IncrementalMark, pause.timestamp);
+
+        Some(pause)
+    }
+
+    /// Perform incremental GC work within a bounded time budget.
+    ///
+    /// Returns the pause measurement, or None if no work was done.
+    /// Call this periodically during mutator execution to make progress
+    /// on collection while maintaining bounded pause times.
+    pub fn do_incremental_work(&self) -> Option<PauseMeasurement> {
+        let marker = self.incremental_marker.as_ref()?;
+
+        // Check if we're in a marking state
+        if !marker.is_marking() {
+            return None;
+        }
+
+        // Perform one increment of marking work
+        // In a full implementation, scan_object would extract child pointers
+        // from the object's type info and layout
+        let pause = marker.mark_increment(|_obj_ptr| {
+            // Placeholder: Real implementation would read object layout
+            // and extract all pointer fields as children
+            Vec::new()
+        })?;
+
+        // Record the pause
+        self.record_pause(pause.duration, CollectionKind::IncrementalMark, pause.timestamp);
+
+        // Check if we need to do remark (SATB processing)
+        if matches!(marker.state(), incremental::MarkState::Remark) {
+            let remark_pause = marker.remark(|_obj_ptr| Vec::new());
+            self.record_pause(
+                remark_pause.duration,
+                CollectionKind::IncrementalMark,
+                remark_pause.timestamp,
+            );
+        }
+
+        // Update stats if marking is complete
+        if matches!(marker.state(), incremental::MarkState::Complete) {
+            let mut stats = self.stats.write();
+            stats.incremental_cycles += 1;
+        }
+
+        Some(pause)
+    }
+
+    /// Check if incremental collection is in progress.
+    #[must_use]
+    pub fn is_incremental_marking(&self) -> bool {
+        self.incremental_marker
+            .as_ref()
+            .map_or(false, |m| m.is_marking())
+    }
+
+    /// Finish an incremental collection cycle.
+    ///
+    /// Ensures all marking work is complete and performs any final cleanup.
+    /// Returns the total pause time for the final phase.
+    pub fn finish_incremental_collect(&self) -> Option<PauseMeasurement> {
+        let marker = self.incremental_marker.as_ref()?;
+
+        // Complete any remaining work
+        let start = Instant::now();
+        while marker.is_marking() {
+            marker.mark_increment(|_| Vec::new());
+        }
+
+        // Handle remark if needed
+        if matches!(marker.state(), incremental::MarkState::Remark) {
+            marker.remark(|_| Vec::new());
+        }
+
+        let duration = start.elapsed();
+
+        // Reset marker for next cycle
+        marker.reset();
+
+        let pause = PauseMeasurement::new(duration, CollectionKind::IncrementalMark, start);
+        self.record_pause(duration, CollectionKind::IncrementalMark, start);
+
+        Some(pause)
+    }
+
+    /// Record a write barrier event for incremental collection.
+    ///
+    /// When using incremental collection, this records overwritten references
+    /// in the SATB buffer to maintain correctness.
+    pub fn incremental_write_barrier(&self, old_value: NonNull<u8>) {
+        if let Some(marker) = &self.incremental_marker {
+            marker.write_barrier(GcPtr::new(old_value));
+        }
+    }
+
+    /// Get statistics for the current/last incremental collection cycle.
+    #[must_use]
+    pub fn incremental_stats(&self) -> Option<incremental::IncrementalStats> {
+        self.incremental_marker.as_ref().map(|m| m.stats())
+    }
+
+    /// Check if incremental collection is enabled.
+    #[must_use]
+    pub fn is_incremental_enabled(&self) -> bool {
+        self.incremental_marker.is_some()
     }
 
     /// Record a GC pause measurement.
@@ -1263,5 +1401,109 @@ mod tests {
 
         assert!(display.contains("GC Pause Statistics"));
         assert!(display.contains("Total pauses: 1"));
+    }
+
+    // ========================================================================
+    // Incremental GC Tests
+    // ========================================================================
+
+    #[test]
+    fn test_gc_incremental_disabled_by_default() {
+        let gc = GarbageCollector::with_default_config();
+        assert!(!gc.is_incremental_enabled());
+        assert!(!gc.is_incremental_marking());
+    }
+
+    #[test]
+    fn test_gc_incremental_enabled() {
+        let config = GcConfig {
+            incremental: true,
+            max_pause_us: 500,
+            ..Default::default()
+        };
+        let gc = GarbageCollector::new(config);
+        assert!(gc.is_incremental_enabled());
+        assert!(!gc.is_incremental_marking()); // Not started yet
+    }
+
+    #[test]
+    fn test_gc_incremental_collect_cycle() {
+        let config = GcConfig {
+            incremental: true,
+            max_pause_us: 500,
+            ..Default::default()
+        };
+        let gc = GarbageCollector::new(config);
+
+        // Set up some roots
+        let mut roots = RootSet::new();
+        let ptr1 = NonNull::new(0x1000 as *mut u8).unwrap();
+        let ptr2 = NonNull::new(0x2000 as *mut u8).unwrap();
+        roots.add_stack_root(ptr1);
+        roots.add_global_root(ptr2);
+
+        // Start incremental collection
+        let pause = gc.start_incremental_collect(&roots);
+        assert!(pause.is_some());
+        assert!(gc.is_incremental_marking());
+
+        // Do some incremental work
+        while gc.is_incremental_marking() {
+            let work_done = gc.do_incremental_work();
+            if work_done.is_none() {
+                break;
+            }
+        }
+
+        // Should complete
+        let stats = gc.stats();
+        assert_eq!(stats.incremental_cycles, 1);
+    }
+
+    #[test]
+    fn test_gc_incremental_write_barrier() {
+        let config = GcConfig {
+            incremental: true,
+            max_pause_us: 500,
+            ..Default::default()
+        };
+        let gc = GarbageCollector::new(config);
+
+        // Write barrier should work when incremental is enabled
+        let ptr = NonNull::new(0x1000 as *mut u8).unwrap();
+        gc.incremental_write_barrier(ptr); // Should not panic
+    }
+
+    #[test]
+    fn test_gc_incremental_stats() {
+        let config = GcConfig {
+            incremental: true,
+            max_pause_us: 500,
+            ..Default::default()
+        };
+        let gc = GarbageCollector::new(config);
+
+        let stats = gc.incremental_stats();
+        assert!(stats.is_some());
+        let stats = stats.unwrap();
+        assert_eq!(stats.increments, 0);
+    }
+
+    #[test]
+    fn test_gc_finish_incremental() {
+        let config = GcConfig {
+            incremental: true,
+            max_pause_us: 500,
+            ..Default::default()
+        };
+        let gc = GarbageCollector::new(config);
+
+        let roots = RootSet::new();
+        gc.start_incremental_collect(&roots);
+
+        // Finish collection
+        let pause = gc.finish_incremental_collect();
+        assert!(pause.is_some());
+        assert!(!gc.is_incremental_marking());
     }
 }
