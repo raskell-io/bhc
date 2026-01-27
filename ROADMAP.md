@@ -16,7 +16,7 @@ This document provides a detailed implementation plan to deliver all features pr
 | Loop IR | ✅ Complete | Vectorization, parallelization |
 | Native Codegen | ✅ Complete | LLVM backend, 8,178 LOC in lower.rs |
 | WASM Codegen | 🟡 95% | Emitter + WASI + GC + driver complete, testing blocked by LLVM |
-| GPU Codegen | 🟡 80% | PTX/AMDGCN loop nest codegen complete |
+| GPU Codegen | 🟡 95% | PTX/AMDGCN codegen + launch complete, testing blocked by LLVM |
 | Runtime | ✅ Complete | Generational GC, incremental GC, arena, scheduler |
 | REPL (bhci) | ✅ Complete | Interactive evaluation |
 | Package Manager | ✅ Complete | Dependency resolution, registry |
@@ -495,7 +495,7 @@ main = withScope $ \scope -> do
 
 ---
 
-## Phase 6: GPU Backend 🟡 80% COMPLETE
+## Phase 6: GPU Backend 🟡 95% COMPLETE
 
 **Objective:** Tensor operations run on GPU.
 
@@ -550,17 +550,17 @@ Tasks:
 - [x] Async transfer support via streams
 - [x] Test: Data flows to/from GPU
 
-### 6.5 Kernel Launch 🟡
+### 6.5 Kernel Launch ✅
 
 **Crate:** `bhc-gpu`
-**Location:** `kernel.rs`
+**Location:** `kernel.rs`, `context.rs`, `runtime/cuda.rs`
 
 Tasks:
 - [x] `GpuKernel` compiled kernel representation
 - [x] `LaunchConfig` for grid/block dimensions
 - [x] Launch parameter setup
-- [ ] Full kernel execution pipeline
-- [ ] Test: Kernel executes on GPU
+- [x] Full kernel execution pipeline (`GpuContext::launch()` → `runtime::cuda::launch_kernel()`)
+- [ ] Test: Kernel executes on GPU (blocked by LLVM)
 
 ### 6.6 Runtime Support ✅
 
@@ -585,7 +585,7 @@ main = do
 
 **Blockers:** LLVM version mismatch prevents full testing.
 
-**Remaining effort:** ~1 week (kernel execution pipeline, testing)
+**Remaining effort:** ~2-3 days (end-to-end testing once LLVM fixed)
 
 ---
 
@@ -715,11 +715,11 @@ $ bhc-lsp  # Starts LSP server for IDE integration
 | 3 | Numeric Profile | ✅ Complete | 100% |
 | 4 | WASM Backend | 🟡 In Progress | 95% |
 | 5 | Server Profile | 🟡 In Progress | 90% |
-| 6 | GPU Backend | 🟡 In Progress | 80% |
+| 6 | GPU Backend | 🟡 In Progress | 95% |
 | 7 | Advanced Profiles | 🟡 In Progress | 90% |
 | 8 | Ecosystem | ✅ Complete | 100% |
 
-**Overall: ~94% complete**
+**Overall: ~96% complete**
 
 ---
 
@@ -737,11 +737,12 @@ $ bhc-lsp  # Starts LSP server for IDE integration
 2. Implement STM `orElse` combinator
 3. Complete transaction conflict detection
 
-### Phase 6 (GPU) - 2-3 weeks
-1. Implement PTX loop nest codegen
-2. Implement AMDGCN loop nest codegen
-3. Complete Tensor IR → GPU kernel lowering
-4. End-to-end GPU test
+### Phase 6 (GPU) - ~2-3 days
+1. ~~Implement PTX loop nest codegen~~ ✅ (`codegen/ptx.rs:generate_loop_nest()`)
+2. ~~Implement AMDGCN loop nest codegen~~ ✅ (`codegen/amdgcn.rs`)
+3. ~~Complete Tensor IR → GPU kernel lowering~~ ✅ (`lower.rs`)
+4. ~~Full kernel execution pipeline~~ ✅ (`context.rs`, `runtime/cuda.rs`)
+5. End-to-end GPU test (blocked by LLVM)
 
 ### Phase 7 (Advanced) - ~1-2 days
 1. ~~Wire incremental mark loop into GC~~ ✅
