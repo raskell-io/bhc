@@ -1,0 +1,5 @@
+[test]
+backends = ["native", "wasm"]
+profile = "numeric"
+timeout_secs = 30
+expected_exit = 0

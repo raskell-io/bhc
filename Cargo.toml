@@ -73,6 +73,9 @@ members = [
     # Web playground (WASM-compatible)
     "crates/bhc-playground",
 
+    # E2E Testing
+    "crates/bhc-e2e-tests",
+
     # Standard library
     "stdlib/bhc-prelude",
     "stdlib/bhc-base",
@@ -196,6 +199,10 @@ bincode = "1.3"
 
 # LLVM bindings for code generation
 inkwell = { version = "0.8", features = ["llvm21-1"] }
+
+# WASM runtime for E2E testing
+wasmtime = "28.0"
+wasmtime-wasi = "28.0"
 
 [workspace.lints.rust]
 unsafe_code = "warn"

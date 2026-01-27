@@ -1,0 +1,5 @@
+[test]
+backends = ["native", "wasm", "gpu"]
+profile = "numeric"
+timeout_secs = 60
+expected_exit = 0

@@ -1,0 +1,33 @@
+[package]
+name = "bhc-e2e-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "End-to-end tests for the BHC compiler"
+license.workspace = true
+repository.workspace = true
+keywords = ["haskell", "compiler", "testing"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+# BHC crates
+bhc-driver.workspace = true
+bhc-target.workspace = true
+
+# WASM runtime
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
+# Utilities
+tempfile.workspace = true
+toml.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[features]
+default = []
+# Enable GPU tests (requires CUDA)
+cuda = []
