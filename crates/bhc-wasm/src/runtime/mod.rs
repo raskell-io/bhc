@@ -1,13 +1,15 @@
 //! WASM runtime support.
 //!
 //! This module provides runtime primitives for BHC programs running in
-//! WebAssembly, including memory management, arena allocation, and
-//! host function imports.
+//! WebAssembly, including memory management, arena allocation, garbage
+//! collection, and host function imports.
 
 mod arena;
+pub mod gc;
 mod memory;
 
-pub use arena::{WasmArena, ArenaConfig};
+pub use arena::{ArenaConfig, WasmArena};
+pub use gc::GcConfig;
 pub use memory::{LinearMemory, MemoryLayout};
 
 use crate::{WasmError, WasmInstr, WasmResult};
