@@ -589,7 +589,7 @@ main = do
 
 ---
 
-## Phase 7: Advanced Profiles 🟡 85% COMPLETE
+## Phase 7: Advanced Profiles 🟡 90% COMPLETE
 
 ### 7.1 Realtime (Bounded GC) ✅
 
@@ -616,10 +616,10 @@ Tasks:
 - [x] Promotion logic
 - [x] Collection statistics (`GcStats`)
 
-### 7.3 Embedded (No GC) 🟡
+### 7.3 Embedded (No GC) ✅
 
-**Crate:** `bhc-rts-alloc`, `bhc-core`
-**Location:** `static_alloc.rs` (200+ lines), `escape.rs` (585 lines)
+**Crate:** `bhc-rts-alloc`, `bhc-core`, `bhc-session`, `bhc-driver`
+**Location:** `static_alloc.rs` (200+ lines), `escape.rs` (585 lines), `lib.rs`
 
 Tasks:
 - [x] Static allocator with fixed-size buffer
@@ -627,8 +627,10 @@ Tasks:
 - [x] No-GC design for embedded
 - [x] Escape analysis (`analyze_escape()`, `check_embedded_safe()`)
 - [x] EscapeStatus enum (NoEscape/EscapeReturn/EscapeCapture/EscapeStore/EscapeExternal)
-- [ ] Wire escape analysis into embedded profile compilation path
-- [ ] Test: Bare-metal program
+- [x] Profile::Embedded with `is_gc_free()` and `requires_escape_analysis()`
+- [x] CompileError::EscapeAnalysisFailed in driver
+- [x] check_escape_analysis() in compilation pipeline
+- [ ] Test: Bare-metal program (blocked by LLVM version)
 
 ### 7.4 Arena Allocation ✅
 
@@ -641,9 +643,9 @@ Tasks:
 
 ### Phase 7 Exit Criteria
 
-**Blockers:** Wire escape analysis into driver, bare-metal testing.
+**Blockers:** Bare-metal testing (blocked by LLVM version mismatch).
 
-**Remaining effort:** ~1 week (driver integration, testing)
+**Remaining effort:** ~1-2 days (bare-metal testing once LLVM fixed)
 
 ---
 
@@ -714,10 +716,10 @@ $ bhc-lsp  # Starts LSP server for IDE integration
 | 4 | WASM Backend | 🟡 In Progress | 85% |
 | 5 | Server Profile | 🟡 In Progress | 90% |
 | 6 | GPU Backend | 🟡 In Progress | 80% |
-| 7 | Advanced Profiles | 🟡 In Progress | 85% |
+| 7 | Advanced Profiles | 🟡 In Progress | 90% |
 | 8 | Ecosystem | ✅ Complete | 100% |
 
-**Overall: ~88% complete**
+**Overall: ~90% complete**
 
 ---
 
@@ -740,11 +742,11 @@ $ bhc-lsp  # Starts LSP server for IDE integration
 3. Complete Tensor IR → GPU kernel lowering
 4. End-to-end GPU test
 
-### Phase 7 (Advanced) - ~1 week
+### Phase 7 (Advanced) - ~1-2 days
 1. ~~Wire incremental mark loop into GC~~ ✅
 2. ~~Implement escape analysis for embedded profile~~ ✅
-3. Wire escape analysis into embedded profile compilation path
-4. Bare-metal testing for embedded profile
+3. ~~Wire escape analysis into embedded profile compilation path~~ ✅
+4. Bare-metal testing for embedded profile (blocked by LLVM)
 
 ---
 
