@@ -14,9 +14,9 @@ This document provides a detailed implementation plan to deliver all features pr
 | Core IR | ✅ Complete | Interpreter + LLVM codegen |
 | Tensor IR | ✅ Complete | Lowering, fusion, all 4 patterns |
 | Loop IR | ✅ Complete | Vectorization, parallelization |
-| Native Codegen | ✅ Complete | LLVM backend, 8,178 LOC in lower.rs |
-| WASM Codegen | 🟡 98% | Emitter + WASI + GC + driver + code size test complete, end-to-end blocked by LLVM |
-| GPU Codegen | 🟡 95% | PTX/AMDGCN codegen + launch complete, testing blocked by LLVM |
+| Native Codegen | ✅ Complete | LLVM 21 backend (inkwell 0.8), 8,178 LOC in lower.rs |
+| WASM Codegen | 🟡 98% | Emitter + WASI + GC + driver + code size test complete |
+| GPU Codegen | 🟡 95% | PTX/AMDGCN codegen + launch complete |
 | Runtime | ✅ Complete | Generational GC, incremental GC, arena, scheduler |
 | REPL (bhci) | ✅ Complete | Interactive evaluation |
 | Package Manager | ✅ Complete | Dependency resolution, registry |
@@ -395,7 +395,7 @@ Tasks:
 - [x] Wire WASM backend into compilation pipeline (lines 467-537)
 - [x] Register wasm32-wasi target (detected via "wasm" in target triple)
 - [x] Generate `.wasm` output files (`write_wasm()` at line 525-527)
-- [ ] Test: End-to-end compilation (blocked by LLVM version mismatch)
+- [ ] Test: End-to-end compilation
 
 ### Phase 4 Exit Criteria
 
@@ -405,9 +405,9 @@ $ wasmtime app.wasm
 Hello, World!
 ```
 
-**Blocker:** LLVM version mismatch (system has LLVM 21, llvm-sys expects LLVM 18) prevents full testing.
+**LLVM 21 Support:** Upgraded inkwell from 0.5 (LLVM 18) to 0.8 (LLVM 21). Commit `db4368f`.
 
-**Remaining effort:** ~1 week (resolve LLVM version, end-to-end testing)
+**Remaining effort:** End-to-end testing with actual Haskell programs
 
 ---
 
