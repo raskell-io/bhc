@@ -15,7 +15,7 @@ This document provides a detailed implementation plan to deliver all features pr
 | Tensor IR | ✅ Complete | Lowering, fusion, all 4 patterns |
 | Loop IR | ✅ Complete | Vectorization, parallelization |
 | Native Codegen | ✅ Complete | LLVM backend, 8,178 LOC in lower.rs |
-| WASM Codegen | 🟡 85% | Emitter + WASI + driver complete, testing blocked by LLVM |
+| WASM Codegen | 🟡 95% | Emitter + WASI + GC + driver complete, testing blocked by LLVM |
 | GPU Codegen | 🟡 80% | PTX/AMDGCN loop nest codegen complete |
 | Runtime | ✅ Complete | Generational GC, incremental GC, arena, scheduler |
 | REPL (bhci) | ✅ Complete | Interactive evaluation |
@@ -375,13 +375,13 @@ Tasks:
 ### 4.3 Edge Profile RTS 🟡
 
 **Crate:** `bhc-wasm`
-**Location:** `runtime/mod.rs` (369 lines)
+**Location:** `runtime/mod.rs` (369 lines), `runtime/gc.rs` (625 lines)
 
 Tasks:
 - [x] Configuration for minimal RTS (`RuntimeConfig::edge()`)
 - [x] Memory layout definition (`MemoryLayout`)
 - [x] Arena allocator for WASM (`WasmArena`)
-- [ ] Full GC within linear memory
+- [x] Full GC within linear memory (`generate_gc_*` functions in gc.rs)
 - [ ] Minimize code size verification
 - [ ] Test: Runtime < 100KB
 
@@ -713,23 +713,24 @@ $ bhc-lsp  # Starts LSP server for IDE integration
 | 1 | Native Hello World | ✅ Complete | 100% |
 | 2 | Language Completeness | ✅ Complete | 100% |
 | 3 | Numeric Profile | ✅ Complete | 100% |
-| 4 | WASM Backend | 🟡 In Progress | 90% |
+| 4 | WASM Backend | 🟡 In Progress | 95% |
 | 5 | Server Profile | 🟡 In Progress | 90% |
 | 6 | GPU Backend | 🟡 In Progress | 80% |
 | 7 | Advanced Profiles | 🟡 In Progress | 90% |
 | 8 | Ecosystem | ✅ Complete | 100% |
 
-**Overall: ~91% complete**
+**Overall: ~94% complete**
 
 ---
 
 ## Remaining Work
 
-### Phase 4 (WASM) - ~1 week
+### Phase 4 (WASM) - ~2-3 days
 1. ~~Wire `--target=wasi` in bhc-driver~~ ✅
 2. ~~Add args/environ WASI support~~ ✅
-3. Complete GC within linear memory
-4. End-to-end test with wasmtime (blocked by LLVM)
+3. ~~Complete GC within linear memory~~ ✅ (mark-sweep GC in `runtime/gc.rs`)
+4. Verify runtime code size < 100KB
+5. End-to-end test with wasmtime (blocked by LLVM)
 
 ### Phase 5 (Server) - 1-2 weeks
 1. Implement STM `retry` primitive
