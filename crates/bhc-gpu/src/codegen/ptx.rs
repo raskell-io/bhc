@@ -179,14 +179,219 @@ fn generate_fused_ops(code: &mut String, ops: &[TensorOp], params: &KernelParams
 }
 
 /// Generate code for a loop nest.
+///
+/// On GPU, the strategy is:
+/// 1. Parallel loops map to the thread grid (threadIdx/blockIdx)
+/// 2. Non-parallel loops become actual PTX loops
+/// 3. The body is executed by each thread for its assigned iterations
 fn generate_loop_nest(
     code: &mut String,
-    _nest: &bhc_tensor_ir::LoopNest,
-    _params: &KernelParams,
+    nest: &bhc_tensor_ir::LoopNest,
+    params: &KernelParams,
 ) -> GpuResult<()> {
-    writeln!(code, "    // Loop nest").unwrap();
-    // TODO: Implement proper loop nest code generation
+    writeln!(code, "    // Loop nest code generation").unwrap();
+
+    // Track how many parallel loops we've mapped to grid dimensions
+    let mut grid_dim = 0;
+
+    // Register declarations for loop variables
+    for (i, loop_info) in nest.loops.iter().enumerate() {
+        writeln!(
+            code,
+            "    .reg .s64 %loop_{}; // loop var: {}",
+            i,
+            loop_info.var.as_str()
+        )
+        .unwrap();
+    }
+    writeln!(code).unwrap();
+
+    // Generate loop structure
+    for (i, loop_info) in nest.loops.iter().enumerate() {
+        if loop_info.parallel && grid_dim < 3 {
+            // Map parallel loops to GPU grid dimensions
+            generate_parallel_loop_header(code, i, loop_info, grid_dim)?;
+            grid_dim += 1;
+        } else {
+            // Generate actual loop for non-parallel dimensions
+            generate_sequential_loop_header(code, i, loop_info)?;
+        }
+    }
+
+    // Generate the loop body
+    writeln!(code, "    // Loop body").unwrap();
+    generate_fused_ops(code, &nest.body, params)?;
+
+    // Close loops in reverse order
+    for (i, loop_info) in nest.loops.iter().enumerate().rev() {
+        if loop_info.parallel && i < 3 {
+            // Parallel loop - just a label for early exit
+            writeln!(code, "loop_exit_{}:", i).unwrap();
+        } else {
+            // Sequential loop - close with branch back
+            generate_sequential_loop_footer(code, i, loop_info)?;
+        }
+    }
+
     Ok(())
+}
+
+/// Generate header for a parallel loop mapped to GPU grid.
+fn generate_parallel_loop_header(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+    grid_dim: usize,
+) -> GpuResult<()> {
+    let dim_suffix = match grid_dim {
+        0 => "x",
+        1 => "y",
+        2 => "z",
+        _ => "x",
+    };
+
+    writeln!(
+        code,
+        "    // Parallel loop {} -> grid dimension {}",
+        loop_info.var.as_str(),
+        dim_suffix
+    )
+    .unwrap();
+
+    // Calculate global index for this dimension
+    writeln!(code, "    .reg .u32 %ptid_{}, %pntid_{}, %pctaid_{};", loop_idx, loop_idx, loop_idx).unwrap();
+    writeln!(code, "    mov.u32 %ptid_{}, %tid.{};", loop_idx, dim_suffix).unwrap();
+    writeln!(code, "    mov.u32 %pntid_{}, %ntid.{};", loop_idx, dim_suffix).unwrap();
+    writeln!(code, "    mov.u32 %pctaid_{}, %ctaid.{};", loop_idx, dim_suffix).unwrap();
+    writeln!(
+        code,
+        "    mad.wide.u32 %loop_{}, %pctaid_{}, %pntid_{}, %ptid_{};",
+        loop_idx, loop_idx, loop_idx, loop_idx
+    )
+    .unwrap();
+
+    // Add lower bound offset
+    if loop_info.lower != 0 {
+        writeln!(
+            code,
+            "    add.s64 %loop_{0}, %loop_{0}, {};",
+            loop_idx, loop_info.lower
+        )
+        .unwrap();
+    }
+
+    // Apply step if not 1
+    if loop_info.step != 1 {
+        writeln!(
+            code,
+            "    mul.lo.s64 %loop_{0}, %loop_{0}, {};",
+            loop_idx, loop_info.step
+        )
+        .unwrap();
+    }
+
+    // Bounds check
+    writeln!(code, "    .reg .pred %pbound_{};", loop_idx).unwrap();
+    match &loop_info.upper {
+        bhc_tensor_ir::Dim::Fixed(n) => {
+            writeln!(
+                code,
+                "    setp.ge.s64 %pbound_{}, %loop_{}, {};",
+                loop_idx, loop_idx, n
+            )
+            .unwrap();
+        }
+        bhc_tensor_ir::Dim::Dynamic(sym) => {
+            writeln!(
+                code,
+                "    setp.ge.s64 %pbound_{}, %loop_{}, %{}; // dynamic bound",
+                loop_idx, loop_idx, sym.as_str()
+            )
+            .unwrap();
+        }
+    }
+    writeln!(code, "    @%pbound_{} bra loop_exit_{};", loop_idx, loop_idx).unwrap();
+    writeln!(code).unwrap();
+
+    Ok(())
+}
+
+/// Generate header for a sequential (non-parallel) loop.
+fn generate_sequential_loop_header(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+) -> GpuResult<()> {
+    writeln!(
+        code,
+        "    // Sequential loop {} [{}, {})",
+        loop_info.var.as_str(),
+        loop_info.lower,
+        format_dim(&loop_info.upper)
+    )
+    .unwrap();
+
+    // Initialize loop variable
+    writeln!(code, "    mov.s64 %loop_{}, {};", loop_idx, loop_info.lower).unwrap();
+
+    // Loop header label
+    writeln!(code, "loop_header_{}:", loop_idx).unwrap();
+
+    // Bounds check
+    writeln!(code, "    .reg .pred %sbound_{};", loop_idx).unwrap();
+    match &loop_info.upper {
+        bhc_tensor_ir::Dim::Fixed(n) => {
+            writeln!(
+                code,
+                "    setp.ge.s64 %sbound_{}, %loop_{}, {};",
+                loop_idx, loop_idx, n
+            )
+            .unwrap();
+        }
+        bhc_tensor_ir::Dim::Dynamic(sym) => {
+            writeln!(
+                code,
+                "    setp.ge.s64 %sbound_{}, %loop_{}, %{};",
+                loop_idx, loop_idx, sym.as_str()
+            )
+            .unwrap();
+        }
+    }
+    writeln!(code, "    @%sbound_{} bra loop_exit_{};", loop_idx, loop_idx).unwrap();
+    writeln!(code).unwrap();
+
+    Ok(())
+}
+
+/// Generate footer for a sequential loop.
+fn generate_sequential_loop_footer(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+) -> GpuResult<()> {
+    // Increment loop variable
+    writeln!(
+        code,
+        "    add.s64 %loop_{0}, %loop_{0}, {};",
+        loop_idx, loop_info.step
+    )
+    .unwrap();
+
+    // Branch back to header
+    writeln!(code, "    bra loop_header_{};", loop_idx).unwrap();
+
+    // Exit label
+    writeln!(code, "loop_exit_{}:", loop_idx).unwrap();
+
+    Ok(())
+}
+
+/// Format a dimension for display.
+fn format_dim(dim: &bhc_tensor_ir::Dim) -> String {
+    match dim {
+        bhc_tensor_ir::Dim::Fixed(n) => n.to_string(),
+        bhc_tensor_ir::Dim::Dynamic(sym) => sym.as_str().to_string(),
+    }
 }
 
 /// Generate a unary operation.

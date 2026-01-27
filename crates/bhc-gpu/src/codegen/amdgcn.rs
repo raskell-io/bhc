@@ -152,9 +152,8 @@ fn generate_kernel_code(
         KernelBody::Fused(ops) => {
             generate_fused_ops_amd(code, ops, params)?;
         }
-        KernelBody::LoopNest(_nest) => {
-            // TODO: Implement loop nest code generation
-            writeln!(code, "    ; Loop nest (not implemented)").unwrap();
+        KernelBody::LoopNest(nest) => {
+            generate_loop_nest_amd(code, nest, params, device)?;
         }
     }
 
@@ -346,6 +345,236 @@ pub fn generate_elementwise_kernel(
             _ => "; unsupported op",
         }
     )
+}
+
+/// Generate code for a loop nest on AMD GPUs.
+///
+/// On AMD GPUs:
+/// 1. Parallel loops map to workgroups and workitems
+/// 2. Non-parallel loops become actual AMDGCN loops
+/// 3. The body is executed by each thread for its assigned iterations
+fn generate_loop_nest_amd(
+    code: &mut String,
+    nest: &bhc_tensor_ir::LoopNest,
+    params: &KernelParams,
+    _device: &DeviceInfo,
+) -> GpuResult<()> {
+    writeln!(code, "    ; Loop nest code generation").unwrap();
+
+    // Track how many parallel loops we've mapped to grid dimensions
+    let mut grid_dim = 0;
+
+    // Generate loop structure
+    for (i, loop_info) in nest.loops.iter().enumerate() {
+        if loop_info.parallel && grid_dim < 3 {
+            // Map parallel loops to AMD workgroups/workitems
+            generate_parallel_loop_header_amd(code, i, loop_info, grid_dim)?;
+            grid_dim += 1;
+        } else {
+            // Generate actual loop for non-parallel dimensions
+            generate_sequential_loop_header_amd(code, i, loop_info)?;
+        }
+    }
+
+    // Generate the loop body
+    writeln!(code, "    ; Loop body").unwrap();
+    generate_fused_ops_amd(code, &nest.body, params)?;
+
+    // Close loops in reverse order
+    for (i, loop_info) in nest.loops.iter().enumerate().rev() {
+        if loop_info.parallel && i < 3 {
+            // Parallel loop - just a label for early exit
+            writeln!(code, ".L_loop_exit_{}:", i).unwrap();
+        } else {
+            // Sequential loop - close with branch back
+            generate_sequential_loop_footer_amd(code, i, loop_info)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Generate header for a parallel loop mapped to AMD workgroups/workitems.
+fn generate_parallel_loop_header_amd(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+    grid_dim: usize,
+) -> GpuResult<()> {
+    let dim_reg = match grid_dim {
+        0 => ("s12", "v1"), // workgroup_id_x, local_id_x
+        1 => ("s13", "v2"), // workgroup_id_y, local_id_y
+        2 => ("s14", "v3"), // workgroup_id_z, local_id_z
+        _ => ("s12", "v1"),
+    };
+
+    writeln!(
+        code,
+        "    ; Parallel loop {} -> dimension {}",
+        loop_info.var.as_str(),
+        grid_dim
+    )
+    .unwrap();
+
+    // Calculate global index for this dimension
+    let v_idx = format!("v{}", 10 + loop_idx);
+    writeln!(
+        code,
+        "    v_mov_b32 {}, {}                   ; workgroup_id",
+        v_idx, dim_reg.0
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    v_lshlrev_b32 {0}, 8, {0}            ; * 256 (workgroup_size)",
+        v_idx
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    v_add_u32 {}, {}, {}               ; + local_id",
+        v_idx, v_idx, dim_reg.1
+    )
+    .unwrap();
+
+    // Add lower bound offset
+    if loop_info.lower != 0 {
+        writeln!(
+            code,
+            "    v_add_u32 {0}, {0}, {}              ; + lower bound",
+            v_idx, loop_info.lower
+        )
+        .unwrap();
+    }
+
+    // Apply step if not 1
+    if loop_info.step != 1 {
+        writeln!(
+            code,
+            "    v_mul_lo_u32 {0}, {0}, {}           ; * step",
+            v_idx, loop_info.step
+        )
+        .unwrap();
+    }
+
+    // Bounds check
+    match &loop_info.upper {
+        bhc_tensor_ir::Dim::Fixed(n) => {
+            writeln!(
+                code,
+                "    v_cmp_ge_u32 s[20:21], {}, {}      ; idx >= bound?",
+                v_idx, n
+            )
+            .unwrap();
+        }
+        bhc_tensor_ir::Dim::Dynamic(sym) => {
+            writeln!(
+                code,
+                "    v_cmp_ge_u32 s[20:21], {}, s{} ; idx >= bound? (dynamic: {})",
+                v_idx,
+                16 + loop_idx,
+                sym.as_str()
+            )
+            .unwrap();
+        }
+    }
+    writeln!(
+        code,
+        "    s_and_saveexec_b64 s[22:23], s[20:21]"
+    )
+    .unwrap();
+    writeln!(code, "    s_cbranch_execz .L_loop_exit_{}", loop_idx).unwrap();
+    writeln!(code).unwrap();
+
+    Ok(())
+}
+
+/// Generate header for a sequential (non-parallel) loop on AMD.
+fn generate_sequential_loop_header_amd(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+) -> GpuResult<()> {
+    let v_idx = format!("v{}", 10 + loop_idx);
+
+    writeln!(
+        code,
+        "    ; Sequential loop {} [{}, {})",
+        loop_info.var.as_str(),
+        loop_info.lower,
+        format_dim_amd(&loop_info.upper)
+    )
+    .unwrap();
+
+    // Initialize loop variable
+    writeln!(
+        code,
+        "    v_mov_b32 {}, {}                   ; init loop var",
+        v_idx, loop_info.lower
+    )
+    .unwrap();
+
+    // Loop header label
+    writeln!(code, ".L_loop_header_{}:", loop_idx).unwrap();
+
+    // Bounds check
+    match &loop_info.upper {
+        bhc_tensor_ir::Dim::Fixed(n) => {
+            writeln!(
+                code,
+                "    v_cmp_ge_u32 s[20:21], {}, {}",
+                v_idx, n
+            )
+            .unwrap();
+        }
+        bhc_tensor_ir::Dim::Dynamic(sym) => {
+            writeln!(
+                code,
+                "    v_cmp_ge_u32 s[20:21], {}, s{} ; {}",
+                v_idx,
+                16 + loop_idx,
+                sym.as_str()
+            )
+            .unwrap();
+        }
+    }
+    writeln!(code, "    s_cbranch_scc1 .L_loop_exit_{}", loop_idx).unwrap();
+    writeln!(code).unwrap();
+
+    Ok(())
+}
+
+/// Generate footer for a sequential loop on AMD.
+fn generate_sequential_loop_footer_amd(
+    code: &mut String,
+    loop_idx: usize,
+    loop_info: &bhc_tensor_ir::LoopInfo,
+) -> GpuResult<()> {
+    let v_idx = format!("v{}", 10 + loop_idx);
+
+    // Increment loop variable
+    writeln!(
+        code,
+        "    v_add_u32 {0}, {0}, {}              ; loop var += step",
+        v_idx, loop_info.step
+    )
+    .unwrap();
+
+    // Branch back to header
+    writeln!(code, "    s_branch .L_loop_header_{}", loop_idx).unwrap();
+
+    // Exit label
+    writeln!(code, ".L_loop_exit_{}:", loop_idx).unwrap();
+
+    Ok(())
+}
+
+/// Format a dimension for display (AMD version).
+fn format_dim_amd(dim: &bhc_tensor_ir::Dim) -> String {
+    match dim {
+        bhc_tensor_ir::Dim::Fixed(n) => n.to_string(),
+        bhc_tensor_ir::Dim::Dynamic(sym) => sym.as_str().to_string(),
+    }
 }
 
 #[cfg(test)]
