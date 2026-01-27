@@ -341,7 +341,7 @@ main = print $ sum $ map (*2) [1..10000000]
 
 ---
 
-## Phase 4: WASM Backend 🟡 95% COMPLETE
+## Phase 4: WASM Backend 🟡 98% COMPLETE
 
 **Objective:** `bhc --target=wasi Main.hs` produces working WebAssembly.
 
@@ -372,18 +372,18 @@ Tasks:
 - [x] Handle environment variables (`generate_init_environ()`, `generate_getenv()`)
 - [x] Test: Basic print works
 
-### 4.3 Edge Profile RTS 🟡
+### 4.3 Edge Profile RTS ✅
 
 **Crate:** `bhc-wasm`
-**Location:** `runtime/mod.rs` (369 lines), `runtime/gc.rs` (625 lines)
+**Location:** `runtime/mod.rs` (520 lines), `runtime/gc.rs` (625 lines)
 
 Tasks:
 - [x] Configuration for minimal RTS (`RuntimeConfig::edge()`)
 - [x] Memory layout definition (`MemoryLayout`)
 - [x] Arena allocator for WASM (`WasmArena`)
 - [x] Full GC within linear memory (`generate_gc_*` functions in gc.rs)
-- [ ] Minimize code size verification
-- [ ] Test: Runtime < 100KB
+- [x] Code size verification test (`test_runtime_code_size_under_100kb`)
+- [x] Test: Runtime < 100KB (17 functions, includes GC + WASI)
 
 ### 4.4 Driver Integration ✅
 

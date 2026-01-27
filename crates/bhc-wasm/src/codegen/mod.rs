@@ -422,6 +422,12 @@ impl WasmModule {
         module
     }
 
+    /// Get the module name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Add a function type definition.
     pub fn add_type(&mut self, ty: WasmFuncType) -> u32 {
         if let Some(idx) = self.types.iter().position(|t| t == &ty) {

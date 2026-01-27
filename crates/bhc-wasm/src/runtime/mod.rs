@@ -318,6 +318,9 @@ pub fn generate_arena_reset_function(heap_start: u32) -> Vec<WasmInstr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::{WasmFunc, WasmFuncType, WasmModule};
+    use crate::wasi;
+    use crate::WasmConfig;
 
     #[test]
     fn test_runtime_config_default() {
@@ -366,5 +369,165 @@ mod tests {
         let instrs = generate_alloc_function();
         assert!(!instrs.is_empty());
         assert!(matches!(instrs.last(), Some(WasmInstr::End)));
+    }
+
+    /// Verify that the complete WASM runtime stays under 100KB.
+    ///
+    /// This is a key requirement for the Edge profile where code size matters.
+    /// The runtime includes:
+    /// - Memory management (alloc, free, arena)
+    /// - WASI interface functions (fd_write, proc_exit, etc.)
+    /// - GC functions (mark, sweep, collect)
+    /// - Entry point (_start)
+    #[test]
+    fn test_runtime_code_size_under_100kb() {
+        use crate::runtime::gc::{self, GcConfig};
+
+        let config = WasmConfig::edge_profile();
+        let target = bhc_target::targets::wasm32_wasi();
+        let mut module = WasmModule::new("bhc_runtime".to_string(), config, target);
+
+        // Add heap pointer global
+        let gc_config = GcConfig::default();
+        module.add_global(gc::generate_heap_ptr_global(gc_config.heap_start));
+
+        // Function indices for cross-references
+        let mut func_idx = 0u32;
+
+        // 1. Add basic allocator function
+        let mut alloc_func = WasmFunc::new(WasmFuncType::new(
+            vec![crate::WasmType::I32],  // size
+            vec![crate::WasmType::I32],  // ptr
+        ));
+        alloc_func.name = Some("alloc".to_string());
+        alloc_func.exported = true;
+        for instr in generate_alloc_function() {
+            alloc_func.emit(instr);
+        }
+        module.add_function(alloc_func);
+        func_idx += 1;
+
+        // 2. Add free function
+        let mut free_func = WasmFunc::new(WasmFuncType::new(
+            vec![crate::WasmType::I32],  // ptr
+            vec![],
+        ));
+        free_func.name = Some("free".to_string());
+        free_func.exported = true;
+        for instr in generate_free_function() {
+            free_func.emit(instr);
+        }
+        module.add_function(free_func);
+        func_idx += 1;
+
+        // 3. Add arena reset function
+        let mut arena_reset_func = WasmFunc::new(WasmFuncType::new(
+            vec![],
+            vec![],
+        ));
+        arena_reset_func.name = Some("arena_reset".to_string());
+        arena_reset_func.exported = true;
+        for instr in generate_arena_reset_function(DEFAULT_HEAP_START) {
+            arena_reset_func.emit(instr);
+        }
+        module.add_function(arena_reset_func);
+        func_idx += 1;
+
+        // 4. Add start function
+        let mut start_func = WasmFunc::new(WasmFuncType::new(vec![], vec![]));
+        start_func.name = Some("_start".to_string());
+        start_func.exported = true;
+        for instr in generate_start_function() {
+            start_func.emit(instr);
+        }
+        module.add_function(start_func);
+        func_idx += 1;
+
+        // 5. Add GC init function
+        let gc_init = gc::generate_gc_init(&gc_config);
+        module.add_function(gc_init);
+        func_idx += 1;
+
+        // 6. Add GC alloc function
+        let gc_alloc = gc::generate_gc_alloc(
+            gc_config.heap_start,
+            gc_config.heap_end,
+            gc_config.gc_threshold,
+            func_idx + 3, // gc_collect index (added later)
+        );
+        module.add_function(gc_alloc);
+        func_idx += 1;
+
+        // 7. Add GC mark function
+        let gc_mark = gc::generate_gc_mark(gc_config.heap_start, gc_config.heap_end);
+        module.add_function(gc_mark);
+        func_idx += 1;
+
+        // 8. Add GC sweep function
+        let gc_sweep = gc::generate_gc_sweep(gc_config.heap_start, gc_config.heap_end);
+        module.add_function(gc_sweep);
+        func_idx += 1;
+
+        // 9. Add GC collect function
+        let gc_collect = gc::generate_gc_collect(
+            gc_config.heap_start,
+            gc_config.heap_end,
+            func_idx - 2, // gc_mark index
+            func_idx - 1, // gc_sweep index
+        );
+        module.add_function(gc_collect);
+        func_idx += 1;
+
+        // 10. Add GC stats function
+        let gc_stats = gc::generate_gc_stats();
+        module.add_function(gc_stats);
+        func_idx += 1;
+
+        // 11. Add GC root stack management
+        let gc_root_push = gc::generate_gc_root_push(gc::ROOT_STACK_PTR_OFFSET);
+        module.add_function(gc_root_push);
+        func_idx += 1;
+
+        let gc_root_pop = gc::generate_gc_root_pop(gc::ROOT_STACK_PTR_OFFSET);
+        module.add_function(gc_root_pop);
+        let _ = func_idx; // Last one, not needed further
+
+        // 12. Add WASI helpers
+        let print_i32 = wasi::generate_print_i32(0); // fd_write import index
+        module.add_function(print_i32);
+
+        let print_str = wasi::generate_print_str(0);
+        module.add_function(print_str);
+
+        let get_argc = wasi::generate_get_argc();
+        module.add_function(get_argc);
+
+        let get_argv = wasi::generate_get_argv();
+        module.add_function(get_argv);
+
+        let getenv = wasi::generate_getenv();
+        module.add_function(getenv);
+
+        // Generate binary
+        let binary = module.to_wasm().expect("Failed to generate WASM binary");
+        let size_kb = binary.len() as f64 / 1024.0;
+
+        // Count functions we added (17 total)
+        let function_count = 17;
+        println!("Runtime binary size: {:.2} KB ({} bytes)", size_kb, binary.len());
+        println!("Functions: {}", function_count);
+
+        // Assert under 100KB
+        const MAX_SIZE_KB: f64 = 100.0;
+        assert!(
+            size_kb < MAX_SIZE_KB,
+            "Runtime size {:.2} KB exceeds limit of {} KB",
+            size_kb,
+            MAX_SIZE_KB
+        );
+
+        // Also verify it's a valid WASM module (has magic number)
+        assert_eq!(&binary[0..4], b"\x00asm", "Invalid WASM magic number");
+        assert_eq!(&binary[4..8], &[0x01, 0x00, 0x00, 0x00], "Invalid WASM version");
     }
 }
