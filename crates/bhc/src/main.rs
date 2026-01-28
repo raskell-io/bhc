@@ -58,6 +58,14 @@ struct Cli {
     /// Number of parallel jobs
     #[arg(short, long)]
     jobs: Option<usize>,
+
+    /// Target triple (e.g., wasm32-wasi, x86_64-unknown-linux-gnu, cuda)
+    #[arg(long)]
+    target: Option<String>,
+
+    /// Emit format for output (e.g., ptx for GPU, llvm-ir for debugging)
+    #[arg(long)]
+    emit: Option<String>,
 }
 
 /// Compilation profile
@@ -214,11 +222,25 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
         Profile::Edge => bhc_session::Profile::Edge,
     };
 
+    // Determine output type based on target and emit flags
+    let output_type = if cli.emit.as_deref() == Some("ptx") {
+        bhc_session::OutputType::Object // PTX is emitted as object
+    } else if cli.target.as_deref() == Some("wasm32-wasi") || cli.target.as_deref() == Some("wasm") {
+        bhc_session::OutputType::Wasm
+    } else {
+        bhc_session::OutputType::Executable
+    };
+
     // Build compiler with configuration
     let mut builder = CompilerBuilder::new()
         .profile(profile)
-        .output_type(bhc_session::OutputType::Executable)
+        .output_type(output_type)
         .emit_kernel_report(cli.kernel_report);
+
+    // Set target if specified
+    if let Some(ref target) = cli.target {
+        builder = builder.target(target.clone());
+    }
 
     // Set output path if specified
     if let Some(ref output) = cli.output {

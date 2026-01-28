@@ -6758,18 +6758,24 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     // on function parameters.
                     //
                     // Pattern: case x of { _ -> body } or case x of { y -> body }
-                    // where x is a variable we already have bound
-                    if let Expr::Var(scrut_var, _) = scrut.as_ref() {
-                        // Find the first Default alternative
-                        if let Some(alt) = alts.iter().find(|a| matches!(a.con, AltCon::Default)) {
-                            // If the alternative has a binder, bind it to the same value as scrut
-                            for binder in &alt.binders {
-                                if let Some(val) = self.env.get(&scrut_var.id) {
-                                    self.env.insert(binder.id, *val);
+                    // where x is a variable we already have bound AND all alternatives are Default.
+                    //
+                    // IMPORTANT: Only optimize when ALL alternatives are Default.
+                    // If there are any literal or constructor patterns, we must do real pattern matching.
+                    let all_default = alts.iter().all(|a| matches!(a.con, AltCon::Default));
+                    if all_default {
+                        if let Expr::Var(scrut_var, _) = scrut.as_ref() {
+                            // Use the first Default alternative
+                            if let Some(alt) = alts.first() {
+                                // If the alternative has a binder, bind it to the same value as scrut
+                                for binder in &alt.binders {
+                                    if let Some(val) = self.env.get(&scrut_var.id) {
+                                        self.env.insert(binder.id, *val);
+                                    }
                                 }
+                                current = &alt.rhs;
+                                continue;
                             }
-                            current = &alt.rhs;
-                            continue;
                         }
                     }
                     // Not a trivial case, stop unwrapping
@@ -6944,11 +6950,48 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         scrut_val: BasicValueEnum<'ctx>,
         alts: &[Alt],
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Determine the type of literals in the alternatives
+        let has_int_lit = alts.iter().any(|alt| matches!(&alt.con, AltCon::Lit(Literal::Int(_))));
+        let has_char_lit = alts.iter().any(|alt| matches!(&alt.con, AltCon::Lit(Literal::Char(_))));
+        let has_float_lit = alts.iter().any(|alt| matches!(&alt.con, AltCon::Lit(Literal::Double(_))));
+        let has_string_lit = alts.iter().any(|alt| matches!(&alt.con, AltCon::Lit(Literal::String(_))));
+
         // Dispatch based on scrutinee type
         match scrut_val {
             BasicValueEnum::IntValue(i) => self.lower_case_literal_int(i, alts),
             BasicValueEnum::FloatValue(f) => self.lower_case_literal_float(f, alts),
-            BasicValueEnum::PointerValue(p) => self.lower_case_literal_string(p, alts),
+            BasicValueEnum::PointerValue(p) => {
+                // Check if the alternatives have integer/char literals - if so, unbox the pointer
+                if has_int_lit || has_char_lit {
+                    // Pointer contains a boxed integer - unbox it
+                    let int_val = self.builder()
+                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_for_case")
+                        .map_err(|e| CodegenError::Internal(format!("failed to unbox for case: {:?}", e)))?;
+                    self.lower_case_literal_int(int_val, alts)
+                } else if has_float_lit {
+                    // Pointer contains a boxed float - unbox it
+                    let bits = self.builder()
+                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_float_bits")
+                        .map_err(|e| CodegenError::Internal(format!("failed to unbox float: {:?}", e)))?;
+                    let float_val = self.builder()
+                        .build_bit_cast(bits, self.type_mapper().f64_type(), "to_double")
+                        .map_err(|e| CodegenError::Internal(format!("failed to cast to double: {:?}", e)))?;
+                    if let BasicValueEnum::FloatValue(f) = float_val {
+                        self.lower_case_literal_float(f, alts)
+                    } else {
+                        Err(CodegenError::Internal("expected float value after unboxing".to_string()))
+                    }
+                } else if has_string_lit {
+                    // String pattern matching
+                    self.lower_case_literal_string(p, alts)
+                } else {
+                    // Default case or only Default alternatives - assume integer
+                    let int_val = self.builder()
+                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_for_case")
+                        .map_err(|e| CodegenError::Internal(format!("failed to unbox for case: {:?}", e)))?;
+                    self.lower_case_literal_int(int_val, alts)
+                }
+            }
             _ => Err(CodegenError::Unsupported(
                 format!("unsupported scrutinee type for literal case: {:?}", scrut_val.get_type()),
             )),
@@ -6986,7 +7029,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     cases.push((self.type_mapper().i32_type().const_int(*c as u64, false), block));
                 }
                 AltCon::Default => {
-                    default_block = Some(block);
+                    // Use the FIRST default block as the switch default.
+                    // The pattern compiler adds error fallbacks as additional Defaults,
+                    // but we want non-matching cases to go to the first (user-defined) default.
+                    if default_block.is_none() {
+                        default_block = Some(block);
+                    }
                 }
                 _ => {
                     return Err(CodegenError::Unsupported(
