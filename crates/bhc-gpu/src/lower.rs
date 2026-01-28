@@ -24,13 +24,12 @@
 //! let compiled = lowering.lower_kernel(&kernel, &device_info)?;
 //! ```
 
-use crate::codegen::{amdgcn, ptx};
+use crate::codegen::{amdgcn, metal, ptx, spirv, wgsl};
 use crate::device::{DeviceInfo, DeviceKind};
-use crate::kernel::{CompiledModule, GpuKernel, KernelConfig, LaunchConfig};
+use crate::kernel::{CompiledModule, LaunchConfig};
 use crate::{GpuError, GpuResult};
-use bhc_tensor_ir::{
-    BinaryOp, DType, Kernel, KernelBody, ReduceOp, Shape, TensorOp, TensorRef, UnaryOp,
-};
+use bhc_index::Idx;
+use bhc_tensor_ir::{DType, Kernel, KernelBody, TensorOp};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
@@ -491,6 +490,9 @@ impl GpuLowering {
         let code = match device.kind {
             DeviceKind::Cuda => self.generate_ptx(kernel, device, &launch_config)?,
             DeviceKind::Rocm => self.generate_amdgcn(kernel, device, &launch_config)?,
+            DeviceKind::Spirv => self.generate_spirv(kernel, device, &launch_config)?,
+            DeviceKind::Metal => self.generate_metal(kernel, device, &launch_config)?,
+            DeviceKind::WebGpu => self.generate_wgsl(kernel, device, &launch_config)?,
             DeviceKind::Mock => self.generate_mock(kernel)?,
         };
 
@@ -518,63 +520,13 @@ impl GpuLowering {
         &self,
         kernel: &Kernel,
         device: &DeviceInfo,
-        launch_config: &LaunchConfig,
+        _launch_config: &LaunchConfig,
     ) -> GpuResult<String> {
-        let kernel_params = ptx::KernelParams {
-            name: kernel_function_name(kernel),
-            block_size: launch_config.block_dim.0 as usize,
-            shared_memory: launch_config.shared_mem,
-        };
-
-        // Generate based on kernel body
-        match &kernel.body {
-            KernelBody::Fused(ops) => {
-                if ops.is_empty() {
-                    return Err(GpuError::CompilationError("Empty kernel body".to_string()));
-                }
-
-                // Analyze the fused operations
-                let first_op = &ops[0];
-                let dtype = get_op_dtype(first_op, kernel);
-
-                // Generate kernel based on operation type
-                let ptx = match first_op {
-                    TensorOp::Map(map_fn, _) => {
-                        ptx::generate_map_kernel(&kernel_params, map_fn, dtype)?
-                    }
-                    TensorOp::ZipWith(zip_fn, _, _) => {
-                        ptx::generate_zipwith_kernel(&kernel_params, zip_fn, dtype)?
-                    }
-                    TensorOp::Reduce(reduce_op, _, _) | TensorOp::ReduceAll(reduce_op, _) => {
-                        ptx::generate_reduce_kernel(&kernel_params, *reduce_op, dtype)?
-                    }
-                    TensorOp::Unary(unary_op, _) => {
-                        ptx::generate_unary_kernel(&kernel_params, *unary_op, dtype)?
-                    }
-                    TensorOp::Binary(binary_op, _, _) => {
-                        ptx::generate_binary_kernel(&kernel_params, *binary_op, dtype)?
-                    }
-                    _ => {
-                        return Err(GpuError::NotSupported(format!(
-                            "PTX generation not implemented for {:?}",
-                            first_op
-                        )));
-                    }
-                };
-
-                // Wrap in module
-                let mut module = ptx::generate_module_header(&kernel_function_name(kernel), device);
-                module.push_str(&ptx);
-
-                Ok(module)
-            }
-            KernelBody::LoopNest(_nest) => {
-                // Generate from loop nest representation
-                Err(GpuError::NotSupported(
-                    "LoopNest PTX generation not yet implemented".to_string(),
-                ))
-            }
-        }
+        // Use the compile_kernel function which handles all operation types
+        let module = ptx::compile_kernel(kernel, device)?;
+        // Convert Vec<u8> to String (PTX is UTF-8 text)
+        String::from_utf8(module.code)
+            .map_err(|e| GpuError::CompilationError(format!("Invalid UTF-8 in PTX: {}", e)))
     }
 
     /// Generate AMDGCN code for AMD GPUs.
@@ -582,58 +534,13 @@ impl GpuLowering {
         &self,
         kernel: &Kernel,
         device: &DeviceInfo,
-        launch_config: &LaunchConfig,
+        _launch_config: &LaunchConfig,
     ) -> GpuResult<String> {
-        let kernel_params = amdgcn::KernelParams {
-            name: kernel_function_name(kernel),
-            workgroup_size: launch_config.block_dim.0 as usize,
-            lds_size: launch_config.shared_mem,
-        };
-
-        // Similar structure to PTX generation
-        match &kernel.body {
-            KernelBody::Fused(ops) => {
-                if ops.is_empty() {
-                    return Err(GpuError::CompilationError("Empty kernel body".to_string()));
-                }
-
-                let first_op = &ops[0];
-                let dtype = get_op_dtype(first_op, kernel);
-
-                let amdgcn = match first_op {
-                    TensorOp::Map(map_fn, _) => {
-                        amdgcn::generate_map_kernel(&kernel_params, map_fn, dtype)?
-                    }
-                    TensorOp::ZipWith(zip_fn, _, _) => {
-                        amdgcn::generate_zipwith_kernel(&kernel_params, zip_fn, dtype)?
-                    }
-                    TensorOp::Reduce(reduce_op, _, _) | TensorOp::ReduceAll(reduce_op, _) => {
-                        amdgcn::generate_reduce_kernel(&kernel_params, *reduce_op, dtype)?
-                    }
-                    TensorOp::Unary(unary_op, _) => {
-                        amdgcn::generate_unary_kernel(&kernel_params, *unary_op, dtype)?
-                    }
-                    TensorOp::Binary(binary_op, _, _) => {
-                        amdgcn::generate_binary_kernel(&kernel_params, *binary_op, dtype)?
-                    }
-                    _ => {
-                        return Err(GpuError::NotSupported(format!(
-                            "AMDGCN generation not implemented for {:?}",
-                            first_op
-                        )));
-                    }
-                };
-
-                let mut module =
-                    amdgcn::generate_module_header(&kernel_function_name(kernel), device);
-                module.push_str(&amdgcn);
-
-                Ok(module)
-            }
-            KernelBody::LoopNest(_) => Err(GpuError::NotSupported(
-                "LoopNest AMDGCN generation not yet implemented".to_string(),
-            )),
-        }
+        // Use the compile_kernel function which handles all operation types
+        let module = amdgcn::compile_kernel(kernel, device)?;
+        // Convert Vec<u8> to String (AMDGCN is UTF-8 text)
+        String::from_utf8(module.code)
+            .map_err(|e| GpuError::CompilationError(format!("Invalid UTF-8 in AMDGCN: {}", e)))
     }
 
     /// Generate mock code for testing.
@@ -644,6 +551,42 @@ impl GpuLowering {
             kernel.inputs.len(),
             kernel.outputs.len()
         ))
+    }
+
+    /// Generate SPIR-V code for Vulkan/OpenCL.
+    fn generate_spirv(
+        &self,
+        kernel: &Kernel,
+        device: &DeviceInfo,
+        _launch_config: &LaunchConfig,
+    ) -> GpuResult<String> {
+        let module = spirv::compile_kernel(kernel, device)?;
+        String::from_utf8(module.code)
+            .map_err(|e| GpuError::CompilationError(format!("Invalid UTF-8 in SPIR-V: {}", e)))
+    }
+
+    /// Generate Metal Shading Language code for Apple GPUs.
+    fn generate_metal(
+        &self,
+        kernel: &Kernel,
+        device: &DeviceInfo,
+        _launch_config: &LaunchConfig,
+    ) -> GpuResult<String> {
+        let module = metal::compile_kernel(kernel, device)?;
+        String::from_utf8(module.code)
+            .map_err(|e| GpuError::CompilationError(format!("Invalid UTF-8 in Metal: {}", e)))
+    }
+
+    /// Generate WGSL code for WebGPU.
+    fn generate_wgsl(
+        &self,
+        kernel: &Kernel,
+        device: &DeviceInfo,
+        _launch_config: &LaunchConfig,
+    ) -> GpuResult<String> {
+        let module = wgsl::compile_kernel(kernel, device)?;
+        String::from_utf8(module.code)
+            .map_err(|e| GpuError::CompilationError(format!("Invalid UTF-8 in WGSL: {}", e)))
     }
 
     /// Compute a cache key for a kernel.
@@ -708,7 +651,7 @@ mod tests {
     use bhc_index::Idx;
     use bhc_intern::Symbol;
     use bhc_tensor_ir::{
-        FusionInfo, FusionPattern, KernelId, Layout, MapFn, Strides, TensorId, TensorMeta,
+        FusionInfo, KernelId, Layout, MapFn, Shape, Strides, TensorId, TensorMeta, TensorRef,
     };
 
     fn make_test_kernel() -> Kernel {
@@ -752,8 +695,9 @@ mod tests {
             )]),
             allocs: vec![],
             fusion_info: FusionInfo {
-                pattern: FusionPattern::NoFusion,
-                fused_ops: 1,
+                original_ops: vec![],
+                decisions: vec![],
+                complete: true,
             },
         }
     }

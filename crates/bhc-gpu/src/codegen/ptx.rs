@@ -274,7 +274,7 @@ fn generate_parallel_loop_header(
     if loop_info.lower != 0 {
         writeln!(
             code,
-            "    add.s64 %loop_{0}, %loop_{0}, {};",
+            "    add.s64 %loop_{0}, %loop_{0}, {1};",
             loop_idx, loop_info.lower
         )
         .unwrap();
@@ -284,7 +284,7 @@ fn generate_parallel_loop_header(
     if loop_info.step != 1 {
         writeln!(
             code,
-            "    mul.lo.s64 %loop_{0}, %loop_{0}, {};",
+            "    mul.lo.s64 %loop_{0}, %loop_{0}, {1};",
             loop_idx, loop_info.step
         )
         .unwrap();
@@ -293,7 +293,7 @@ fn generate_parallel_loop_header(
     // Bounds check
     writeln!(code, "    .reg .pred %pbound_{};", loop_idx).unwrap();
     match &loop_info.upper {
-        bhc_tensor_ir::Dim::Fixed(n) => {
+        bhc_tensor_ir::Dim::Static(n) => {
             writeln!(
                 code,
                 "    setp.ge.s64 %pbound_{}, %loop_{}, {};",
@@ -340,7 +340,7 @@ fn generate_sequential_loop_header(
     // Bounds check
     writeln!(code, "    .reg .pred %sbound_{};", loop_idx).unwrap();
     match &loop_info.upper {
-        bhc_tensor_ir::Dim::Fixed(n) => {
+        bhc_tensor_ir::Dim::Static(n) => {
             writeln!(
                 code,
                 "    setp.ge.s64 %sbound_{}, %loop_{}, {};",
@@ -372,7 +372,7 @@ fn generate_sequential_loop_footer(
     // Increment loop variable
     writeln!(
         code,
-        "    add.s64 %loop_{0}, %loop_{0}, {};",
+        "    add.s64 %loop_{0}, %loop_{0}, {1};",
         loop_idx, loop_info.step
     )
     .unwrap();
@@ -389,7 +389,7 @@ fn generate_sequential_loop_footer(
 /// Format a dimension for display.
 fn format_dim(dim: &bhc_tensor_ir::Dim) -> String {
     match dim {
-        bhc_tensor_ir::Dim::Fixed(n) => n.to_string(),
+        bhc_tensor_ir::Dim::Static(n) => n.to_string(),
         bhc_tensor_ir::Dim::Dynamic(sym) => sym.as_str().to_string(),
     }
 }
@@ -491,11 +491,12 @@ fn generate_map_op(
     writeln!(code, "    .reg .u64 %map_addr{};", idx).unwrap();
 
     // Bounds check
+    let default_size_param = "n".to_string();
     let size_param = params
         .inputs
         .first()
         .map(|p| &p.name)
-        .unwrap_or(&"n".to_string());
+        .unwrap_or(&default_size_param);
     writeln!(code, "    ld.param.u64 %n, [{}];", size_param).unwrap();
     writeln!(code, "    setp.ge.u64 %p, %idx, %n;").unwrap();
     writeln!(code, "    @%p bra map_done{};", idx).unwrap();
@@ -513,7 +514,7 @@ fn generate_map_op(
         .unwrap();
         writeln!(
             code,
-            "    shl.b64 %map_addr{0}, %idx, {};  // idx * elem_size",
+            "    shl.b64 %map_addr{0}, %idx, {1};  // idx * elem_size",
             idx,
             elem_size.trailing_zeros()
         )
@@ -623,7 +624,7 @@ fn generate_map_op(
         .unwrap();
         writeln!(
             code,
-            "    shl.b64 %map_addr{0}, %idx, {};",
+            "    shl.b64 %map_addr{0}, %idx, {1};",
             idx,
             elem_size.trailing_zeros()
         )
@@ -692,7 +693,7 @@ fn generate_zipwith_op(
         .unwrap();
         writeln!(
             code,
-            "    mul.wide.u32 %zip_addr_a{0}, %idx, {};",
+            "    mul.wide.u32 %zip_addr_a{0}, %idx, {1};",
             idx, elem_size
         )
         .unwrap();
@@ -722,7 +723,7 @@ fn generate_zipwith_op(
         .unwrap();
         writeln!(
             code,
-            "    mul.wide.u32 %zip_addr_b{0}, %idx, {};",
+            "    mul.wide.u32 %zip_addr_b{0}, %idx, {1};",
             idx, elem_size
         )
         .unwrap();
@@ -815,7 +816,7 @@ fn generate_zipwith_op(
         .unwrap();
         writeln!(
             code,
-            "    mul.wide.u32 %zip_addr_out{0}, %idx, {};",
+            "    mul.wide.u32 %zip_addr_out{0}, %idx, {1};",
             idx, elem_size
         )
         .unwrap();
@@ -907,7 +908,7 @@ fn generate_parallel_reduction(
         .unwrap();
         writeln!(
             code,
-            "    mul.wide.u32 %red_addr{0}, %idx, {};",
+            "    mul.wide.u32 %red_addr{0}, %idx, {1};",
             idx, elem_size
         )
         .unwrap();
@@ -966,7 +967,7 @@ fn generate_parallel_reduction(
         .unwrap();
         writeln!(
             code,
-            "    mul.lo.u32 %red_stride{0}, %red_stride{0}, {};",
+            "    mul.lo.u32 %red_stride{0}, %red_stride{0}, {1};",
             idx, elem_size
         )
         .unwrap();

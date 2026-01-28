@@ -41,6 +41,12 @@ pub enum DeviceKind {
     Cuda,
     /// AMD GPU (ROCm/HIP).
     Rocm,
+    /// Vulkan/OpenCL via SPIR-V.
+    Spirv,
+    /// Apple GPU (Metal).
+    Metal,
+    /// WebGPU (WGSL).
+    WebGpu,
     /// Mock device for testing without hardware.
     Mock,
 }
@@ -52,6 +58,9 @@ impl DeviceKind {
         match self {
             Self::Cuda => "CUDA",
             Self::Rocm => "ROCm",
+            Self::Spirv => "SPIR-V",
+            Self::Metal => "Metal",
+            Self::WebGpu => "WebGPU",
             Self::Mock => "Mock",
         }
     }
@@ -59,7 +68,23 @@ impl DeviceKind {
     /// Check if this is a real hardware device.
     #[must_use]
     pub const fn is_hardware(self) -> bool {
-        matches!(self, Self::Cuda | Self::Rocm)
+        matches!(
+            self,
+            Self::Cuda | Self::Rocm | Self::Spirv | Self::Metal | Self::WebGpu
+        )
+    }
+
+    /// Get the shader language name for this device kind.
+    #[must_use]
+    pub const fn shader_language(self) -> &'static str {
+        match self {
+            Self::Cuda => "PTX",
+            Self::Rocm => "AMDGCN",
+            Self::Spirv => "SPIR-V",
+            Self::Metal => "MSL",
+            Self::WebGpu => "WGSL",
+            Self::Mock => "Mock",
+        }
     }
 }
 
@@ -166,6 +191,9 @@ impl DeviceInfo {
     ///
     /// For CUDA: Returns PTX architecture (e.g., "sm_86")
     /// For ROCm: Returns GFX architecture (e.g., "gfx90a")
+    /// For SPIR-V: Returns Vulkan version (e.g., "vulkan1.2")
+    /// For Metal: Returns Metal version (e.g., "metal3.0")
+    /// For WebGPU: Returns WGSL version
     #[must_use]
     pub fn arch_name(&self) -> String {
         match self.kind {
@@ -183,6 +211,19 @@ impl DeviceInfo {
                     self.compute_capability.1 % 10
                 )
             }
+            DeviceKind::Spirv => {
+                format!(
+                    "vulkan{}.{}",
+                    self.compute_capability.0, self.compute_capability.1
+                )
+            }
+            DeviceKind::Metal => {
+                format!(
+                    "metal{}.{}",
+                    self.compute_capability.0, self.compute_capability.1
+                )
+            }
+            DeviceKind::WebGpu => "wgsl1.0".to_string(),
             DeviceKind::Mock => "mock_sm_80".to_string(),
         }
     }
@@ -201,10 +242,13 @@ impl DeviceInfo {
     /// This is an estimate based on SM/CU count and typical configuration.
     #[must_use]
     pub fn peak_flops_sp(&self) -> f64 {
-        // Rough estimate: 128 FP32 cores per SM, ~1.5 GHz typical
+        // Rough estimate: FP32 cores per compute unit, ~1.5 GHz typical
         let cores_per_sm = match self.kind {
-            DeviceKind::Cuda => 128.0, // Ampere/Ada
-            DeviceKind::Rocm => 64.0,  // RDNA 3
+            DeviceKind::Cuda => 128.0,  // Ampere/Ada
+            DeviceKind::Rocm => 64.0,   // RDNA 3
+            DeviceKind::Spirv => 64.0,  // Varies by vendor
+            DeviceKind::Metal => 128.0, // Apple M-series
+            DeviceKind::WebGpu => 64.0, // Conservative estimate
             DeviceKind::Mock => 128.0,
         };
         let clock_ghz = 1.5; // Assumed, should query actual value

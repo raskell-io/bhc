@@ -37,7 +37,6 @@ fn run_gpu_mock_test(fixture_name: &str) {
 // =============================================================================
 
 #[test]
-#[ignore = "GPU backend not yet implemented"]
 fn test_gpu_arithmetic_mock() {
     run_gpu_mock_test("tier1_simple/arithmetic");
 }

@@ -65,6 +65,7 @@ use bhc_loop_ir::{
     LoopId, TargetArch,
 };
 use bhc_wasm::{WasmConfig, WasmModule};
+use bhc_gpu::{codegen::ptx, device::DeviceInfo, GpuResult};
 use rustc_hash::FxHashMap;
 use bhc_lower::LowerContext;
 use bhc_session::{Options, OutputType, Profile, Session, SessionRef};
@@ -365,6 +366,8 @@ impl Compiler {
         // Store loop_irs for potential WASM codegen
         let mut loop_irs_for_wasm: Vec<bhc_loop_ir::LoopIR> = Vec::new();
         let mut fusion_report_for_wasm: Option<fusion::KernelReport> = None;
+        // Store Tensor IR kernels for GPU codegen
+        let mut tensor_kernels_for_gpu: Vec<bhc_tensor_ir::Kernel> = Vec::new();
 
         if self.session.profile() == Profile::Numeric {
             self.callbacks.on_phase_start(CompilePhase::TensorLower, &unit.module_name);
@@ -381,6 +384,9 @@ impl Compiler {
             // Run fusion pass (strict mode for Numeric profile)
             let mut fusion_ctx = FusionContext::new(true);
             let kernels = fusion::fuse_ops(&mut fusion_ctx, tensor_ops);
+
+            // Store kernels for GPU codegen
+            tensor_kernels_for_gpu = kernels.clone();
 
             // Generate fusion report (may be used for comprehensive report)
             let fusion_report = fusion::generate_kernel_report(&fusion_ctx);
@@ -545,6 +551,75 @@ impl Compiler {
             return Ok(CompileOutput {
                 path: output_path,
                 output_type: OutputType::Wasm,
+            });
+        }
+
+        // Check for GPU target - generate PTX/AMDGCN code
+        if self.is_gpu_target() || self.is_ptx_emit() {
+            self.callbacks.on_phase_start(CompilePhase::Codegen, &unit.module_name);
+
+            // Get GPU device info (real device or mock for testing)
+            let device = self.get_gpu_device_info();
+
+            // Generate PTX code from Tensor IR kernels
+            let mut ptx_code = ptx::generate_module_header(&unit.module_name, &device);
+
+            if !tensor_kernels_for_gpu.is_empty() {
+                debug!(
+                    module = %unit.module_name,
+                    kernels = tensor_kernels_for_gpu.len(),
+                    "compiling Tensor IR kernels to PTX"
+                );
+
+                for kernel in &tensor_kernels_for_gpu {
+                    match ptx::compile_kernel(kernel, &device) {
+                        Ok(compiled) => {
+                            // Convert Vec<u8> to String (PTX is UTF-8 text)
+                            if let Ok(code_str) = String::from_utf8(compiled.code) {
+                                ptx_code.push_str(&code_str);
+                            }
+                            debug!(
+                                module = %unit.module_name,
+                                kernel = %kernel.name.as_str(),
+                                "compiled kernel to PTX"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                module = %unit.module_name,
+                                kernel = %kernel.name.as_str(),
+                                error = %e,
+                                "failed to compile kernel to PTX, skipping"
+                            );
+                        }
+                    }
+                }
+            } else {
+                // No kernels from Tensor IR, generate a simple entry point
+                ptx_code.push_str(&format!(
+                    "\n// Module: {}\n// No GPU kernels generated (no numeric operations)\n",
+                    unit.module_name
+                ));
+            }
+
+            // Determine output path
+            let output_path = if let Some(ref path) = self.session.options.output_path {
+                path.clone()
+            } else {
+                Utf8PathBuf::from(format!("{}.ptx", unit.module_name))
+            };
+
+            // Write PTX file
+            std::fs::write(&output_path, &ptx_code)
+                .map_err(|e| CompileError::CodegenError(format!("Failed to write PTX: {}", e)))?;
+
+            self.callbacks.on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+
+            info!(module = %unit.module_name, output = %output_path, "GPU compilation complete");
+
+            return Ok(CompileOutput {
+                path: output_path,
+                output_type: OutputType::Object, // PTX is treated as object
             });
         }
 
@@ -1152,6 +1227,35 @@ impl Compiler {
             .target_triple
             .as_ref()
             .map_or(false, |t| t.contains("wasm"))
+    }
+
+    /// Check if the target is GPU (CUDA or ROCm).
+    ///
+    /// Returns true if the target triple contains "cuda", "nvptx", or "amdgcn".
+    fn is_gpu_target(&self) -> bool {
+        self.session
+            .options
+            .target_triple
+            .as_ref()
+            .map_or(false, |t| {
+                t.contains("cuda") || t.contains("nvptx") || t.contains("amdgcn") || t.contains("ptx")
+            })
+    }
+
+    /// Check if emit type is PTX (GPU intermediate).
+    ///
+    /// Returns true if we're targeting GPU and should emit PTX/AMDGCN.
+    fn is_ptx_emit(&self) -> bool {
+        // Check if target is a GPU target (CUDA/ROCm)
+        self.is_gpu_target()
+    }
+
+    /// Get GPU device information for code generation.
+    ///
+    /// Returns a real device if available, otherwise a mock device for testing.
+    fn get_gpu_device_info(&self) -> DeviceInfo {
+        let devices = bhc_gpu::available_devices();
+        devices.into_iter().next().unwrap_or_else(DeviceInfo::mock)
     }
 
     /// Compile multiple source files in parallel.

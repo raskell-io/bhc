@@ -441,7 +441,7 @@ fn generate_parallel_loop_header_amd(
     if loop_info.lower != 0 {
         writeln!(
             code,
-            "    v_add_u32 {0}, {0}, {}              ; + lower bound",
+            "    v_add_u32 {0}, {0}, {1}              ; + lower bound",
             v_idx, loop_info.lower
         )
         .unwrap();
@@ -451,7 +451,7 @@ fn generate_parallel_loop_header_amd(
     if loop_info.step != 1 {
         writeln!(
             code,
-            "    v_mul_lo_u32 {0}, {0}, {}           ; * step",
+            "    v_mul_lo_u32 {0}, {0}, {1}           ; * step",
             v_idx, loop_info.step
         )
         .unwrap();
@@ -459,7 +459,7 @@ fn generate_parallel_loop_header_amd(
 
     // Bounds check
     match &loop_info.upper {
-        bhc_tensor_ir::Dim::Fixed(n) => {
+        bhc_tensor_ir::Dim::Static(n) => {
             writeln!(
                 code,
                 "    v_cmp_ge_u32 s[20:21], {}, {}      ; idx >= bound?",
@@ -519,7 +519,7 @@ fn generate_sequential_loop_header_amd(
 
     // Bounds check
     match &loop_info.upper {
-        bhc_tensor_ir::Dim::Fixed(n) => {
+        bhc_tensor_ir::Dim::Static(n) => {
             writeln!(
                 code,
                 "    v_cmp_ge_u32 s[20:21], {}, {}",
@@ -555,7 +555,7 @@ fn generate_sequential_loop_footer_amd(
     // Increment loop variable
     writeln!(
         code,
-        "    v_add_u32 {0}, {0}, {}              ; loop var += step",
+        "    v_add_u32 {0}, {0}, {1}              ; loop var += step",
         v_idx, loop_info.step
     )
     .unwrap();
@@ -572,7 +572,7 @@ fn generate_sequential_loop_footer_amd(
 /// Format a dimension for display (AMD version).
 fn format_dim_amd(dim: &bhc_tensor_ir::Dim) -> String {
     match dim {
-        bhc_tensor_ir::Dim::Fixed(n) => n.to_string(),
+        bhc_tensor_ir::Dim::Static(n) => n.to_string(),
         bhc_tensor_ir::Dim::Dynamic(sym) => sym.as_str().to_string(),
     }
 }

@@ -433,6 +433,9 @@ impl GpuContext {
         let compiled = match self.device.kind {
             DeviceKind::Cuda => crate::codegen::ptx::compile_kernel(kernel, &self.device)?,
             DeviceKind::Rocm => crate::codegen::amdgcn::compile_kernel(kernel, &self.device)?,
+            DeviceKind::Spirv => crate::codegen::spirv::compile_kernel(kernel, &self.device)?,
+            DeviceKind::Metal => crate::codegen::metal::compile_kernel(kernel, &self.device)?,
+            DeviceKind::WebGpu => crate::codegen::wgsl::compile_kernel(kernel, &self.device)?,
             DeviceKind::Mock => crate::codegen::mock_compile_kernel(kernel, &self.device)?,
         };
 

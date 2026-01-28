@@ -357,6 +357,9 @@ impl CodegenContext for GpuCodegenContext {
         let code = match self.device.kind {
             DeviceKind::Cuda => codegen::ptx::generate_module_header(name, &self.device),
             DeviceKind::Rocm => codegen::amdgcn::generate_module_header(name, &self.device),
+            DeviceKind::Spirv => codegen::spirv::generate_module_header(name, &self.device),
+            DeviceKind::Metal => codegen::metal::generate_module_header(name, &self.device),
+            DeviceKind::WebGpu => format!("// BHC WebGPU Module: {}\n", name),
             DeviceKind::Mock => format!("; Mock GPU module: {}\n", name),
         };
 

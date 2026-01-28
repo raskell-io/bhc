@@ -1,7 +1,8 @@
 //! GPU code generation infrastructure.
 //!
 //! This module provides code generation from Tensor IR to GPU assembly
-//! (PTX for CUDA, AMDGCN for ROCm).
+//! for multiple backends: PTX (CUDA), AMDGCN (ROCm), SPIR-V (Vulkan),
+//! Metal (Apple), and WGSL (WebGPU).
 //!
 //! # Code Generation Pipeline
 //!
@@ -18,25 +19,29 @@
 //! │   IR Lowering   │ ──▶ Convert TensorOp to loop nests
 //! └─────────────────┘
 //!        │
-//!        ├──────────────────┬────────────────────┐
-//!        ▼                  ▼                    ▼
-//! ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐
-//! │ PTX Codegen │   │AMDGCN Codegen│   │ (Future: SPIR-V)│
-//! └─────────────┘   └─────────────┘   └─────────────────┘
+//!        ├────────────┬────────────┬──────────┬──────────┬──────────┐
+//!        ▼            ▼            ▼          ▼          ▼          │
+//! ┌───────────┐ ┌───────────┐ ┌────────┐ ┌────────┐ ┌────────┐     │
+//! │    PTX    │ │  AMDGCN   │ │ SPIR-V │ │ Metal  │ │  WGSL  │     │
+//! │  (CUDA)   │ │  (ROCm)   │ │(Vulkan)│ │(Apple) │ │(WebGPU)│     │
+//! └───────────┘ └───────────┘ └────────┘ └────────┘ └────────┘     │
 //! ```
 //!
-//! # PTX Generation
+//! # Backend Summary
 //!
-//! For NVIDIA GPUs, we generate PTX (Parallel Thread Execution) assembly.
-//! PTX is then JIT-compiled by the CUDA driver to device-specific code.
-//!
-//! # AMDGCN Generation
-//!
-//! For AMD GPUs, we generate AMDGCN assembly targeting specific GFX
-//! architectures (gfx900, gfx90a, etc.).
+//! | Backend | Target | Language | Usage |
+//! |---------|--------|----------|-------|
+//! | PTX | NVIDIA GPUs | PTX Assembly | CUDA applications |
+//! | AMDGCN | AMD GPUs | AMDGCN Assembly | ROCm/HIP applications |
+//! | SPIR-V | Vulkan/OpenCL | SPIR-V Assembly | Cross-platform compute |
+//! | Metal | Apple GPUs | MSL | macOS/iOS applications |
+//! | WGSL | WebGPU | WGSL | Browser/wgpu applications |
 
 pub mod amdgcn;
+pub mod metal;
 pub mod ptx;
+pub mod spirv;
+pub mod wgsl;
 
 use crate::device::DeviceInfo;
 use crate::kernel::CompiledModule;

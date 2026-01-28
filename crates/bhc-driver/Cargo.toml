@@ -31,6 +31,7 @@ bhc-target = { workspace = true }
 bhc-codegen = { workspace = true }
 bhc-linker = { workspace = true }
 bhc-wasm = { workspace = true }
+bhc-gpu = { workspace = true }
 
 # External dependencies
 thiserror = { workspace = true }
