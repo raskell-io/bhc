@@ -40,6 +40,11 @@ fn test_tier1_arithmetic_native() {
     run_native_test("tier1_simple/arithmetic", Profile::Default);
 }
 
+#[test]
+fn test_tier1_list_range_native() {
+    run_native_test("tier1_simple/list_range", Profile::Default);
+}
+
 // =============================================================================
 // Tier 2: Function Tests
 // =============================================================================
@@ -47,6 +52,26 @@ fn test_tier1_arithmetic_native() {
 #[test]
 fn test_tier2_fibonacci_native() {
     run_native_test("tier2_functions/fibonacci", Profile::Default);
+}
+
+#[test]
+fn test_tier2_guards_native() {
+    run_native_test("tier2_functions/guards", Profile::Default);
+}
+
+#[test]
+fn test_tier2_pattern_match_native() {
+    run_native_test("tier2_functions/pattern_match", Profile::Default);
+}
+
+#[test]
+fn test_tier2_where_bindings_native() {
+    run_native_test("tier2_functions/where_bindings", Profile::Default);
+}
+
+#[test]
+fn test_tier2_mutual_recursion_native() {
+    run_native_test("tier2_functions/mutual_recursion", Profile::Default);
 }
 
 // =============================================================================
@@ -74,6 +99,10 @@ fn test_discover_tier1_fixtures() {
         names.contains(&"arithmetic"),
         "Should find arithmetic fixture"
     );
+    assert!(
+        names.contains(&"list_range"),
+        "Should find list_range fixture"
+    );
 }
 
 #[test]
@@ -83,6 +112,19 @@ fn test_discover_tier2_fixtures() {
 
     let names: Vec<_> = fixtures.iter().map(|f| f.name.as_str()).collect();
     assert!(names.contains(&"fibonacci"), "Should find fibonacci fixture");
+    assert!(names.contains(&"guards"), "Should find guards fixture");
+    assert!(
+        names.contains(&"pattern_match"),
+        "Should find pattern_match fixture"
+    );
+    assert!(
+        names.contains(&"where_bindings"),
+        "Should find where_bindings fixture"
+    );
+    assert!(
+        names.contains(&"mutual_recursion"),
+        "Should find mutual_recursion fixture"
+    );
 }
 
 // =============================================================================
