@@ -1,9 +1,9 @@
 //! Integration tests for WASM code generation.
 
-use bhc_target::{Arch, targets};
-use bhc_wasm::{WasmBackend, WasmConfig, WasmInstr, WasmType};
-use bhc_wasm::codegen::{WasmModule, WasmFuncType, WasmFunc, MemoryDesc};
 use bhc_codegen::{CodegenBackend, CodegenModule};
+use bhc_target::{targets, Arch};
+use bhc_wasm::codegen::{MemoryDesc, WasmFunc, WasmFuncType, WasmModule};
+use bhc_wasm::{WasmBackend, WasmConfig, WasmInstr, WasmType};
 
 #[test]
 fn test_backend_supports_wasm32() {
@@ -32,7 +32,7 @@ fn test_wasm_config_edge() {
     let config = WasmConfig::edge_profile();
 
     assert!(config.optimize_size);
-    assert!(!config.debug_names);  // Debug names disabled for edge
+    assert!(!config.debug_names); // Debug names disabled for edge
     assert_eq!(config.initial_memory_pages, 4);
     assert_eq!(config.max_memory_pages, Some(64));
 }
@@ -48,10 +48,7 @@ fn test_wasm_type_wat_names() {
 
 #[test]
 fn test_wasm_func_type_wat() {
-    let func_type = WasmFuncType::new(
-        vec![WasmType::I32, WasmType::I32],
-        vec![WasmType::I32],
-    );
+    let func_type = WasmFuncType::new(vec![WasmType::I32, WasmType::I32], vec![WasmType::I32]);
 
     let wat = func_type.to_wat();
     assert!(wat.contains("param i32 i32"));
@@ -73,19 +70,12 @@ fn test_simple_module_generation() {
     let wasm_target = targets::wasm32_wasi();
 
     // Create a simple module with one function
-    let mut module = WasmModule::new(
-        "test".to_string(),
-        WasmConfig::default(),
-        wasm_target,
-    );
+    let mut module = WasmModule::new("test".to_string(), WasmConfig::default(), wasm_target);
 
     // Add a simple add function: (func $add (param i32 i32) (result i32) ...)
     let add_func = WasmFunc {
         name: Some("add".to_string()),
-        ty: WasmFuncType::new(
-            vec![WasmType::I32, WasmType::I32],
-            vec![WasmType::I32],
-        ),
+        ty: WasmFuncType::new(vec![WasmType::I32, WasmType::I32], vec![WasmType::I32]),
         locals: vec![],
         body: vec![
             WasmInstr::LocalGet(0),
@@ -123,11 +113,7 @@ fn test_memory_desc() {
 fn test_binary_generation() {
     let wasm_target = targets::wasm32_wasi();
 
-    let module = WasmModule::new(
-        "test".to_string(),
-        WasmConfig::default(),
-        wasm_target,
-    );
+    let module = WasmModule::new("test".to_string(), WasmConfig::default(), wasm_target);
 
     // Verify returns valid WASM
     let result = module.verify();
@@ -159,17 +145,17 @@ fn test_simd_instructions() {
         assert!(matches!(
             instr,
             WasmInstr::V128Load(_, _)
-            | WasmInstr::F32x4Add
-            | WasmInstr::F32x4Mul
-            | WasmInstr::V128Store(_, _)
+                | WasmInstr::F32x4Add
+                | WasmInstr::F32x4Mul
+                | WasmInstr::V128Store(_, _)
         ));
     }
 }
 
 #[test]
 fn test_type_mapping() {
-    use bhc_wasm::codegen::types::{type_to_wasm, LoopTypeMapping};
     use bhc_loop_ir::{LoopType, ScalarType};
+    use bhc_wasm::codegen::types::{type_to_wasm, LoopTypeMapping};
 
     let mapping = LoopTypeMapping::for_arch(Arch::Wasm32, true);
 
@@ -203,21 +189,29 @@ fn test_type_mapping() {
 
     // Pointers
     assert_eq!(
-        type_to_wasm(&LoopType::Ptr(Box::new(LoopType::Scalar(ScalarType::Float(32)))), &mapping).unwrap(),
-        WasmType::I32  // 32-bit pointer on wasm32
+        type_to_wasm(
+            &LoopType::Ptr(Box::new(LoopType::Scalar(ScalarType::Float(32)))),
+            &mapping
+        )
+        .unwrap(),
+        WasmType::I32 // 32-bit pointer on wasm32
     );
 }
 
 #[test]
 fn test_type_mapping_wasm64() {
-    use bhc_wasm::codegen::types::{type_to_wasm, LoopTypeMapping};
     use bhc_loop_ir::{LoopType, ScalarType};
+    use bhc_wasm::codegen::types::{type_to_wasm, LoopTypeMapping};
 
     let mapping = LoopTypeMapping::for_arch(Arch::Wasm64, true);
 
     // Pointers should be i64 on wasm64
     assert_eq!(
-        type_to_wasm(&LoopType::Ptr(Box::new(LoopType::Scalar(ScalarType::Float(32)))), &mapping).unwrap(),
+        type_to_wasm(
+            &LoopType::Ptr(Box::new(LoopType::Scalar(ScalarType::Float(32)))),
+            &mapping
+        )
+        .unwrap(),
         WasmType::I64
     );
 }
@@ -227,7 +221,7 @@ fn test_runtime_config() {
     use bhc_wasm::runtime::RuntimeConfig;
 
     let config = RuntimeConfig::default();
-    assert_eq!(config.initial_pages, 32);  // 2MB for stack + arena
+    assert_eq!(config.initial_pages, 32); // 2MB for stack + arena
     assert!(config.enable_arena);
 
     // Validate should pass
@@ -235,7 +229,7 @@ fn test_runtime_config() {
 
     // Edge config
     let edge = RuntimeConfig::edge();
-    assert_eq!(edge.initial_pages, 8);  // 512KB for stack + arena
+    assert_eq!(edge.initial_pages, 8); // 512KB for stack + arena
     assert!(edge.validate().is_ok());
 }
 
@@ -280,7 +274,7 @@ fn test_memory_layout_overflow() {
         .data_size(100_000)
         .stack_size(100_000)
         .heap_size(100_000)
-        .total_pages(1)  // Only 64KB!
+        .total_pages(1) // Only 64KB!
         .build();
 
     assert!(result.is_err());
@@ -295,10 +289,10 @@ fn test_linear_memory() {
 
     // Allocate some data
     let offset1 = mem.alloc_i32(42).unwrap();
-    assert_eq!(offset1, 0);  // First allocation at start
+    assert_eq!(offset1, 0); // First allocation at start
 
     let offset2 = mem.alloc_f64(3.14159).unwrap();
-    assert!(offset2 >= 8);  // Should be aligned to 8 bytes
+    assert!(offset2 >= 8); // Should be aligned to 8 bytes
 
     // Check data segments were created
     let segments = mem.data_segments();
@@ -322,7 +316,7 @@ fn test_arena_config() {
 
 #[test]
 fn test_wasm_arena_code_generation() {
-    use bhc_wasm::runtime::{WasmArena, ArenaConfig};
+    use bhc_wasm::runtime::{ArenaConfig, WasmArena};
 
     let config = ArenaConfig::default();
     let arena = WasmArena::new(config, 0, 1);
@@ -351,11 +345,7 @@ fn test_wasm_arena_code_generation() {
 fn test_module_with_multiple_functions() {
     let wasm_target = targets::wasm32_wasi();
 
-    let mut module = WasmModule::new(
-        "math".to_string(),
-        WasmConfig::default(),
-        wasm_target,
-    );
+    let mut module = WasmModule::new("math".to_string(), WasmConfig::default(), wasm_target);
 
     // Add function
     module.add_function(WasmFunc {
@@ -375,12 +365,12 @@ fn test_module_with_multiple_functions() {
     module.add_function(WasmFunc {
         name: Some("cube".to_string()),
         ty: WasmFuncType::new(vec![WasmType::I32], vec![WasmType::I32]),
-        locals: vec![WasmType::I32],  // One local for intermediate
+        locals: vec![WasmType::I32], // One local for intermediate
         body: vec![
             WasmInstr::LocalGet(0),
             WasmInstr::LocalGet(0),
             WasmInstr::I32Mul,
-            WasmInstr::LocalTee(1),  // Store square
+            WasmInstr::LocalTee(1), // Store square
             WasmInstr::LocalGet(0),
             WasmInstr::I32Mul,
             WasmInstr::End,
@@ -398,24 +388,20 @@ fn test_module_with_multiple_functions() {
     // Verify and generate binary
     assert!(module.verify().is_ok());
     let binary = module.to_wasm().unwrap();
-    assert!(binary.len() > 8);  // At least header
+    assert!(binary.len() > 8); // At least header
 }
 
 #[test]
 fn test_simd_function() {
     let wasm_target = targets::wasm32_wasi();
 
-    let mut module = WasmModule::new(
-        "simd_test".to_string(),
-        WasmConfig::default(),
-        wasm_target,
-    );
+    let mut module = WasmModule::new("simd_test".to_string(), WasmConfig::default(), wasm_target);
 
     // SIMD vector add function
     module.add_function(WasmFunc {
         name: Some("v128_add".to_string()),
         ty: WasmFuncType::new(
-            vec![WasmType::I32, WasmType::I32, WasmType::I32],  // a_ptr, b_ptr, out_ptr
+            vec![WasmType::I32, WasmType::I32, WasmType::I32], // a_ptr, b_ptr, out_ptr
             vec![],
         ),
         locals: vec![WasmType::V128, WasmType::V128],

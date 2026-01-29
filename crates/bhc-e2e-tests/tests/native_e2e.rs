@@ -111,7 +111,10 @@ fn test_discover_tier2_fixtures() {
     assert!(!fixtures.is_empty(), "Should find tier2 fixtures");
 
     let names: Vec<_> = fixtures.iter().map(|f| f.name.as_str()).collect();
-    assert!(names.contains(&"fibonacci"), "Should find fibonacci fixture");
+    assert!(
+        names.contains(&"fibonacci"),
+        "Should find fibonacci fixture"
+    );
     assert!(names.contains(&"guards"), "Should find guards fixture");
     assert!(
         names.contains(&"pattern_match"),

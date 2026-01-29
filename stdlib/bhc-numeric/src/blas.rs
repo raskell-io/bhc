@@ -277,9 +277,7 @@ impl BlasProviderF64 for PureRustBlas {
         let incx = incx as usize;
         let incy = incy as usize;
 
-        (0..n)
-            .map(|i| x[i * incx] * y[i * incy])
-            .sum()
+        (0..n).map(|i| x[i * incx] * y[i * incy]).sum()
     }
 
     fn dnrm2(&self, n: i32, x: &[f64], incx: i32) -> f64 {
@@ -296,9 +294,7 @@ impl BlasProviderF64 for PureRustBlas {
         let n = n as usize;
         let incx = incx as usize;
 
-        (0..n)
-            .map(|i| x[i * incx].abs())
-            .sum()
+        (0..n).map(|i| x[i * incx].abs()).sum()
     }
 
     fn dscal(&self, n: i32, alpha: f64, x: &mut [f64], incx: i32) {
@@ -472,9 +468,7 @@ impl BlasProviderF32 for PureRustBlas {
         let incx = incx as usize;
         let incy = incy as usize;
 
-        (0..n)
-            .map(|i| x[i * incx] * y[i * incy])
-            .sum()
+        (0..n).map(|i| x[i * incx] * y[i * incy]).sum()
     }
 
     fn snrm2(&self, n: i32, x: &[f32], incx: i32) -> f32 {
@@ -649,7 +643,10 @@ impl BlasProviderF64 for SimdRustBlas {
             }
         }
 
-        (0..n).map(|i| x[i * incx] * x[i * incx]).sum::<f64>().sqrt()
+        (0..n)
+            .map(|i| x[i * incx] * x[i * incx])
+            .sum::<f64>()
+            .sqrt()
     }
 
     fn dasum(&self, n: i32, x: &[f64], incx: i32) -> f64 {
@@ -911,33 +908,37 @@ static DEFAULT_PROVIDER: OnceLock<BlasBackend> = OnceLock::new();
 /// Get the default BLAS provider for f64
 pub fn default_provider_f64() -> &'static dyn BlasProviderF64 {
     static PROVIDER: OnceLock<Box<dyn BlasProviderF64>> = OnceLock::new();
-    PROVIDER.get_or_init(|| {
-        let backend = detect_best_backend();
-        match backend {
-            #[cfg(all(target_os = "macos", feature = "accelerate"))]
-            BlasBackend::Accelerate => Box::new(AccelerateProvider),
-            #[cfg(feature = "openblas")]
-            BlasBackend::OpenBlas => Box::new(OpenBlasProvider),
-            BlasBackend::SimdRust => Box::new(SimdRustBlas),
-            _ => Box::new(PureRustBlas),
-        }
-    }).as_ref()
+    PROVIDER
+        .get_or_init(|| {
+            let backend = detect_best_backend();
+            match backend {
+                #[cfg(all(target_os = "macos", feature = "accelerate"))]
+                BlasBackend::Accelerate => Box::new(AccelerateProvider),
+                #[cfg(feature = "openblas")]
+                BlasBackend::OpenBlas => Box::new(OpenBlasProvider),
+                BlasBackend::SimdRust => Box::new(SimdRustBlas),
+                _ => Box::new(PureRustBlas),
+            }
+        })
+        .as_ref()
 }
 
 /// Get the default BLAS provider for f32
 pub fn default_provider_f32() -> &'static dyn BlasProviderF32 {
     static PROVIDER: OnceLock<Box<dyn BlasProviderF32>> = OnceLock::new();
-    PROVIDER.get_or_init(|| {
-        let backend = detect_best_backend();
-        match backend {
-            #[cfg(all(target_os = "macos", feature = "accelerate"))]
-            BlasBackend::Accelerate => Box::new(AccelerateProvider),
-            #[cfg(feature = "openblas")]
-            BlasBackend::OpenBlas => Box::new(OpenBlasProvider),
-            BlasBackend::SimdRust => Box::new(SimdRustBlas),
-            _ => Box::new(PureRustBlas),
-        }
-    }).as_ref()
+    PROVIDER
+        .get_or_init(|| {
+            let backend = detect_best_backend();
+            match backend {
+                #[cfg(all(target_os = "macos", feature = "accelerate"))]
+                BlasBackend::Accelerate => Box::new(AccelerateProvider),
+                #[cfg(feature = "openblas")]
+                BlasBackend::OpenBlas => Box::new(OpenBlasProvider),
+                BlasBackend::SimdRust => Box::new(SimdRustBlas),
+                _ => Box::new(PureRustBlas),
+            }
+        })
+        .as_ref()
 }
 
 /// Detect the best available BLAS backend
@@ -985,7 +986,8 @@ pub extern "C" fn bhc_blas_provider_name() -> *const std::ffi::c_char {
     NAME.get_or_init(|| {
         let name = detect_best_backend().name();
         std::ffi::CString::new(name).unwrap()
-    }).as_ptr()
+    })
+    .as_ptr()
 }
 
 /// DGEMM: Double precision matrix-matrix multiply
@@ -1011,10 +1013,17 @@ pub extern "C" fn bhc_blas_dgemm(
         Layout::RowMajor,
         Transpose::NoTrans,
         Transpose::NoTrans,
-        m, n, k,
-        alpha, a_slice, lda,
-        b_slice, ldb,
-        beta, c_slice, ldc,
+        m,
+        n,
+        k,
+        alpha,
+        a_slice,
+        lda,
+        b_slice,
+        ldb,
+        beta,
+        c_slice,
+        ldc,
     );
 }
 
@@ -1045,7 +1054,14 @@ pub extern "C" fn bhc_blas_dscal(n: i32, alpha: f64, x: *mut f64, incx: i32) {
 
 /// DAXPY: Double precision y = alpha * x + y
 #[no_mangle]
-pub extern "C" fn bhc_blas_daxpy(n: i32, alpha: f64, x: *const f64, incx: i32, y: *mut f64, incy: i32) {
+pub extern "C" fn bhc_blas_daxpy(
+    n: i32,
+    alpha: f64,
+    x: *const f64,
+    incx: i32,
+    y: *mut f64,
+    incy: i32,
+) {
     let x_slice = unsafe { std::slice::from_raw_parts(x, (n * incx) as usize) };
     let y_slice = unsafe { std::slice::from_raw_parts_mut(y, (n * incy) as usize) };
 
@@ -1089,10 +1105,17 @@ mod tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2,
-            1.0, &a, 2,
-            &b, 2,
-            0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         assert_eq!(c, vec![1.0, 2.0, 3.0, 4.0]);
@@ -1111,10 +1134,17 @@ mod tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2,
-            1.0, &a, 2,
-            &b, 2,
-            0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         assert_eq!(c, vec![19.0, 22.0, 43.0, 50.0]);
@@ -1145,10 +1175,17 @@ mod tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2,
-            1.0, &a, 2,
-            &b, 2,
-            0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         assert_eq!(c, vec![19.0, 22.0, 43.0, 50.0]);

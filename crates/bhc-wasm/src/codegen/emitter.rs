@@ -74,49 +74,44 @@ impl WasmEmitter {
     pub fn emit_value(&mut self, value: &Value) -> WasmResult<()> {
         match value {
             Value::Var(id, _ty) => {
-                let idx = self.get_local(id.index() as u32)
-                    .ok_or_else(|| WasmError::CodegenError(
-                        format!("Undefined variable: {:?}", id)
-                    ))?;
+                let idx = self.get_local(id.index() as u32).ok_or_else(|| {
+                    WasmError::CodegenError(format!("Undefined variable: {:?}", id))
+                })?;
                 self.emit(WasmInstr::LocalGet(idx));
             }
 
-            Value::IntConst(n, scalar) => {
-                match scalar {
-                    ScalarType::Int(bits) | ScalarType::UInt(bits) if *bits <= 32 => {
-                        self.emit(WasmInstr::I32Const(*n as i32));
-                    }
-                    ScalarType::Int(64) | ScalarType::UInt(64) => {
-                        self.emit(WasmInstr::I64Const(*n));
-                    }
-                    ScalarType::Bool => {
-                        self.emit(WasmInstr::I32Const(if *n != 0 { 1 } else { 0 }));
-                    }
-                    _ => {
-                        return Err(WasmError::NotSupported(format!(
-                            "Integer constant of type {:?}",
-                            scalar
-                        )));
-                    }
+            Value::IntConst(n, scalar) => match scalar {
+                ScalarType::Int(bits) | ScalarType::UInt(bits) if *bits <= 32 => {
+                    self.emit(WasmInstr::I32Const(*n as i32));
                 }
-            }
+                ScalarType::Int(64) | ScalarType::UInt(64) => {
+                    self.emit(WasmInstr::I64Const(*n));
+                }
+                ScalarType::Bool => {
+                    self.emit(WasmInstr::I32Const(if *n != 0 { 1 } else { 0 }));
+                }
+                _ => {
+                    return Err(WasmError::NotSupported(format!(
+                        "Integer constant of type {:?}",
+                        scalar
+                    )));
+                }
+            },
 
-            Value::FloatConst(f, scalar) => {
-                match scalar {
-                    ScalarType::Float(32) => {
-                        self.emit(WasmInstr::F32Const(*f as f32));
-                    }
-                    ScalarType::Float(64) => {
-                        self.emit(WasmInstr::F64Const(*f));
-                    }
-                    _ => {
-                        return Err(WasmError::NotSupported(format!(
-                            "Float constant of type {:?}",
-                            scalar
-                        )));
-                    }
+            Value::FloatConst(f, scalar) => match scalar {
+                ScalarType::Float(32) => {
+                    self.emit(WasmInstr::F32Const(*f as f32));
                 }
-            }
+                ScalarType::Float(64) => {
+                    self.emit(WasmInstr::F64Const(*f));
+                }
+                _ => {
+                    return Err(WasmError::NotSupported(format!(
+                        "Float constant of type {:?}",
+                        scalar
+                    )));
+                }
+            },
 
             Value::BoolConst(b) => {
                 self.emit(WasmInstr::I32Const(if *b { 1 } else { 0 }));
@@ -419,10 +414,7 @@ impl WasmEmitter {
             WasmType::F64 => self.emit(WasmInstr::F64Load(align, offset)),
             WasmType::V128 => self.emit(WasmInstr::V128Load(align, offset)),
             _ => {
-                return Err(WasmError::NotSupported(format!(
-                    "Load of type {:?}",
-                    ty
-                )));
+                return Err(WasmError::NotSupported(format!("Load of type {:?}", ty)));
             }
         }
         Ok(())
@@ -440,10 +432,7 @@ impl WasmEmitter {
             WasmType::F64 => self.emit(WasmInstr::F64Store(align, offset)),
             WasmType::V128 => self.emit(WasmInstr::V128Store(align, offset)),
             _ => {
-                return Err(WasmError::NotSupported(format!(
-                    "Store of type {:?}",
-                    ty
-                )));
+                return Err(WasmError::NotSupported(format!("Store of type {:?}", ty)));
             }
         }
         Ok(())
@@ -453,7 +442,7 @@ impl WasmEmitter {
     pub fn emit_broadcast(&mut self, scalar_ty: ScalarType, width: u8) -> WasmResult<()> {
         if !self.mapping.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD broadcast not available".to_string()
+                "SIMD broadcast not available".to_string(),
             ));
         }
 
@@ -487,7 +476,7 @@ impl WasmEmitter {
     pub fn emit_extract(&mut self, scalar_ty: ScalarType, lane: u8) -> WasmResult<()> {
         if !self.mapping.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD extract not available".to_string()
+                "SIMD extract not available".to_string(),
             ));
         }
 
@@ -561,10 +550,7 @@ impl WasmEmitter {
                 self.emit(WasmInstr::F64x2Add);
             }
             _ => {
-                return Err(WasmError::NotSupported(format!(
-                    "FMA on type {:?}",
-                    ty
-                )));
+                return Err(WasmError::NotSupported(format!("FMA on type {:?}", ty)));
             }
         }
         Ok(())
@@ -687,7 +673,10 @@ fn is_f64x2(ty: &LoopType) -> bool {
 
 /// Check if a type is i32x4 vector.
 fn is_i32x4(ty: &LoopType) -> bool {
-    matches!(ty, LoopType::Vector(ScalarType::Int(32), 4) | LoopType::Vector(ScalarType::UInt(32), 4))
+    matches!(
+        ty,
+        LoopType::Vector(ScalarType::Int(32), 4) | LoopType::Vector(ScalarType::UInt(32), 4)
+    )
 }
 
 /// Check if a type is signed.
@@ -708,15 +697,17 @@ fn is_reinterpret(_from: &LoopType, _to: &LoopType) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bhc_loop_ir::ValueId;
     use bhc_index::Idx;
+    use bhc_loop_ir::ValueId;
 
     #[test]
     fn test_emit_int_constants() {
         let mapping = LoopTypeMapping::default();
         let mut emitter = WasmEmitter::new(mapping, 0);
 
-        emitter.emit_value(&Value::IntConst(42, ScalarType::Int(32))).unwrap();
+        emitter
+            .emit_value(&Value::IntConst(42, ScalarType::Int(32)))
+            .unwrap();
         let instrs = emitter.finish();
 
         assert_eq!(instrs.len(), 1);
@@ -728,7 +719,9 @@ mod tests {
         let mapping = LoopTypeMapping::default();
         let mut emitter = WasmEmitter::new(mapping, 0);
 
-        emitter.emit_value(&Value::FloatConst(3.14, ScalarType::Float(64))).unwrap();
+        emitter
+            .emit_value(&Value::FloatConst(3.14, ScalarType::Float(64)))
+            .unwrap();
         let instrs = emitter.finish();
 
         assert_eq!(instrs.len(), 1);

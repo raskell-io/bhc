@@ -5,13 +5,13 @@
 //! 2. Extract documentation from each file
 //! 3. Render to the specified format
 
-use std::path::PathBuf;
 use anyhow::Result;
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 use crate::extract;
-use crate::render::{self, RenderConfig};
 use crate::model::ModuleDoc;
+use crate::render::{self, RenderConfig};
 
 /// Build configuration.
 pub struct BuildConfig {
@@ -68,7 +68,7 @@ pub fn run(config: BuildConfig) -> Result<()> {
         playground: config.playground,
         theme: "Solarized (dark)".to_string(),
         version: config.version,
-        versions: Vec::new(),  // TODO: discover versions from directory structure
+        versions: Vec::new(), // TODO: discover versions from directory structure
         source_base_url: config.source_url,
     };
 

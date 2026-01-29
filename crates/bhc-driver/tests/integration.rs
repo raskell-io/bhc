@@ -2,8 +2,8 @@
 //!
 //! These tests verify end-to-end compilation and execution of Haskell code.
 
-use bhc_driver::{CompileError, Compiler, CompilerBuilder};
 use bhc_core::eval::Value;
+use bhc_driver::{CompileError, Compiler, CompilerBuilder};
 
 /// Helper to compile and run source code, returning the value
 fn run_source(source: &str) -> Result<Value, CompileError> {
@@ -367,13 +367,20 @@ fn test_m0_dot_product() {
 #[test]
 fn test_print_int() {
     let (_, display) = run_and_display("main = print 42").unwrap();
-    assert!(display.contains("42"), "Expected display to contain '42', got: {}", display);
+    assert!(
+        display.contains("42"),
+        "Expected display to contain '42', got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_putstrln() {
     let (_, display) = run_and_display("main = putStrLn \"Hello, World!\"").unwrap();
-    assert!(display.contains("Hello, World!"), "Expected 'Hello, World!' in output");
+    assert!(
+        display.contains("Hello, World!"),
+        "Expected 'Hello, World!' in output"
+    );
 }
 
 // =========================================================================
@@ -437,50 +444,85 @@ fn test_unbound_variable() {
 fn test_io_sequence_two() {
     // Two IO actions chained with >>
     let (_, display) = run_and_display("main = print 1 >> print 2").unwrap();
-    assert!(display.contains("1"), "Expected '1' in output, got: {}", display);
-    assert!(display.contains("2"), "Expected '2' in output, got: {}", display);
+    assert!(
+        display.contains("1"),
+        "Expected '1' in output, got: {}",
+        display
+    );
+    assert!(
+        display.contains("2"),
+        "Expected '2' in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_sequence_three() {
     // Three IO actions chained with >> (this was failing before)
     let (_, display) = run_and_display("main = print 1 >> print 2 >> print 3").unwrap();
-    assert!(display.contains("1"), "Expected '1' in output, got: {}", display);
-    assert!(display.contains("2"), "Expected '2' in output, got: {}", display);
-    assert!(display.contains("3"), "Expected '3' in output, got: {}", display);
+    assert!(
+        display.contains("1"),
+        "Expected '1' in output, got: {}",
+        display
+    );
+    assert!(
+        display.contains("2"),
+        "Expected '2' in output, got: {}",
+        display
+    );
+    assert!(
+        display.contains("3"),
+        "Expected '3' in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_sequence_four() {
     // Four IO actions chained with >>
     let (_, display) = run_and_display("main = print 1 >> print 2 >> print 3 >> print 4").unwrap();
-    assert!(display.contains("1") && display.contains("2") &&
-            display.contains("3") && display.contains("4"),
-            "Expected '1', '2', '3', '4' in output, got: {}", display);
+    assert!(
+        display.contains("1")
+            && display.contains("2")
+            && display.contains("3")
+            && display.contains("4"),
+        "Expected '1', '2', '3', '4' in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_sequence_with_putstrln() {
     // Mix of putStrLn calls
-    let (_, display) = run_and_display(r#"main = putStrLn "a" >> putStrLn "b" >> putStrLn "c""#).unwrap();
-    assert!(display.contains("a") && display.contains("b") && display.contains("c"),
-            "Expected 'a', 'b', 'c' in output, got: {}", display);
+    let (_, display) =
+        run_and_display(r#"main = putStrLn "a" >> putStrLn "b" >> putStrLn "c""#).unwrap();
+    assert!(
+        display.contains("a") && display.contains("b") && display.contains("c"),
+        "Expected 'a', 'b', 'c' in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_sequence_parenthesized() {
     // Explicit parentheses (right associative)
     let (_, display) = run_and_display("main = print 1 >> (print 2 >> print 3)").unwrap();
-    assert!(display.contains("1") && display.contains("2") && display.contains("3"),
-            "Expected '1', '2', '3' in output, got: {}", display);
+    assert!(
+        display.contains("1") && display.contains("2") && display.contains("3"),
+        "Expected '1', '2', '3' in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_sequence_left_parens() {
     // Explicit left parentheses
     let (_, display) = run_and_display("main = (print 1 >> print 2) >> print 3").unwrap();
-    assert!(display.contains("1") && display.contains("2") && display.contains("3"),
-            "Expected '1', '2', '3' in output, got: {}", display);
+    assert!(
+        display.contains("1") && display.contains("2") && display.contains("3"),
+        "Expected '1', '2', '3' in output, got: {}",
+        display
+    );
 }
 
 // =========================================================================
@@ -920,15 +962,17 @@ fn test_io_bind_basic() {
 #[test]
 fn test_io_print_three() {
     let (_, display) = run_and_display("main = print 10 >> print 20 >> print 30").unwrap();
-    assert!(display.contains("10") && display.contains("20") && display.contains("30"),
-            "Expected 10, 20, 30 in output, got: {}", display);
+    assert!(
+        display.contains("10") && display.contains("20") && display.contains("30"),
+        "Expected 10, 20, 30 in output, got: {}",
+        display
+    );
 }
 
 #[test]
 fn test_io_mixed_print_putstrln() {
-    let (_, display) = run_and_display(
-        r#"main = putStrLn "start" >> print 42 >> putStrLn "end""#
-    ).unwrap();
+    let (_, display) =
+        run_and_display(r#"main = putStrLn "start" >> print 42 >> putStrLn "end""#).unwrap();
     assert!(display.contains("start"), "Expected 'start' in output");
     assert!(display.contains("42"), "Expected '42' in output");
     assert!(display.contains("end"), "Expected 'end' in output");
@@ -937,7 +981,11 @@ fn test_io_mixed_print_putstrln() {
 #[test]
 fn test_io_computed_print() {
     let (_, display) = run_and_display("main = print (2 + 3)").unwrap();
-    assert!(display.contains("5"), "Expected '5' in output, got: {}", display);
+    assert!(
+        display.contains("5"),
+        "Expected '5' in output, got: {}",
+        display
+    );
 }
 
 // =========================================================================
@@ -1268,7 +1316,11 @@ fn test_multi_file_basic_import() {
     let main_path = dir.path().join("Main.hs");
 
     std::fs::write(&helper_path, "module Helper where\nhelper x = x + 1\n").unwrap();
-    std::fs::write(&main_path, "module Main where\nimport Helper\nmain = helper 41\n").unwrap();
+    std::fs::write(
+        &main_path,
+        "module Main where\nimport Helper\nmain = helper 41\n",
+    )
+    .unwrap();
 
     // This tests that import path resolution works
     let compiler = CompilerBuilder::new()
@@ -1297,4 +1349,164 @@ fn test_prelude_show_available() {
     // Show should be available without import
     let result = run_source("main = show 42").unwrap();
     assert!(matches!(result, Value::String(_)));
+}
+
+// =========================================================================
+// Deriving Eq Tests
+// =========================================================================
+
+#[test]
+fn test_deriving_eq_enum() {
+    // Derived Eq for simple enum: tag comparison
+    let source = r#"
+data Color = Red | Green | Blue deriving (Eq)
+main = if Red == Red then 1 else 0
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+#[test]
+fn test_deriving_eq_enum_not_equal() {
+    // Derived Eq: different constructors should not be equal
+    let source = r#"
+data Color = Red | Green | Blue deriving (Eq)
+main = if Red == Blue then 0 else 1
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+#[test]
+fn test_deriving_eq_with_int_fields() {
+    // Derived Eq for data type with Int fields
+    let source = r#"
+data Pair = MkPair Int Int deriving (Eq)
+main = if MkPair 1 2 == MkPair 1 2 then 1 else 0
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+#[test]
+fn test_deriving_eq_with_int_fields_not_equal() {
+    // Derived Eq: different field values should not be equal
+    let source = r#"
+data Pair = MkPair Int Int deriving (Eq)
+main = if MkPair 1 2 == MkPair 1 3 then 0 else 1
+"#;
+    let result = run_source(source).unwrap();
+    assert!(
+        matches!(result, Value::Int(1)),
+        "expected Int(1), got {:?}",
+        result
+    );
+}
+
+// =========================================================================
+// Deriving Ord Tests
+// =========================================================================
+
+#[test]
+#[ignore = "Ord operators (<, >, etc.) need dictionary-based dispatch for user-defined types"]
+fn test_deriving_ord_enum() {
+    // Derived Ord for enum: uses constructor order
+    let source = r#"
+data Color = Red | Green | Blue deriving (Eq, Ord)
+main = if Red < Blue then 1 else 0
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+#[test]
+#[ignore = "Ord operators (<, >, etc.) need dictionary-based dispatch for user-defined types"]
+fn test_deriving_ord_enum_not_less() {
+    let source = r#"
+data Color = Red | Green | Blue deriving (Eq, Ord)
+main = if Blue < Red then 0 else 1
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+// =========================================================================
+// Deriving Show Tests
+// =========================================================================
+
+#[test]
+fn test_deriving_show_enum() {
+    // Derived Show for enum: constructor name as string
+    let source = r#"
+data Color = Red | Green | Blue deriving (Show)
+main = show Green
+"#;
+    let result = run_source(source).unwrap();
+    match &result {
+        Value::String(s) => assert_eq!(s.as_ref(), "Green"),
+        _ => panic!("expected string, got {:?}", result),
+    }
+}
+
+// =========================================================================
+// User-Defined Class/Instance Tests
+// =========================================================================
+
+#[test]
+fn test_user_class_simple_instance() {
+    // User-defined class with a simple instance
+    let source = r#"
+class Describable a where
+  describe :: a -> Int
+
+instance Describable Int where
+  describe x = x + 100
+
+main = describe 42
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(142)));
+}
+
+// =========================================================================
+// Default Method Tests
+// =========================================================================
+
+#[test]
+#[ignore = "Default methods require full dictionary passing for user-defined classes"]
+fn test_class_default_method() {
+    // Default method using another class method
+    let source = r#"
+class MyEq a where
+  myEq :: a -> a -> Bool
+  myNeq :: a -> a -> Bool
+  myNeq x y = if myEq x y then False else True
+
+instance MyEq Int where
+  myEq x y = x == y
+
+main = if myNeq 1 2 then 1 else 0
+"#;
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+// =========================================================================
+// Polymorphic Equality Tests (EqInt polymorphism)
+// =========================================================================
+
+#[test]
+fn test_eq_bool_values() {
+    // EqInt should handle Bool comparison for derived Eq
+    let source = "main = if True == True then 1 else 0";
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
+}
+
+#[test]
+fn test_eq_char_values() {
+    // EqInt should handle Char comparison
+    let source = "main = if 'a' == 'a' then 1 else 0";
+    let result = run_source(source).unwrap();
+    assert!(matches!(result, Value::Int(1)));
 }

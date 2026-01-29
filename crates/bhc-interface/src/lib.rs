@@ -372,8 +372,8 @@ impl ModuleInterface {
         writer.write_all(INTERFACE_MAGIC)?;
 
         // Serialize with bincode
-        let encoded = bincode::serialize(self)
-            .map_err(|e| InterfaceError::Serialization(e.to_string()))?;
+        let encoded =
+            bincode::serialize(self).map_err(|e| InterfaceError::Serialization(e.to_string()))?;
         writer.write_all(&encoded)?;
 
         Ok(())
@@ -386,9 +386,8 @@ impl ModuleInterface {
     /// Returns an error if the file cannot be read or is invalid.
     pub fn read_from_file(path: impl AsRef<Utf8Path>) -> InterfaceResult<Self> {
         let path = path.as_ref();
-        let mut file = std::fs::File::open(path).map_err(|_| {
-            InterfaceError::NotFound(path.to_path_buf())
-        })?;
+        let mut file =
+            std::fs::File::open(path).map_err(|_| InterfaceError::NotFound(path.to_path_buf()))?;
         Self::read(&mut file)
     }
 

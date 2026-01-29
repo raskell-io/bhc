@@ -227,11 +227,8 @@ impl ComprehensiveKernelReport {
             .collect();
 
         // Check if all guaranteed patterns fused
-        let all_guaranteed_fused = blocked.is_empty()
-            && report
-                .kernels
-                .iter()
-                .all(|k| k.fusion_info.complete);
+        let all_guaranteed_fused =
+            blocked.is_empty() && report.kernels.iter().all(|k| k.fusion_info.complete);
 
         self.fusion = FusionSummary {
             total_ops: report.total_ops,
@@ -338,7 +335,10 @@ fn classify_fusion_pattern(ops: &[bhc_intern::Symbol]) -> String {
     if op_names.iter().all(|op| op.contains("map")) {
         return "map/map".to_string();
     }
-    if op_names.iter().any(|op| op.contains("sum") || op.contains("reduce")) {
+    if op_names
+        .iter()
+        .any(|op| op.contains("sum") || op.contains("reduce"))
+    {
         if op_names.iter().any(|op| op.contains("map")) {
             return "sum/map".to_string();
         }
@@ -426,15 +426,34 @@ impl fmt::Display for ComprehensiveKernelReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Header
         writeln!(f)?;
-        writeln!(f, "╔══════════════════════════════════════════════════════════════════╗")?;
-        writeln!(f, "║                    KERNEL REPORT: {}                     ", self.module_name)?;
-        writeln!(f, "╚══════════════════════════════════════════════════════════════════╝")?;
+        writeln!(
+            f,
+            "╔══════════════════════════════════════════════════════════════════╗"
+        )?;
+        writeln!(
+            f,
+            "║                    KERNEL REPORT: {}                     ",
+            self.module_name
+        )?;
+        writeln!(
+            f,
+            "╚══════════════════════════════════════════════════════════════════╝"
+        )?;
         writeln!(f)?;
 
         // Fusion Section
-        writeln!(f, "┌─────────────────────────────────────────────────────────────────┐")?;
-        writeln!(f, "│ FUSION ANALYSIS                                                 │")?;
-        writeln!(f, "├─────────────────────────────────────────────────────────────────┤")?;
+        writeln!(
+            f,
+            "┌─────────────────────────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ FUSION ANALYSIS                                                 │"
+        )?;
+        writeln!(
+            f,
+            "├─────────────────────────────────────────────────────────────────┤"
+        )?;
         writeln!(
             f,
             "│ Total tensor operations: {:>6}                                 │",
@@ -456,30 +475,66 @@ impl fmt::Display for ComprehensiveKernelReport {
         } else {
             "✗ NO"
         };
-        writeln!(f, "│ All guaranteed patterns: {:>6}                                 │", status)?;
+        writeln!(
+            f,
+            "│ All guaranteed patterns: {:>6}                                 │",
+            status
+        )?;
 
         if !self.fusion.patterns.is_empty() {
-            writeln!(f, "│                                                                 │")?;
-            writeln!(f, "│ Fused patterns:                                                 │")?;
+            writeln!(
+                f,
+                "│                                                                 │"
+            )?;
+            writeln!(
+                f,
+                "│ Fused patterns:                                                 │"
+            )?;
             for pat in &self.fusion.patterns {
-                writeln!(f, "│   • {:30} ({} occurrences)        │", pat.pattern, pat.count)?;
+                writeln!(
+                    f,
+                    "│   • {:30} ({} occurrences)        │",
+                    pat.pattern, pat.count
+                )?;
             }
         }
 
         if !self.fusion.blocked.is_empty() {
-            writeln!(f, "│                                                                 │")?;
-            writeln!(f, "│ Blocked fusions:                                                │")?;
+            writeln!(
+                f,
+                "│                                                                 │"
+            )?;
+            writeln!(
+                f,
+                "│ Blocked fusions:                                                │"
+            )?;
             for blocked in &self.fusion.blocked {
-                writeln!(f, "│   ✗ {}: {}        │", blocked.operation, blocked.reason)?;
+                writeln!(
+                    f,
+                    "│   ✗ {}: {}        │",
+                    blocked.operation, blocked.reason
+                )?;
             }
         }
-        writeln!(f, "└─────────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└─────────────────────────────────────────────────────────────────┘"
+        )?;
         writeln!(f)?;
 
         // Vectorization Section
-        writeln!(f, "┌─────────────────────────────────────────────────────────────────┐")?;
-        writeln!(f, "│ SIMD VECTORIZATION                                              │")?;
-        writeln!(f, "├─────────────────────────────────────────────────────────────────┤")?;
+        writeln!(
+            f,
+            "┌─────────────────────────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ SIMD VECTORIZATION                                              │"
+        )?;
+        writeln!(
+            f,
+            "├─────────────────────────────────────────────────────────────────┤"
+        )?;
         writeln!(
             f,
             "│ Total loops analyzed:    {:>6}                                 │",
@@ -492,11 +547,21 @@ impl fmt::Display for ComprehensiveKernelReport {
         )?;
 
         if !self.vectorization.details.is_empty() {
-            writeln!(f, "│                                                                 │")?;
-            writeln!(f, "│ Vectorized:                                                     │")?;
+            writeln!(
+                f,
+                "│                                                                 │"
+            )?;
+            writeln!(
+                f,
+                "│ Vectorized:                                                     │"
+            )?;
             for detail in &self.vectorization.details {
                 let fma = if detail.has_fma { "FMA ✓" } else { "     " };
-                let red = if detail.has_reduction { "RED ✓" } else { "     " };
+                let red = if detail.has_reduction {
+                    "RED ✓"
+                } else {
+                    "     "
+                };
                 writeln!(
                     f,
                     "│   • {}: width={:>2}, {} {} {}│",
@@ -506,19 +571,41 @@ impl fmt::Display for ComprehensiveKernelReport {
         }
 
         if !self.vectorization.failed.is_empty() {
-            writeln!(f, "│                                                                 │")?;
-            writeln!(f, "│ Not vectorized:                                                 │")?;
+            writeln!(
+                f,
+                "│                                                                 │"
+            )?;
+            writeln!(
+                f,
+                "│ Not vectorized:                                                 │"
+            )?;
             for (loop_id, reason) in &self.vectorization.failed {
-                writeln!(f, "│   ✗ {}: {}                                │", loop_id, reason)?;
+                writeln!(
+                    f,
+                    "│   ✗ {}: {}                                │",
+                    loop_id, reason
+                )?;
             }
         }
-        writeln!(f, "└─────────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└─────────────────────────────────────────────────────────────────┘"
+        )?;
         writeln!(f)?;
 
         // Parallelization Section
-        writeln!(f, "┌─────────────────────────────────────────────────────────────────┐")?;
-        writeln!(f, "│ PARALLELIZATION                                                 │")?;
-        writeln!(f, "├─────────────────────────────────────────────────────────────────┤")?;
+        writeln!(
+            f,
+            "┌─────────────────────────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ PARALLELIZATION                                                 │"
+        )?;
+        writeln!(
+            f,
+            "├─────────────────────────────────────────────────────────────────┤"
+        )?;
         writeln!(
             f,
             "│ Total loops analyzed:    {:>6}                                 │",
@@ -542,8 +629,14 @@ impl fmt::Display for ComprehensiveKernelReport {
         )?;
 
         if !self.parallelization.details.is_empty() {
-            writeln!(f, "│                                                                 │")?;
-            writeln!(f, "│ Parallel loops:                                                 │")?;
+            writeln!(
+                f,
+                "│                                                                 │"
+            )?;
+            writeln!(
+                f,
+                "│ Parallel loops:                                                 │"
+            )?;
             for detail in &self.parallelization.details {
                 let red = if detail.is_reduction { "reduction" } else { "" };
                 writeln!(
@@ -553,13 +646,25 @@ impl fmt::Display for ComprehensiveKernelReport {
                 )?;
             }
         }
-        writeln!(f, "└─────────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└─────────────────────────────────────────────────────────────────┘"
+        )?;
         writeln!(f)?;
 
         // Memory Section
-        writeln!(f, "┌─────────────────────────────────────────────────────────────────┐")?;
-        writeln!(f, "│ MEMORY ALLOCATION                                               │")?;
-        writeln!(f, "├─────────────────────────────────────────────────────────────────┤")?;
+        writeln!(
+            f,
+            "┌─────────────────────────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ MEMORY ALLOCATION                                               │"
+        )?;
+        writeln!(
+            f,
+            "├─────────────────────────────────────────────────────────────────┤"
+        )?;
         writeln!(
             f,
             "│ Hot Arena:    {:>10} ({} allocations)                      │",
@@ -589,15 +694,35 @@ impl fmt::Display for ComprehensiveKernelReport {
             + self.memory.pinned_bytes
             + self.memory.general_bytes
             + self.memory.device_bytes;
-        writeln!(f, "│                                                                 │")?;
-        writeln!(f, "│ Total:        {:>10}                                       │", format_bytes(total))?;
-        writeln!(f, "└─────────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "│                                                                 │"
+        )?;
+        writeln!(
+            f,
+            "│ Total:        {:>10}                                       │",
+            format_bytes(total)
+        )?;
+        writeln!(
+            f,
+            "└─────────────────────────────────────────────────────────────────┘"
+        )?;
         writeln!(f)?;
 
         // Kernel Summary Section
-        writeln!(f, "┌─────────────────────────────────────────────────────────────────┐")?;
-        writeln!(f, "│ GENERATED KERNELS: {:>3}                                         │", self.kernels.len())?;
-        writeln!(f, "├─────────────────────────────────────────────────────────────────┤")?;
+        writeln!(
+            f,
+            "┌─────────────────────────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ GENERATED KERNELS: {:>3}                                         │",
+            self.kernels.len()
+        )?;
+        writeln!(
+            f,
+            "├─────────────────────────────────────────────────────────────────┤"
+        )?;
 
         for kernel in &self.kernels {
             let status = if kernel.fusion_complete { "✓" } else { "✗" };
@@ -613,7 +738,10 @@ impl fmt::Display for ComprehensiveKernelReport {
                 }
             }
         }
-        writeln!(f, "└─────────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└─────────────────────────────────────────────────────────────────┘"
+        )?;
 
         Ok(())
     }

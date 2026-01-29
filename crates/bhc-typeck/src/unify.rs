@@ -95,7 +95,14 @@ fn int_ty() -> Ty {
 /// Returns true if they both resolve to the same underlying type.
 fn are_compatible_type_aliases(name1: &str, name2: &str) -> bool {
     // Type aliases for Int
-    const INT_ALIASES: &[&str] = &["Int", "Dimension", "Position", "KeyMask", "Window", "ScreenId"];
+    const INT_ALIASES: &[&str] = &[
+        "Int",
+        "Dimension",
+        "Position",
+        "KeyMask",
+        "Window",
+        "ScreenId",
+    ];
 
     // Type aliases for String
     const STRING_ALIASES: &[&str] = &["String", "WorkspaceId"];
@@ -538,9 +545,7 @@ fn occurs_check_nat(var: &TyVar, n: &TyNat) -> bool {
     match n {
         TyNat::Lit(_) => false,
         TyNat::Var(v) => v.id == var.id,
-        TyNat::Add(a, b) | TyNat::Mul(a, b) => {
-            occurs_check_nat(var, a) || occurs_check_nat(var, b)
-        }
+        TyNat::Add(a, b) | TyNat::Mul(a, b) => occurs_check_nat(var, a) || occurs_check_nat(var, b),
     }
 }
 
@@ -621,12 +626,8 @@ fn occurs_check_ty_list(var: &TyVar, l: &TyList) -> bool {
     match l {
         TyList::Nil => false,
         TyList::Var(v) => v.id == var.id,
-        TyList::Cons(head, tail) => {
-            occurs_check(var, head) || occurs_check_ty_list(var, tail)
-        }
-        TyList::Append(xs, ys) => {
-            occurs_check_ty_list(var, xs) || occurs_check_ty_list(var, ys)
-        }
+        TyList::Cons(head, tail) => occurs_check(var, head) || occurs_check_ty_list(var, tail),
+        TyList::Append(xs, ys) => occurs_check_ty_list(var, xs) || occurs_check_ty_list(var, ys),
     }
 }
 
@@ -897,7 +898,12 @@ mod tests {
         let shape1 = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Lit(768))]);
         let shape2 = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Lit(768))]);
 
-        unify(&mut ctx, &Ty::TyList(shape1), &Ty::TyList(shape2), Span::DUMMY);
+        unify(
+            &mut ctx,
+            &Ty::TyList(shape1),
+            &Ty::TyList(shape2),
+            Span::DUMMY,
+        );
 
         assert!(!ctx.has_errors());
     }
@@ -908,7 +914,12 @@ mod tests {
         let shape1 = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024))]);
         let shape2 = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Lit(768))]);
 
-        unify(&mut ctx, &Ty::TyList(shape1), &Ty::TyList(shape2), Span::DUMMY);
+        unify(
+            &mut ctx,
+            &Ty::TyList(shape1),
+            &Ty::TyList(shape2),
+            Span::DUMMY,
+        );
 
         assert!(ctx.has_errors());
     }
@@ -917,10 +928,18 @@ mod tests {
     fn test_unify_ty_list_with_var() {
         let mut ctx = test_context();
         let m = TyVar::new(1, Kind::Nat);
-        let shape1 = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m.clone())), Ty::Nat(TyNat::Lit(768))]);
+        let shape1 = TyList::from_vec(vec![
+            Ty::Nat(TyNat::Var(m.clone())),
+            Ty::Nat(TyNat::Lit(768)),
+        ]);
         let shape2 = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Lit(768))]);
 
-        unify(&mut ctx, &Ty::TyList(shape1), &Ty::TyList(shape2), Span::DUMMY);
+        unify(
+            &mut ctx,
+            &Ty::TyList(shape1),
+            &Ty::TyList(shape2),
+            Span::DUMMY,
+        );
 
         assert!(!ctx.has_errors());
         let result = ctx.apply_subst(&Ty::Nat(TyNat::Var(m)));
@@ -1086,7 +1105,10 @@ mod tests {
         unify(&mut ctx, &elem_int, &bool_ty, Span::DUMMY);
 
         // Should have an error about type family reduction failure
-        assert!(ctx.has_errors(), "Should emit error for unreduced type family");
+        assert!(
+            ctx.has_errors(),
+            "Should emit error for unreduced type family"
+        );
     }
 
     #[test]
@@ -1144,6 +1166,9 @@ mod tests {
 
         // Should return None because Maybe is not a type family
         let result = check_unreduced_type_family(&ctx, &maybe_int);
-        assert!(result.is_none(), "Regular type application is not a type family");
+        assert!(
+            result.is_none(),
+            "Regular type application is not a type family"
+        );
     }
 }

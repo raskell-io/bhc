@@ -201,7 +201,11 @@ impl<T: Clone> Matrix<T> {
     /// Get a column as a vector (requires copying)
     pub fn col(&self, col: usize) -> Option<Vec<T>> {
         if col < self.cols {
-            Some((0..self.rows).map(|r| self.data[r * self.cols + col].clone()).collect())
+            Some(
+                (0..self.rows)
+                    .map(|r| self.data[r * self.cols + col].clone())
+                    .collect(),
+            )
         } else {
             None
         }
@@ -311,7 +315,9 @@ impl<T: Clone + Default> Matrix<T> {
     /// Extract the diagonal as a vector
     pub fn get_diagonal(&self) -> Vector<T> {
         let n = self.rows.min(self.cols);
-        let data: Vec<T> = (0..n).map(|i| self.data[i * self.cols + i].clone()).collect();
+        let data: Vec<T> = (0..n)
+            .map(|i| self.data[i * self.cols + i].clone())
+            .collect();
         Vector::from_vec(data)
     }
 }
@@ -343,7 +349,10 @@ where
 
     /// Sum of all elements
     pub fn sum(&self) -> T {
-        self.data.iter().copied().fold(T::default(), |acc, x| acc + x)
+        self.data
+            .iter()
+            .copied()
+            .fold(T::default(), |acc, x| acc + x)
     }
 }
 
@@ -1002,7 +1011,8 @@ mod tests {
 
     #[test]
     fn test_matrix_get_diagonal() {
-        let m: Matrix<f64> = Matrix::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3).unwrap();
+        let m: Matrix<f64> =
+            Matrix::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3).unwrap();
         let diag = m.get_diagonal();
         assert_eq!(diag.as_slice(), &[1.0, 5.0, 9.0]);
     }

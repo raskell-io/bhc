@@ -61,7 +61,7 @@ impl SimdLowering {
     ) -> WasmResult<Vec<WasmInstr>> {
         if !self.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD not enabled for horizontal reduction".to_string()
+                "SIMD not enabled for horizontal reduction".to_string(),
             ));
         }
 
@@ -87,9 +87,9 @@ impl SimdLowering {
         // Step 1: Shuffle high half to low half
         // temp1 = [c, d, c, d]
         instrs.push(WasmInstr::I8x16Shuffle([
-            8, 9, 10, 11,   // c (bytes 8-11)
+            8, 9, 10, 11, // c (bytes 8-11)
             12, 13, 14, 15, // d (bytes 12-15)
-            8, 9, 10, 11,   // c
+            8, 9, 10, 11, // c
             12, 13, 14, 15, // d
         ]));
 
@@ -101,10 +101,10 @@ impl SimdLowering {
         // temp3 = [b+d, _, _, _]
         // Need to duplicate the vector first for shuffle
         instrs.push(WasmInstr::I8x16Shuffle([
-            4, 5, 6, 7,     // b+d (bytes 4-7)
-            0, 1, 2, 3,     // a+c
-            0, 1, 2, 3,     // _
-            0, 1, 2, 3,     // _
+            4, 5, 6, 7, // b+d (bytes 4-7)
+            0, 1, 2, 3, // a+c
+            0, 1, 2, 3, // _
+            0, 1, 2, 3, // _
         ]));
 
         // Step 4: Add again
@@ -124,8 +124,8 @@ impl SimdLowering {
         // v = [a, b]
         // Shuffle to get [b, a]
         instrs.push(WasmInstr::I8x16Shuffle([
-            8, 9, 10, 11, 12, 13, 14, 15,  // b (bytes 8-15)
-            0, 1, 2, 3, 4, 5, 6, 7,        // a (bytes 0-7)
+            8, 9, 10, 11, 12, 13, 14, 15, // b (bytes 8-15)
+            0, 1, 2, 3, 4, 5, 6, 7, // a (bytes 0-7)
         ]));
 
         // Add to get [a+b, a+b]
@@ -145,10 +145,7 @@ impl SimdLowering {
 
         // Step 1: Shuffle high half to low
         instrs.push(WasmInstr::I8x16Shuffle([
-            8, 9, 10, 11,
-            12, 13, 14, 15,
-            8, 9, 10, 11,
-            12, 13, 14, 15,
+            8, 9, 10, 11, 12, 13, 14, 15, 8, 9, 10, 11, 12, 13, 14, 15,
         ]));
 
         // Step 2: Reduce
@@ -156,10 +153,7 @@ impl SimdLowering {
 
         // Step 3: Shuffle element 1 to 0
         instrs.push(WasmInstr::I8x16Shuffle([
-            4, 5, 6, 7,
-            0, 1, 2, 3,
-            0, 1, 2, 3,
-            0, 1, 2, 3,
+            4, 5, 6, 7, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
         ]));
 
         // Step 4: Final reduce
@@ -183,8 +177,7 @@ impl SimdLowering {
 
                 // Shuffle to get [b, a]
                 instrs.push(WasmInstr::I8x16Shuffle([
-                    8, 9, 10, 11, 12, 13, 14, 15,
-                    0, 1, 2, 3, 4, 5, 6, 7,
+                    8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7,
                 ]));
 
                 // Reduce
@@ -253,7 +246,7 @@ impl SimdLowering {
                 // WASM SIMD doesn't have i64x2.add in the base spec
                 // but it's commonly available
                 Err(WasmError::NotSupported(
-                    "i64x2.add requires extended SIMD".to_string()
+                    "i64x2.add requires extended SIMD".to_string(),
                 ))
             }
             ReduceOp::And => Ok(WasmInstr::V128And),
@@ -272,7 +265,7 @@ impl SimdLowering {
     pub fn emit_dot_product_f32x4(&self) -> WasmResult<Vec<WasmInstr>> {
         if !self.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD not enabled for dot product".to_string()
+                "SIMD not enabled for dot product".to_string(),
             ));
         }
 
@@ -291,7 +284,7 @@ impl SimdLowering {
     pub fn emit_dot_product_f64x2(&self) -> WasmResult<Vec<WasmInstr>> {
         if !self.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD not enabled for dot product".to_string()
+                "SIMD not enabled for dot product".to_string(),
             ));
         }
 
@@ -335,13 +328,10 @@ impl SimdLowering {
     }
 
     /// Generate lane permutation code.
-    pub fn emit_shuffle(
-        &self,
-        lanes: &[u8; 16],
-    ) -> WasmResult<WasmInstr> {
+    pub fn emit_shuffle(&self, lanes: &[u8; 16]) -> WasmResult<WasmInstr> {
         if !self.simd_enabled {
             return Err(WasmError::SimdNotAvailable(
-                "SIMD not enabled for shuffle".to_string()
+                "SIMD not enabled for shuffle".to_string(),
             ));
         }
 
@@ -371,11 +361,23 @@ impl SimdLowering {
 
         match (scalar_ty, width, op) {
             // f32x4 supports add, mul, min, max
-            (ScalarType::Float(32), 4, ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max) => true,
+            (
+                ScalarType::Float(32),
+                4,
+                ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max,
+            ) => true,
             // f64x2 supports add, mul, min, max
-            (ScalarType::Float(64), 2, ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max) => true,
+            (
+                ScalarType::Float(64),
+                2,
+                ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max,
+            ) => true,
             // i32x4 supports add, mul, and, or, xor
-            (ScalarType::Int(32) | ScalarType::UInt(32), 4, ReduceOp::Add | ReduceOp::Mul | ReduceOp::And | ReduceOp::Or | ReduceOp::Xor) => true,
+            (
+                ScalarType::Int(32) | ScalarType::UInt(32),
+                4,
+                ReduceOp::Add | ReduceOp::Mul | ReduceOp::And | ReduceOp::Or | ReduceOp::Xor,
+            ) => true,
             _ => false,
         }
     }
@@ -432,13 +434,17 @@ impl SimdStrategy {
 
         match (scalar_ty, width, op) {
             // f32x4 reductions via shuffle
-            (ScalarType::Float(32), 4, ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max) => {
-                Self::ShuffleEmulate
-            }
+            (
+                ScalarType::Float(32),
+                4,
+                ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max,
+            ) => Self::ShuffleEmulate,
             // f64x2 reductions via shuffle
-            (ScalarType::Float(64), 2, ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max) => {
-                Self::ShuffleEmulate
-            }
+            (
+                ScalarType::Float(64),
+                2,
+                ReduceOp::Add | ReduceOp::Mul | ReduceOp::Min | ReduceOp::Max,
+            ) => Self::ShuffleEmulate,
             // i32x4 add via shuffle
             (ScalarType::Int(32) | ScalarType::UInt(32), 4, ReduceOp::Add | ReduceOp::Mul) => {
                 Self::ShuffleEmulate
@@ -467,29 +473,31 @@ mod tests {
     #[test]
     fn test_horizontal_reduce_f32x4() {
         let lowering = SimdLowering::new(true);
-        let instrs = lowering.emit_horizontal_reduce(
-            ReduceOp::Add,
-            ScalarType::Float(32),
-            4,
-        ).unwrap();
+        let instrs = lowering
+            .emit_horizontal_reduce(ReduceOp::Add, ScalarType::Float(32), 4)
+            .unwrap();
 
         // Should have shuffle, add, shuffle, add, extract
         assert!(instrs.len() >= 4);
-        assert!(matches!(instrs.last().unwrap(), WasmInstr::F32x4ExtractLane(0)));
+        assert!(matches!(
+            instrs.last().unwrap(),
+            WasmInstr::F32x4ExtractLane(0)
+        ));
     }
 
     #[test]
     fn test_horizontal_reduce_f64x2() {
         let lowering = SimdLowering::new(true);
-        let instrs = lowering.emit_horizontal_reduce(
-            ReduceOp::Add,
-            ScalarType::Float(64),
-            2,
-        ).unwrap();
+        let instrs = lowering
+            .emit_horizontal_reduce(ReduceOp::Add, ScalarType::Float(64), 2)
+            .unwrap();
 
         // Should have shuffle, add, extract
         assert!(instrs.len() >= 2);
-        assert!(matches!(instrs.last().unwrap(), WasmInstr::F64x2ExtractLane(0)));
+        assert!(matches!(
+            instrs.last().unwrap(),
+            WasmInstr::F64x2ExtractLane(0)
+        ));
     }
 
     #[test]

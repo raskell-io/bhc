@@ -19,17 +19,20 @@ struct CompileResult {
 fn test_compile_file(path: &str) -> CompileResult {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) => return CompileResult {
-            status: "READ_ERROR".into(),
-            errors: vec![format!("{}", e)],
-            warnings: 0,
-        },
+        Err(e) => {
+            return CompileResult {
+                status: "READ_ERROR".into(),
+                errors: vec![format!("{}", e)],
+                warnings: 0,
+            }
+        }
     };
 
     let file_id = FileId::new(0);
     let (module, parse_diags) = parse_module(&source, file_id);
 
-    let parse_errors: Vec<String> = parse_diags.iter()
+    let parse_errors: Vec<String> = parse_diags
+        .iter()
         .filter(|d| d.severity == bhc_diagnostics::Severity::Error)
         .map(|d| d.message.clone())
         .collect();
@@ -44,11 +47,13 @@ fn test_compile_file(path: &str) -> CompileResult {
 
     let module = match module {
         Some(m) => m,
-        None => return CompileResult {
-            status: "NO_MODULE".into(),
-            errors: vec![],
-            warnings: 0,
-        },
+        None => {
+            return CompileResult {
+                status: "NO_MODULE".into(),
+                errors: vec![],
+                warnings: 0,
+            }
+        }
     };
 
     // Configure lowering with search paths for XMonad modules
@@ -62,11 +67,13 @@ fn test_compile_file(path: &str) -> CompileResult {
     let mut lower_ctx = LowerContext::with_builtins();
     let hir_module = match bhc_lower::lower_module(&mut lower_ctx, &module, &config) {
         Ok(m) => m,
-        Err(e) => return CompileResult {
-            status: "LOWER_ERROR".into(),
-            errors: vec![format!("{:?}", e)],
-            warnings: lower_ctx.warnings.len(),
-        },
+        Err(e) => {
+            return CompileResult {
+                status: "LOWER_ERROR".into(),
+                errors: vec![format!("{:?}", e)],
+                warnings: lower_ctx.warnings.len(),
+            }
+        }
     };
 
     let warning_count = lower_ctx.warnings.len();
@@ -80,10 +87,7 @@ fn test_compile_file(path: &str) -> CompileResult {
             warnings: warning_count,
         },
         Err(errors) => {
-            let msgs: Vec<String> = errors.into_iter()
-                .take(5)
-                .map(|e| e.message)
-                .collect();
+            let msgs: Vec<String> = errors.into_iter().take(5).map(|e| e.message).collect();
             CompileResult {
                 status: "TYPE_ERROR".into(),
                 errors: msgs,
@@ -126,7 +130,13 @@ fn test_compile_xmonad_files() {
             }
             ok_count += 1;
         } else {
-            println!("{}: {} ({} errors, {} stub warnings)", name, result.status, result.errors.len(), result.warnings);
+            println!(
+                "{}: {} ({} errors, {} stub warnings)",
+                name,
+                result.status,
+                result.errors.len(),
+                result.warnings
+            );
             for e in result.errors.iter().take(3) {
                 println!("    {}", e);
             }
@@ -134,5 +144,8 @@ fn test_compile_xmonad_files() {
         }
     }
 
-    println!("\n=== Summary: {} OK, {} FAILED, {} total stub warnings ===", ok_count, fail_count, total_warnings);
+    println!(
+        "\n=== Summary: {} OK, {} FAILED, {} total stub warnings ===",
+        ok_count, fail_count, total_warnings
+    );
 }

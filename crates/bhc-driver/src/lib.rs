@@ -55,25 +55,25 @@ use bhc_codegen::{
 };
 use bhc_core::eval::{Env, EvalError, Evaluator, Value};
 use bhc_core::{Bind, CoreModule, Expr, VarId};
+use bhc_gpu::{codegen::ptx, device::DeviceInfo, GpuResult};
 use bhc_hir::Module as HirModule;
 use bhc_intern::Symbol;
-use bhc_linker::{LinkerConfig, LinkLibrary, LinkOutputType};
+use bhc_linker::{LinkLibrary, LinkOutputType, LinkerConfig};
 use bhc_loop_ir::{
     lower::{LowerConfig, LowerError},
     parallel::{ParallelConfig, ParallelInfo, ParallelPass},
     vectorize::{VectorizeConfig, VectorizePass, VectorizeReport},
     LoopId, TargetArch,
 };
-use bhc_wasm::{WasmConfig, WasmModule};
-use bhc_gpu::{codegen::ptx, device::DeviceInfo, GpuResult};
-use rustc_hash::FxHashMap;
 use bhc_lower::LowerContext;
 use bhc_session::{Options, OutputType, Profile, Session, SessionRef};
 use bhc_span::FileId;
 use bhc_target::TargetSpec;
 use bhc_tensor_ir::fusion::{self, FusionContext, KernelReport};
 use bhc_typeck::TypedModule;
+use bhc_wasm::{WasmConfig, WasmModule};
 use camino::{Utf8Path, Utf8PathBuf};
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, info, instrument};
@@ -212,10 +212,7 @@ impl CompilationUnit {
             path: path.clone(),
             source: e,
         })?;
-        let module_name = path
-            .file_stem()
-            .unwrap_or("Main")
-            .to_string();
+        let module_name = path.file_stem().unwrap_or("Main").to_string();
 
         Ok(Self {
             path,
@@ -339,24 +336,30 @@ impl Compiler {
         let file_id = FileId::new(0); // In a real impl, this would be managed by a source manager
 
         // Phase 1: Parse
-        self.callbacks.on_phase_start(CompilePhase::Parse, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::Parse, &unit.module_name);
         let ast = self.parse(&unit, file_id)?;
-        self.callbacks.on_phase_complete(CompilePhase::Parse, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::Parse, &unit.module_name);
 
         // Phase 2: Lower AST to HIR
-        self.callbacks.on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
         let (hir, lower_ctx) = self.lower(&ast)?;
         debug!(module = %unit.module_name, items = hir.items.len(), "HIR lowering complete");
 
         // Phase 2b: Type check HIR
         let typed = self.type_check(&hir, file_id, &lower_ctx)?;
-        self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
-        self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::CoreLower, &unit.module_name);
         let core = self.core_lower(&hir, &lower_ctx, &typed)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
-        self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
 
         // Phase 3.5: Escape analysis (if Embedded profile)
         // Embedded profile has no GC, so programs with escaping allocations are rejected.
@@ -374,7 +377,8 @@ impl Compiler {
         let mut tensor_kernels_for_gpu: Vec<bhc_tensor_ir::Kernel> = Vec::new();
 
         if self.session.profile() == Profile::Numeric {
-            self.callbacks.on_phase_start(CompilePhase::TensorLower, &unit.module_name);
+            self.callbacks
+                .on_phase_start(CompilePhase::TensorLower, &unit.module_name);
 
             // In a full implementation, we would:
             // 1. Get Core IR from previous phase
@@ -402,10 +406,12 @@ impl Compiler {
                 "tensor IR fusion complete"
             );
 
-            self.callbacks.on_phase_complete(CompilePhase::TensorLower, &unit.module_name);
+            self.callbacks
+                .on_phase_complete(CompilePhase::TensorLower, &unit.module_name);
 
             // Phase 5: Loop IR lowering
-            self.callbacks.on_phase_start(CompilePhase::LoopLower, &unit.module_name);
+            self.callbacks
+                .on_phase_start(CompilePhase::LoopLower, &unit.module_name);
 
             // Configure lowering based on target architecture
             let target_arch = self.determine_target_arch();
@@ -445,7 +451,9 @@ impl Compiler {
                             },
                         );
                     } else if let Some(reason) = &info.reason {
-                        vectorize_report.failed_loops.push((*loop_id, reason.clone()));
+                        vectorize_report
+                            .failed_loops
+                            .push((*loop_id, reason.clone()));
                     }
                 }
                 debug!(
@@ -474,7 +482,8 @@ impl Compiler {
                 );
             }
 
-            self.callbacks.on_phase_complete(CompilePhase::LoopLower, &unit.module_name);
+            self.callbacks
+                .on_phase_complete(CompilePhase::LoopLower, &unit.module_name);
 
             // Emit comprehensive kernel report if requested (after all analyses)
             if self.session.options.emit_kernel_report {
@@ -488,7 +497,8 @@ impl Compiler {
 
         // Check for WASM target - use WASM backend instead of LLVM
         if self.is_wasm_target() {
-            self.callbacks.on_phase_start(CompilePhase::Codegen, &unit.module_name);
+            self.callbacks
+                .on_phase_start(CompilePhase::Codegen, &unit.module_name);
 
             // Create WASM config based on profile
             let wasm_config = WasmConfig::for_profile(self.session.profile());
@@ -497,7 +507,8 @@ impl Compiler {
             let target = self.get_target_spec();
 
             // Create WASM module
-            let mut wasm_module = WasmModule::new(unit.module_name.clone(), wasm_config.clone(), target);
+            let mut wasm_module =
+                WasmModule::new(unit.module_name.clone(), wasm_config.clone(), target);
 
             // Add WASI imports for system interface
             wasm_module.add_wasi_imports();
@@ -548,7 +559,8 @@ impl Compiler {
                 .write_wasm(&output_path)
                 .map_err(|e| CompileError::CodegenError(format!("WASM codegen failed: {}", e)))?;
 
-            self.callbacks.on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+            self.callbacks
+                .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
 
             info!(module = %unit.module_name, output = %output_path, "WASM compilation complete");
 
@@ -560,7 +572,8 @@ impl Compiler {
 
         // Check for GPU target - generate PTX/AMDGCN code
         if self.is_gpu_target() || self.is_ptx_emit() {
-            self.callbacks.on_phase_start(CompilePhase::Codegen, &unit.module_name);
+            self.callbacks
+                .on_phase_start(CompilePhase::Codegen, &unit.module_name);
 
             // Get GPU device info (real device or mock for testing)
             let device = self.get_gpu_device_info();
@@ -617,7 +630,8 @@ impl Compiler {
             std::fs::write(&output_path, &ptx_code)
                 .map_err(|e| CompileError::CodegenError(format!("Failed to write PTX: {}", e)))?;
 
-            self.callbacks.on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+            self.callbacks
+                .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
 
             info!(module = %unit.module_name, output = %output_path, "GPU compilation complete");
 
@@ -628,10 +642,12 @@ impl Compiler {
         }
 
         // Phase 5: Code generation (native via LLVM)
-        self.callbacks.on_phase_start(CompilePhase::Codegen, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::Codegen, &unit.module_name);
         let object_path = self.codegen(&unit.module_name, &core)?;
         debug!(module = %unit.module_name, object = %object_path.display(), "code generation complete");
-        self.callbacks.on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
 
         // Determine output path
         let output_path = self.session.output_path(&unit.module_name);
@@ -641,14 +657,18 @@ impl Compiler {
             || self.session.options.output_type == OutputType::DynamicLib
             || self.session.options.output_type == OutputType::StaticLib
         {
-            self.callbacks.on_phase_start(CompilePhase::Link, &unit.module_name);
+            self.callbacks
+                .on_phase_start(CompilePhase::Link, &unit.module_name);
             self.link(&[object_path.clone()], &output_path)?;
-            self.callbacks.on_phase_complete(CompilePhase::Link, &unit.module_name);
+            self.callbacks
+                .on_phase_complete(CompilePhase::Link, &unit.module_name);
         } else {
             // For non-linked output types (assembly, IR), copy/move the codegen output
             std::fs::rename(&object_path, output_path.as_std_path())
                 .or_else(|_| std::fs::copy(&object_path, output_path.as_std_path()).map(|_| ()))
-                .map_err(|e| CompileError::CodegenError(format!("failed to write output: {}", e)))?;
+                .map_err(|e| {
+                    CompileError::CodegenError(format!("failed to write output: {}", e))
+                })?;
         }
 
         info!(module = %unit.module_name, output = %output_path, "compilation complete");
@@ -791,11 +811,7 @@ impl Compiler {
     }
 
     /// Generate code from Core IR to an object file.
-    fn codegen(
-        &self,
-        module_name: &str,
-        core: &CoreModule,
-    ) -> CompileResult<std::path::PathBuf> {
+    fn codegen(&self, module_name: &str, core: &CoreModule) -> CompileResult<std::path::PathBuf> {
         debug!("generating code for module: {}", module_name);
 
         // Initialize LLVM backend
@@ -824,8 +840,9 @@ impl Compiler {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let output_dir = std::env::temp_dir().join(format!("bhc-{}-{}", unique_id, timestamp));
-        std::fs::create_dir_all(&output_dir)
-            .map_err(|e| CompileError::CodegenError(format!("failed to create output dir: {}", e)))?;
+        std::fs::create_dir_all(&output_dir).map_err(|e| {
+            CompileError::CodegenError(format!("failed to create output dir: {}", e))
+        })?;
 
         let output_path = output_dir.join(format!("{}.{}", module_name, extension));
 
@@ -845,7 +862,8 @@ impl Compiler {
         // Create entry point if this module has a main function
         if let Some(haskell_main) = module.get_function("main") {
             // Create a C main that calls the Haskell main
-            module.create_entry_point(haskell_main)
+            module
+                .create_entry_point(haskell_main)
                 .map_err(|e| CompileError::CodegenError(e.to_string()))?;
         }
 
@@ -888,11 +906,7 @@ impl Compiler {
     }
 
     /// Link object files into an executable.
-    fn link(
-        &self,
-        objects: &[std::path::PathBuf],
-        output: &Utf8Path,
-    ) -> CompileResult<()> {
+    fn link(&self, objects: &[std::path::PathBuf], output: &Utf8Path) -> CompileResult<()> {
         debug!("linking to: {}", output);
 
         let target = self.get_target_spec();
@@ -901,9 +915,10 @@ impl Compiler {
         // Build linker configuration
         let mut config = LinkerConfig::new(target, output.to_path_buf())
             .output_type(output_type)
-            .with_objects(objects.iter().map(|p| Utf8PathBuf::from_path_buf(p.clone()).unwrap_or_else(|p| {
-                Utf8PathBuf::from(p.to_string_lossy().to_string())
-            })));
+            .with_objects(objects.iter().map(|p| {
+                Utf8PathBuf::from_path_buf(p.clone())
+                    .unwrap_or_else(|p| Utf8PathBuf::from(p.to_string_lossy().to_string()))
+            }));
 
         // Add library search paths
         for path in &self.session.options.library_paths {
@@ -923,10 +938,12 @@ impl Compiler {
         let debug_path = workspace_dir.join("target/debug");
 
         if release_path.exists() {
-            config = config.with_library_path(Utf8PathBuf::from_path_buf(release_path).unwrap_or_default());
+            config = config
+                .with_library_path(Utf8PathBuf::from_path_buf(release_path).unwrap_or_default());
         }
         if debug_path.exists() {
-            config = config.with_library_path(Utf8PathBuf::from_path_buf(debug_path).unwrap_or_default());
+            config = config
+                .with_library_path(Utf8PathBuf::from_path_buf(debug_path).unwrap_or_default());
         }
 
         // Add the BHC RTS library
@@ -948,8 +965,7 @@ impl Compiler {
         }
 
         // Run linker
-        bhc_linker::link(&config)
-            .map_err(|e| CompileError::LinkError(e.to_string()))?;
+        bhc_linker::link(&config).map_err(|e| CompileError::LinkError(e.to_string()))?;
 
         info!(output = %output, "linking complete");
         Ok(())
@@ -1002,27 +1018,35 @@ impl Compiler {
         let file_id = FileId::new(0);
 
         // Phase 1: Parse
-        self.callbacks.on_phase_start(CompilePhase::Parse, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::Parse, &unit.module_name);
         let ast = self.parse(&unit, file_id)?;
-        self.callbacks.on_phase_complete(CompilePhase::Parse, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::Parse, &unit.module_name);
 
         // Phase 2: Lower AST to HIR
-        self.callbacks.on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
         let (hir, lower_ctx) = self.lower(&ast)?;
         let typed = self.type_check(&hir, file_id, &lower_ctx)?;
-        self.callbacks.on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
 
         // Phase 3: Lower to Core IR
-        self.callbacks.on_phase_start(CompilePhase::CoreLower, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::CoreLower, &unit.module_name);
         let core = self.core_lower(&hir, &lower_ctx, &typed)?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
 
-        self.callbacks.on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
 
         // Phase 4: Execute
-        self.callbacks.on_phase_start(CompilePhase::Execute, &unit.module_name);
+        self.callbacks
+            .on_phase_start(CompilePhase::Execute, &unit.module_name);
         let (result, display) = self.run_module_with_display(&core)?;
-        self.callbacks.on_phase_complete(CompilePhase::Execute, &unit.module_name);
+        self.callbacks
+            .on_phase_complete(CompilePhase::Execute, &unit.module_name);
 
         info!(module = %unit.module_name, "execution complete");
         Ok((result, display))
@@ -1155,7 +1179,11 @@ impl Compiler {
     }
 
     /// Find the main binding in the module.
-    fn find_main_binding(&self, module: &CoreModule, name: Symbol) -> CompileResult<bhc_core::Expr> {
+    fn find_main_binding(
+        &self,
+        module: &CoreModule,
+        name: Symbol,
+    ) -> CompileResult<bhc_core::Expr> {
         for bind in &module.bindings {
             match bind {
                 Bind::NonRec(var, rhs) if var.name == name => {
@@ -1271,7 +1299,10 @@ impl Compiler {
             .target_triple
             .as_ref()
             .map_or(false, |t| {
-                t.contains("cuda") || t.contains("nvptx") || t.contains("amdgcn") || t.contains("ptx")
+                t.contains("cuda")
+                    || t.contains("nvptx")
+                    || t.contains("amdgcn")
+                    || t.contains("ptx")
             })
     }
 
@@ -1303,7 +1334,10 @@ impl Compiler {
     ) -> CompileResult<Vec<CompileOutput>> {
         use rayon::prelude::*;
 
-        let paths: Vec<_> = paths.into_iter().map(|p| p.as_ref().to_path_buf()).collect();
+        let paths: Vec<_> = paths
+            .into_iter()
+            .map(|p| p.as_ref().to_path_buf())
+            .collect();
 
         let results: Vec<_> = paths
             .par_iter()
@@ -1608,7 +1642,11 @@ mod tests {
 
         // Should compile without running tensor IR phases
         let result = compiler.compile_source("Test", "main = 42");
-        assert!(result.is_ok(), "Default profile should compile successfully: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Default profile should compile successfully: {:?}",
+            result.err()
+        );
     }
 
     /// Test that Numeric profile compiles with tensor IR phases
@@ -1621,7 +1659,10 @@ mod tests {
 
         // Should compile, running tensor IR and loop IR phases
         let result = compiler.compile_source("Test", "main = 42");
-        assert!(result.is_ok(), "Numeric profile should compile successfully");
+        assert!(
+            result.is_ok(),
+            "Numeric profile should compile successfully"
+        );
     }
 
     /// Test that kernel report option is respected
@@ -1684,7 +1725,10 @@ mod tests {
 
         // Compile a simple numeric module
         let result = compiler.compile_source("NumericTest", "main = 42");
-        assert!(result.is_ok(), "Numeric profile should compile successfully");
+        assert!(
+            result.is_ok(),
+            "Numeric profile should compile successfully"
+        );
 
         // Note: We can't directly verify the tracker after with_callbacks consumes it,
         // but the compilation succeeding proves Loop IR lowering ran without error.
@@ -1701,7 +1745,10 @@ mod tests {
 
         // A simple literal that doesn't escape should compile
         let result = compiler.compile_source("EmbeddedTest", "main = 42");
-        assert!(result.is_ok(), "Simple literal should compile in Embedded profile");
+        assert!(
+            result.is_ok(),
+            "Simple literal should compile in Embedded profile"
+        );
     }
 
     /// Test that Embedded profile rejects escaping allocations
@@ -1719,7 +1766,13 @@ mod tests {
         let result = compiler.compile_source("EscapeTest", "main = \\x -> x");
         // For now, just verify it doesn't panic - actual escape detection depends on
         // more complex programs that create heap allocations.
-        assert!(result.is_ok() || matches!(result.as_ref().err(), Some(CompileError::EscapeAnalysisFailed(_))));
+        assert!(
+            result.is_ok()
+                || matches!(
+                    result.as_ref().err(),
+                    Some(CompileError::EscapeAnalysisFailed(_))
+                )
+        );
     }
 
     /// Test target architecture detection
@@ -1727,16 +1780,28 @@ mod tests {
     fn test_target_arch_detection() {
         // Test that arch_from_triple correctly identifies architectures
         let x86_sse = Compiler::arch_from_triple("x86_64-unknown-linux-gnu");
-        assert!(matches!(x86_sse, TargetArch::X86_64Sse2), "x86_64 should default to SSE2");
+        assert!(
+            matches!(x86_sse, TargetArch::X86_64Sse2),
+            "x86_64 should default to SSE2"
+        );
 
         let x86_avx = Compiler::arch_from_triple("x86_64-avx-linux-gnu");
-        assert!(matches!(x86_avx, TargetArch::X86_64Avx), "should detect AVX");
+        assert!(
+            matches!(x86_avx, TargetArch::X86_64Avx),
+            "should detect AVX"
+        );
 
         let arm64 = Compiler::arch_from_triple("aarch64-apple-darwin");
-        assert!(matches!(arm64, TargetArch::Aarch64Neon), "aarch64 should use NEON");
+        assert!(
+            matches!(arm64, TargetArch::Aarch64Neon),
+            "aarch64 should use NEON"
+        );
 
         let generic = Compiler::arch_from_triple("wasm32-unknown-unknown");
-        assert!(matches!(generic, TargetArch::Generic), "unknown arch should be Generic");
+        assert!(
+            matches!(generic, TargetArch::Generic),
+            "unknown arch should be Generic"
+        );
     }
 
     // =========================================================================
@@ -1753,7 +1818,11 @@ mod tests {
 
         // A simple main that returns a literal
         let result = compiler.run_source("Test", "main = 42");
-        assert!(result.is_ok(), "Should execute simple literal: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should execute simple literal: {:?}",
+            result.err()
+        );
 
         let (value, _display) = result.unwrap();
         assert_eq!(value.as_int(), Some(42), "main should evaluate to 42");
@@ -1768,7 +1837,11 @@ mod tests {
             .unwrap();
 
         let result = compiler.run_source("Test", "main = 42");
-        assert!(result.is_ok(), "Numeric profile should execute: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Numeric profile should execute: {:?}",
+            result.err()
+        );
 
         let (value, _display) = result.unwrap();
         assert_eq!(value.as_int(), Some(42));
@@ -1811,10 +1884,18 @@ mod tests {
 
         // Compile main = 42 to an executable
         let result = compiler.compile_source("Test", "main = 42");
-        assert!(result.is_ok(), "Should compile to executable: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should compile to executable: {:?}",
+            result.err()
+        );
 
         // Verify the executable was created
-        assert!(exe_path.exists(), "Executable should exist at {:?}", exe_path);
+        assert!(
+            exe_path.exists(),
+            "Executable should exist at {:?}",
+            exe_path
+        );
 
         // Run the executable and check exit code
         // Note: Our main returns 42, which becomes the exit code
@@ -1849,10 +1930,18 @@ mod tests {
 
         // Compile main = print 42 to an executable
         let result = compiler.compile_source("Test", "main = print 42");
-        assert!(result.is_ok(), "Should compile print 42: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should compile print 42: {:?}",
+            result.err()
+        );
 
         // Verify the executable was created
-        assert!(exe_path.exists(), "Executable should exist at {:?}", exe_path);
+        assert!(
+            exe_path.exists(),
+            "Executable should exist at {:?}",
+            exe_path
+        );
 
         // Run the executable and check output
         let output = Command::new(&exe_path)

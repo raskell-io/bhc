@@ -572,31 +572,98 @@ impl PrimOp {
     pub fn arity(self) -> usize {
         match self {
             // Arity 1
-            Self::NegInt | Self::NegDouble | Self::NotBool | Self::IntToDouble
-            | Self::DoubleToInt | Self::CharToInt | Self::IntToChar | Self::Error
-            | Self::UArrayFromList | Self::UArrayToList | Self::UArraySum | Self::UArrayLength
-            | Self::ListReturn | Self::Head | Self::Tail | Self::Last | Self::Init
-            | Self::Reverse | Self::Null
-            | Self::Even | Self::Odd | Self::Cycle | Self::Unzip | Self::Product
-            | Self::FromIntegral | Self::IsJust | Self::IsNothing
-            | Self::Abs | Self::Signum | Self::Swap | Self::Repeat
-            | Self::And | Self::Or | Self::Lines | Self::Unlines | Self::Words | Self::Unwords
-            | Self::Show | Self::Id
-            | Self::PutStrLn | Self::PutStr | Self::Print | Self::IoReturn
+            Self::NegInt
+            | Self::NegDouble
+            | Self::NotBool
+            | Self::IntToDouble
+            | Self::DoubleToInt
+            | Self::CharToInt
+            | Self::IntToChar
+            | Self::Error
+            | Self::UArrayFromList
+            | Self::UArrayToList
+            | Self::UArraySum
+            | Self::UArrayLength
+            | Self::ListReturn
+            | Self::Head
+            | Self::Tail
+            | Self::Last
+            | Self::Init
+            | Self::Reverse
+            | Self::Null
+            | Self::Even
+            | Self::Odd
+            | Self::Cycle
+            | Self::Unzip
+            | Self::Product
+            | Self::FromIntegral
+            | Self::IsJust
+            | Self::IsNothing
+            | Self::Abs
+            | Self::Signum
+            | Self::Swap
+            | Self::Repeat
+            | Self::And
+            | Self::Or
+            | Self::Lines
+            | Self::Unlines
+            | Self::Words
+            | Self::Unwords
+            | Self::Show
+            | Self::Id
+            | Self::PutStrLn
+            | Self::PutStr
+            | Self::Print
+            | Self::IoReturn
             | Self::DictSelect(_) => 1,
             // Arity 0
             Self::GetLine => 0,
             // Arity 2
-            Self::UArrayMap | Self::UArrayRange | Self::Concat | Self::ConcatMap | Self::Append
-            | Self::ListBind | Self::ListThen | Self::Filter | Self::Zip | Self::Take | Self::Drop
-            | Self::Index | Self::Replicate | Self::EnumFromTo
-            | Self::Elem | Self::NotElem | Self::TakeWhile | Self::DropWhile | Self::Span | Self::Break
-            | Self::SplitAt | Self::Iterate | Self::Lookup | Self::Min | Self::Max
-            | Self::FromMaybe | Self::Any | Self::All | Self::Const | Self::Uncurry
-            | Self::IoBind | Self::IoThen | Self::MonadBind | Self::MonadThen => 2,
+            Self::UArrayMap
+            | Self::UArrayRange
+            | Self::Concat
+            | Self::ConcatMap
+            | Self::Append
+            | Self::ListBind
+            | Self::ListThen
+            | Self::Filter
+            | Self::Zip
+            | Self::Take
+            | Self::Drop
+            | Self::Index
+            | Self::Replicate
+            | Self::EnumFromTo
+            | Self::Elem
+            | Self::NotElem
+            | Self::TakeWhile
+            | Self::DropWhile
+            | Self::Span
+            | Self::Break
+            | Self::SplitAt
+            | Self::Iterate
+            | Self::Lookup
+            | Self::Min
+            | Self::Max
+            | Self::FromMaybe
+            | Self::Any
+            | Self::All
+            | Self::Const
+            | Self::Uncurry
+            | Self::IoBind
+            | Self::IoThen
+            | Self::MonadBind
+            | Self::MonadThen => 2,
             // Arity 3
-            Self::UArrayZipWith | Self::UArrayFold | Self::Foldr | Self::Foldl | Self::FoldlStrict
-            | Self::ZipWith | Self::Flip | Self::MaybeElim | Self::EitherElim | Self::Curry => 3,
+            Self::UArrayZipWith
+            | Self::UArrayFold
+            | Self::Foldr
+            | Self::Foldl
+            | Self::FoldlStrict
+            | Self::ZipWith
+            | Self::Flip
+            | Self::MaybeElim
+            | Self::EitherElim
+            | Self::Curry => 3,
             // Default arity 2 for arithmetic/comparison ops
             _ => 2,
         }

@@ -194,7 +194,6 @@ mod construction_tests {
             }
         }
     }
-
 }
 
 // ============================================================
@@ -556,7 +555,8 @@ mod broadcast_tests {
 
     #[test]
     fn test_broadcast_add() {
-        let a: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let a: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let b: Tensor<f64> = Tensor::from_data(vec![10.0, 20.0, 30.0], &[3]).unwrap();
         let b_broadcasted = b.broadcast_to(&Shape::new(&[2, 3])).unwrap();
         let c = a.add(&b_broadcasted).unwrap();
@@ -582,8 +582,10 @@ mod linalg_tests {
 
     #[test]
     fn test_matmul() {
-        let a: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
-        let b: Tensor<f64> = Tensor::from_data(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
+        let a: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let b: Tensor<f64> =
+            Tensor::from_data(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
         let c = a.matmul(&b).unwrap();
         assert_eq!(c.shape().dims(), &[2, 2]);
         assert_eq!(*c.get(&[0, 0]).unwrap(), 58.0); // 1*7 + 2*9 + 3*11
@@ -625,7 +627,8 @@ mod layout_tests {
 
     #[test]
     fn test_contiguous() {
-        let t: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
         let tt = t.transpose().unwrap();
         let c = tt.contiguous();
         assert!(c.is_contiguous());

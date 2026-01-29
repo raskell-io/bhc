@@ -15,12 +15,10 @@ use lsp_types::notification::{
     Initialized, Notification as _,
 };
 use lsp_types::request::{
-    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest,
-    References, Request as _, WorkspaceSymbolRequest,
+    Completion, DocumentSymbolRequest, Formatting, GotoDefinition, HoverRequest, References,
+    Request as _, WorkspaceSymbolRequest,
 };
-use lsp_types::{
-    InitializeParams, InitializeResult, ServerInfo, Uri,
-};
+use lsp_types::{InitializeParams, InitializeResult, ServerInfo, Uri};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -172,27 +170,13 @@ impl Server {
         let id = req.id.clone();
 
         let result = match req.method.as_str() {
-            GotoDefinition::METHOD => {
-                self.handler.handle_goto_definition(req)
-            }
-            References::METHOD => {
-                self.handler.handle_references(req)
-            }
-            HoverRequest::METHOD => {
-                self.handler.handle_hover(req)
-            }
-            Completion::METHOD => {
-                self.handler.handle_completion(req)
-            }
-            DocumentSymbolRequest::METHOD => {
-                self.handler.handle_document_symbols(req)
-            }
-            WorkspaceSymbolRequest::METHOD => {
-                self.handler.handle_workspace_symbols(req)
-            }
-            Formatting::METHOD => {
-                self.handler.handle_formatting(req)
-            }
+            GotoDefinition::METHOD => self.handler.handle_goto_definition(req),
+            References::METHOD => self.handler.handle_references(req),
+            HoverRequest::METHOD => self.handler.handle_hover(req),
+            Completion::METHOD => self.handler.handle_completion(req),
+            DocumentSymbolRequest::METHOD => self.handler.handle_document_symbols(req),
+            WorkspaceSymbolRequest::METHOD => self.handler.handle_workspace_symbols(req),
+            Formatting::METHOD => self.handler.handle_formatting(req),
             _ => {
                 warn!("Unhandled request: {}", req.method);
                 return Ok(());
@@ -269,7 +253,8 @@ impl Server {
                 self.documents.apply_change(&uri, range, &change.text);
             } else {
                 // Full document update
-                self.documents.update(&uri, change.text, params.text_document.version);
+                self.documents
+                    .update(&uri, change.text, params.text_document.version);
             }
         }
 

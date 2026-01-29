@@ -81,9 +81,10 @@ impl Document {
 
     /// Apply a text change.
     pub fn apply_change(&mut self, range: Range, new_text: &str) {
-        if let (Some(start), Some(end)) =
-            (self.position_to_offset(range.start), self.position_to_offset(range.end))
-        {
+        if let (Some(start), Some(end)) = (
+            self.position_to_offset(range.start),
+            self.position_to_offset(range.end),
+        ) {
             self.content.remove(start..end);
             self.content.insert(start, new_text);
         }
@@ -235,43 +236,79 @@ mod tests {
 
     #[test]
     fn test_position_to_offset() {
-        let doc = Document::new(
-            test_uri(),
-            "line 1\nline 2\nline 3\n".to_string(),
-            1,
-        );
+        let doc = Document::new(test_uri(), "line 1\nline 2\nline 3\n".to_string(), 1);
 
-        assert_eq!(doc.position_to_offset(Position { line: 0, character: 0 }), Some(0));
-        assert_eq!(doc.position_to_offset(Position { line: 0, character: 4 }), Some(4));
-        assert_eq!(doc.position_to_offset(Position { line: 1, character: 0 }), Some(7));
-        assert_eq!(doc.position_to_offset(Position { line: 2, character: 0 }), Some(14));
+        assert_eq!(
+            doc.position_to_offset(Position {
+                line: 0,
+                character: 0
+            }),
+            Some(0)
+        );
+        assert_eq!(
+            doc.position_to_offset(Position {
+                line: 0,
+                character: 4
+            }),
+            Some(4)
+        );
+        assert_eq!(
+            doc.position_to_offset(Position {
+                line: 1,
+                character: 0
+            }),
+            Some(7)
+        );
+        assert_eq!(
+            doc.position_to_offset(Position {
+                line: 2,
+                character: 0
+            }),
+            Some(14)
+        );
     }
 
     #[test]
     fn test_offset_to_position() {
-        let doc = Document::new(
-            test_uri(),
-            "line 1\nline 2\nline 3\n".to_string(),
-            1,
-        );
+        let doc = Document::new(test_uri(), "line 1\nline 2\nline 3\n".to_string(), 1);
 
-        assert_eq!(doc.offset_to_position(0), Some(Position { line: 0, character: 0 }));
-        assert_eq!(doc.offset_to_position(4), Some(Position { line: 0, character: 4 }));
-        assert_eq!(doc.offset_to_position(7), Some(Position { line: 1, character: 0 }));
+        assert_eq!(
+            doc.offset_to_position(0),
+            Some(Position {
+                line: 0,
+                character: 0
+            })
+        );
+        assert_eq!(
+            doc.offset_to_position(4),
+            Some(Position {
+                line: 0,
+                character: 4
+            })
+        );
+        assert_eq!(
+            doc.offset_to_position(7),
+            Some(Position {
+                line: 1,
+                character: 0
+            })
+        );
     }
 
     #[test]
     fn test_apply_change() {
-        let mut doc = Document::new(
-            test_uri(),
-            "hello world".to_string(),
-            1,
-        );
+        let mut doc = Document::new(test_uri(), "hello world".to_string(), 1);
 
         doc.apply_change(
             Range {
-                start: Position { line: 0, character: 6 },
-                end: Position { line: 0, character: 11 },
+                start: Position {
+                    line: 0,
+                    character: 6,
+                },
+                end: Position {
+                    line: 0,
+                    character: 11,
+                },
             },
             "BHC",
         );
@@ -281,18 +318,20 @@ mod tests {
 
     #[test]
     fn test_word_at() {
-        let doc = Document::new(
-            test_uri(),
-            "let foo = bar".to_string(),
-            1,
-        );
+        let doc = Document::new(test_uri(), "let foo = bar".to_string(), 1);
 
         assert_eq!(
-            doc.word_at(Position { line: 0, character: 5 }),
+            doc.word_at(Position {
+                line: 0,
+                character: 5
+            }),
             Some("foo".to_string())
         );
         assert_eq!(
-            doc.word_at(Position { line: 0, character: 10 }),
+            doc.word_at(Position {
+                line: 0,
+                character: 10
+            }),
             Some("bar".to_string())
         );
     }

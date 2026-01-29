@@ -12,8 +12,8 @@ use crate::{CodegenError, CodegenResult};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_loop_ir::{
-    AccessPattern, Alloc, AllocSize, BinOp, Body, CmpOp, IfStmt, Loop, LoopAttrs, LoopIR,
-    LoopType, MemRef, Op, Param, ReduceOp, ScalarType, Stmt, UnOp, Value, ValueId,
+    AccessPattern, Alloc, AllocSize, BinOp, Body, CmpOp, IfStmt, Loop, LoopAttrs, LoopIR, LoopType,
+    MemRef, Op, Param, ReduceOp, ScalarType, Stmt, UnOp, Value, ValueId,
 };
 use bhc_tensor_ir::{AllocRegion, BufferId};
 use inkwell::builder::Builder;
@@ -79,7 +79,10 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         // Create function signature
         let fn_type = self.create_function_type(ir)?;
         let fn_name = ir.name.as_str();
-        let function = self.module.llvm_module().add_function(fn_name, fn_type, None);
+        let function = self
+            .module
+            .llvm_module()
+            .add_function(fn_name, fn_type, None);
         self.current_fn = Some(function);
 
         // Create entry block
@@ -88,9 +91,9 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
 
         // Bind parameters
         for (i, param) in ir.params.iter().enumerate() {
-            let llvm_param = function.get_nth_param(i as u32).ok_or_else(|| {
-                CodegenError::Internal(format!("Missing parameter {}", i))
-            })?;
+            let llvm_param = function
+                .get_nth_param(i as u32)
+                .ok_or_else(|| CodegenError::Internal(format!("Missing parameter {}", i)))?;
             // Store the parameter value
             let param_id = ValueId::new(i);
             self.values.insert(param_id, llvm_param);
@@ -106,8 +109,13 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
 
         // Add implicit void return if needed
         if ir.return_ty.is_void() {
-            if self.builder.get_insert_block().map_or(true, |b| b.get_terminator().is_none()) {
-                self.builder.build_return(None)
+            if self
+                .builder
+                .get_insert_block()
+                .map_or(true, |b| b.get_terminator().is_none())
+            {
+                self.builder
+                    .build_return(None)
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
             }
         }
@@ -298,9 +306,9 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
 
     /// Lower a loop construct.
     fn lower_loop(&mut self, lp: &Loop) -> CodegenResult<()> {
-        let function = self.current_fn.ok_or_else(|| {
-            CodegenError::Internal("No current function for loop".to_string())
-        })?;
+        let function = self
+            .current_fn
+            .ok_or_else(|| CodegenError::Internal("No current function for loop".to_string()))?;
 
         // Create basic blocks
         let preheader = self.llvm_ctx.append_basic_block(function, "loop.preheader");
@@ -332,8 +340,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         phi.add_incoming(&[(&lower_int, preheader)]);
 
         let iv_val = phi.as_basic_value().into_int_value();
-        self.values
-            .insert(lp.var, BasicValueEnum::IntValue(iv_val));
+        self.values.insert(lp.var, BasicValueEnum::IntValue(iv_val));
 
         let upper_val = self.lower_value(&lp.upper)?;
         let upper_int = self.value_to_int(upper_val)?;
@@ -360,9 +367,11 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         let step_int = self.value_to_int(step_val)?;
 
         // Get the current IV value (may have been updated in the body)
-        let current_iv = self.values.get(&lp.var).copied().ok_or_else(|| {
-            CodegenError::Internal("Loop variable not found".to_string())
-        })?;
+        let current_iv = self
+            .values
+            .get(&lp.var)
+            .copied()
+            .ok_or_else(|| CodegenError::Internal("Loop variable not found".to_string()))?;
         let current_iv_int = match current_iv {
             BasicValueEnum::IntValue(i) => i,
             _ => iv_val, // Fall back to phi value
@@ -387,9 +396,9 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
 
     /// Lower an if statement.
     fn lower_if(&mut self, if_stmt: &IfStmt) -> CodegenResult<()> {
-        let function = self.current_fn.ok_or_else(|| {
-            CodegenError::Internal("No current function for if".to_string())
-        })?;
+        let function = self
+            .current_fn
+            .ok_or_else(|| CodegenError::Internal("No current function for if".to_string()))?;
 
         let cond_val = self.lower_value(&if_stmt.cond)?;
         let cond_bool = match cond_val {
@@ -426,7 +435,11 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         // Then branch
         self.builder.position_at_end(then_block);
         self.lower_body(&if_stmt.then_body)?;
-        if self.builder.get_insert_block().map_or(true, |b| b.get_terminator().is_none()) {
+        if self
+            .builder
+            .get_insert_block()
+            .map_or(true, |b| b.get_terminator().is_none())
+        {
             self.builder
                 .build_unconditional_branch(merge_block)
                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
@@ -437,7 +450,11 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         if let Some(else_body) = &if_stmt.else_body {
             self.lower_body(else_body)?;
         }
-        if self.builder.get_insert_block().map_or(true, |b| b.get_terminator().is_none()) {
+        if self
+            .builder
+            .get_insert_block()
+            .map_or(true, |b| b.get_terminator().is_none())
+        {
             self.builder
                 .build_unconditional_branch(merge_block)
                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?;
@@ -474,9 +491,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
             .module
             .llvm_module()
             .get_function(fn_name)
-            .ok_or_else(|| {
-                CodegenError::Internal(format!("Unknown function: {}", fn_name))
-            })?;
+            .ok_or_else(|| CodegenError::Internal(format!("Unknown function: {}", fn_name)))?;
 
         // Lower arguments
         let arg_vals: Vec<BasicValueEnum> = args
@@ -525,9 +540,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
             Op::Binary(bin_op, lhs, rhs) => self.lower_binary(*bin_op, lhs, rhs),
             Op::Unary(un_op, val) => self.lower_unary(*un_op, val),
             Op::Cmp(cmp_op, lhs, rhs) => self.lower_cmp(*cmp_op, lhs, rhs),
-            Op::Select(cond, then_val, else_val) => {
-                self.lower_select(cond, then_val, else_val)
-            }
+            Op::Select(cond, then_val, else_val) => self.lower_select(cond, then_val, else_val),
             Op::Cast(val, target_ty) => self.lower_cast(val, target_ty),
             Op::Broadcast(val, width) => self.lower_broadcast(val, *width),
             Op::Extract(vec, idx) => self.lower_extract(vec, *idx),
@@ -900,9 +913,8 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                 .map_err(|e| CodegenError::LlvmError(e.to_string()))?,
             UnOp::FAbs | UnOp::Abs => {
                 // Use llvm.fabs intrinsic
-                let intrinsic = Intrinsic::find("llvm.fabs").ok_or_else(|| {
-                    CodegenError::Internal("llvm.fabs not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.fabs")
+                    .ok_or_else(|| CodegenError::Internal("llvm.fabs not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -913,15 +925,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("fabs returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("fabs returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Sqrt => {
-                let intrinsic = Intrinsic::find("llvm.sqrt").ok_or_else(|| {
-                    CodegenError::Internal("llvm.sqrt not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.sqrt")
+                    .ok_or_else(|| CodegenError::Internal("llvm.sqrt not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -932,15 +941,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("sqrt returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("sqrt returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Floor => {
-                let intrinsic = Intrinsic::find("llvm.floor").ok_or_else(|| {
-                    CodegenError::Internal("llvm.floor not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.floor")
+                    .ok_or_else(|| CodegenError::Internal("llvm.floor not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -951,15 +957,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("floor returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("floor returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Ceil => {
-                let intrinsic = Intrinsic::find("llvm.ceil").ok_or_else(|| {
-                    CodegenError::Internal("llvm.ceil not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.ceil")
+                    .ok_or_else(|| CodegenError::Internal("llvm.ceil not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -970,15 +973,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("ceil returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("ceil returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Round => {
-                let intrinsic = Intrinsic::find("llvm.round").ok_or_else(|| {
-                    CodegenError::Internal("llvm.round not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.round")
+                    .ok_or_else(|| CodegenError::Internal("llvm.round not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -989,15 +989,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("round returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("round returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Trunc => {
-                let intrinsic = Intrinsic::find("llvm.trunc").ok_or_else(|| {
-                    CodegenError::Internal("llvm.trunc not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.trunc")
+                    .ok_or_else(|| CodegenError::Internal("llvm.trunc not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1008,15 +1005,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("trunc returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("trunc returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Exp => {
-                let intrinsic = Intrinsic::find("llvm.exp").ok_or_else(|| {
-                    CodegenError::Internal("llvm.exp not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.exp")
+                    .ok_or_else(|| CodegenError::Internal("llvm.exp not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1027,15 +1021,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("exp returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("exp returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Log => {
-                let intrinsic = Intrinsic::find("llvm.log").ok_or_else(|| {
-                    CodegenError::Internal("llvm.log not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.log")
+                    .ok_or_else(|| CodegenError::Internal("llvm.log not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1046,15 +1037,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("log returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("log returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Sin => {
-                let intrinsic = Intrinsic::find("llvm.sin").ok_or_else(|| {
-                    CodegenError::Internal("llvm.sin not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.sin")
+                    .ok_or_else(|| CodegenError::Internal("llvm.sin not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1065,15 +1053,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("sin returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("sin returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Cos => {
-                let intrinsic = Intrinsic::find("llvm.cos").ok_or_else(|| {
-                    CodegenError::Internal("llvm.cos not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.cos")
+                    .ok_or_else(|| CodegenError::Internal("llvm.cos not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1084,16 +1069,13 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("cos returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("cos returned void".to_string()))?
                     .into_float_value()
             }
             UnOp::Rsqrt => {
                 // rsqrt(x) = 1 / sqrt(x)
-                let sqrt_intrinsic = Intrinsic::find("llvm.sqrt").ok_or_else(|| {
-                    CodegenError::Internal("llvm.sqrt not found".to_string())
-                })?;
+                let sqrt_intrinsic = Intrinsic::find("llvm.sqrt")
+                    .ok_or_else(|| CodegenError::Internal("llvm.sqrt not found".to_string()))?;
                 let fn_val = sqrt_intrinsic
                     .get_declaration(self.module.llvm_module(), &[val.get_type().into()])
                     .ok_or_else(|| {
@@ -1105,9 +1087,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| {
-                        CodegenError::Internal("sqrt returned void".to_string())
-                    })?
+                    .ok_or_else(|| CodegenError::Internal("sqrt returned void".to_string()))?
                     .into_float_value();
 
                 let one = val.get_type().const_float(1.0);
@@ -1115,11 +1095,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .build_float_div(one, sqrt_val, "rsqrt")
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
             }
-            UnOp::Not => {
-                return Err(CodegenError::TypeError(
-                    "Bitwise NOT on float".to_string(),
-                ))
-            }
+            UnOp::Not => return Err(CodegenError::TypeError("Bitwise NOT on float".to_string())),
         };
         Ok(result.into())
     }
@@ -1139,9 +1115,8 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                     .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                     .into(),
                 UnOp::FAbs | UnOp::Abs => {
-                    let intrinsic = Intrinsic::find("llvm.fabs").ok_or_else(|| {
-                        CodegenError::Internal("llvm.fabs not found".to_string())
-                    })?;
+                    let intrinsic = Intrinsic::find("llvm.fabs")
+                        .ok_or_else(|| CodegenError::Internal("llvm.fabs not found".to_string()))?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1155,9 +1130,8 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .ok_or_else(|| CodegenError::Internal("vfabs returned void".to_string()))?
                 }
                 UnOp::Sqrt => {
-                    let intrinsic = Intrinsic::find("llvm.sqrt").ok_or_else(|| {
-                        CodegenError::Internal("llvm.sqrt not found".to_string())
-                    })?;
+                    let intrinsic = Intrinsic::find("llvm.sqrt")
+                        .ok_or_else(|| CodegenError::Internal("llvm.sqrt not found".to_string()))?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1378,11 +1352,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
     }
 
     /// Lower a broadcast operation (scalar to vector).
-    fn lower_broadcast(
-        &mut self,
-        val: &Value,
-        width: u8,
-    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+    fn lower_broadcast(&mut self, val: &Value, width: u8) -> CodegenResult<BasicValueEnum<'ctx>> {
         let scalar = self.lower_value(val)?;
 
         let vec_ty = match scalar {
@@ -1466,11 +1436,19 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
     ) -> CodegenResult<BasicValueEnum<'ctx>> {
         let vec1 = match self.lower_value(v1)? {
             BasicValueEnum::VectorValue(v) => v,
-            _ => return Err(CodegenError::TypeError("Shuffle requires vectors".to_string())),
+            _ => {
+                return Err(CodegenError::TypeError(
+                    "Shuffle requires vectors".to_string(),
+                ))
+            }
         };
         let vec2 = match self.lower_value(v2)? {
             BasicValueEnum::VectorValue(v) => v,
-            _ => return Err(CodegenError::TypeError("Shuffle requires vectors".to_string())),
+            _ => {
+                return Err(CodegenError::TypeError(
+                    "Shuffle requires vectors".to_string(),
+                ))
+            }
         };
 
         // Build mask vector
@@ -1530,9 +1508,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Mul => {
                     let intrinsic =
@@ -1550,9 +1526,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Min => {
                     let intrinsic =
@@ -1569,9 +1543,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Max => {
                     let intrinsic =
@@ -1588,9 +1560,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 _ => {
                     return Err(CodegenError::Unsupported(format!(
@@ -1603,10 +1573,9 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
             // Integer reductions
             match op {
                 ReduceOp::Add => {
-                    let intrinsic =
-                        Intrinsic::find("llvm.vector.reduce.add").ok_or_else(|| {
-                            CodegenError::Internal("reduce.add not found".to_string())
-                        })?;
+                    let intrinsic = Intrinsic::find("llvm.vector.reduce.add").ok_or_else(|| {
+                        CodegenError::Internal("reduce.add not found".to_string())
+                    })?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1617,15 +1586,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Mul => {
-                    let intrinsic =
-                        Intrinsic::find("llvm.vector.reduce.mul").ok_or_else(|| {
-                            CodegenError::Internal("reduce.mul not found".to_string())
-                        })?;
+                    let intrinsic = Intrinsic::find("llvm.vector.reduce.mul").ok_or_else(|| {
+                        CodegenError::Internal("reduce.mul not found".to_string())
+                    })?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1636,15 +1602,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::And => {
-                    let intrinsic =
-                        Intrinsic::find("llvm.vector.reduce.and").ok_or_else(|| {
-                            CodegenError::Internal("reduce.and not found".to_string())
-                        })?;
+                    let intrinsic = Intrinsic::find("llvm.vector.reduce.and").ok_or_else(|| {
+                        CodegenError::Internal("reduce.and not found".to_string())
+                    })?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1655,15 +1618,11 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Or => {
-                    let intrinsic =
-                        Intrinsic::find("llvm.vector.reduce.or").ok_or_else(|| {
-                            CodegenError::Internal("reduce.or not found".to_string())
-                        })?;
+                    let intrinsic = Intrinsic::find("llvm.vector.reduce.or")
+                        .ok_or_else(|| CodegenError::Internal("reduce.or not found".to_string()))?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1674,15 +1633,12 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 ReduceOp::Xor => {
-                    let intrinsic =
-                        Intrinsic::find("llvm.vector.reduce.xor").ok_or_else(|| {
-                            CodegenError::Internal("reduce.xor not found".to_string())
-                        })?;
+                    let intrinsic = Intrinsic::find("llvm.vector.reduce.xor").ok_or_else(|| {
+                        CodegenError::Internal("reduce.xor not found".to_string())
+                    })?;
                     let fn_val = intrinsic
                         .get_declaration(self.module.llvm_module(), &[vec.get_type().into()])
                         .ok_or_else(|| {
@@ -1693,9 +1649,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                         .map_err(|e| CodegenError::LlvmError(e.to_string()))?
                         .try_as_basic_value()
                         .basic()
-                        .ok_or_else(|| {
-                            CodegenError::Internal("reduce returned void".to_string())
-                        })?
+                        .ok_or_else(|| CodegenError::Internal("reduce returned void".to_string()))?
                 }
                 _ => {
                     return Err(CodegenError::Unsupported(format!(
@@ -1726,9 +1680,8 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                 BasicValueEnum::FloatValue(bf),
                 BasicValueEnum::FloatValue(cf),
             ) => {
-                let intrinsic = Intrinsic::find("llvm.fma").ok_or_else(|| {
-                    CodegenError::Internal("llvm.fma not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.fma")
+                    .ok_or_else(|| CodegenError::Internal("llvm.fma not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[af.get_type().into()])
                     .ok_or_else(|| {
@@ -1749,9 +1702,8 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                 BasicValueEnum::VectorValue(cv),
             ) => {
                 // Vector FMA
-                let intrinsic = Intrinsic::find("llvm.fma").ok_or_else(|| {
-                    CodegenError::Internal("llvm.fma not found".to_string())
-                })?;
+                let intrinsic = Intrinsic::find("llvm.fma")
+                    .ok_or_else(|| CodegenError::Internal("llvm.fma not found".to_string()))?;
                 let fn_val = intrinsic
                     .get_declaration(self.module.llvm_module(), &[av.get_type().into()])
                     .ok_or_else(|| {
@@ -1816,9 +1768,11 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
         buffer: BufferId,
         index: &Value,
     ) -> CodegenResult<BasicValueEnum<'ctx>> {
-        let base_ptr = self.buffers.get(&buffer).copied().ok_or_else(|| {
-            CodegenError::Internal(format!("Unknown buffer: {:?}", buffer))
-        })?;
+        let base_ptr = self
+            .buffers
+            .get(&buffer)
+            .copied()
+            .ok_or_else(|| CodegenError::Internal(format!("Unknown buffer: {:?}", buffer)))?;
 
         let idx_val = self.lower_value(index)?;
         let idx_int = self.value_to_int(idx_val)?;
@@ -1864,9 +1818,7 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
                 };
                 Ok(float_ty.const_float(*f).into())
             }
-            Value::BoolConst(b) => {
-                Ok(self.llvm_ctx.bool_type().const_int(*b as u64, false).into())
-            }
+            Value::BoolConst(b) => Ok(self.llvm_ctx.bool_type().const_int(*b as u64, false).into()),
             Value::Undef(ty) => {
                 let llvm_ty = self.loop_type_to_llvm(ty)?;
                 let undef = match llvm_ty {
@@ -1887,16 +1839,19 @@ impl<'ctx, 'm> LoopLowering<'ctx, 'm> {
 
     /// Get an already-lowered value by ID.
     fn get_value(&self, vid: ValueId) -> CodegenResult<BasicValueEnum<'ctx>> {
-        self.values.get(&vid).copied().ok_or_else(|| {
-            CodegenError::Internal(format!("Undefined value: {:?}", vid))
-        })
+        self.values
+            .get(&vid)
+            .copied()
+            .ok_or_else(|| CodegenError::Internal(format!("Undefined value: {:?}", vid)))
     }
 
     /// Convert a basic value to an integer.
     fn value_to_int(&self, val: BasicValueEnum<'ctx>) -> CodegenResult<IntValue<'ctx>> {
         match val {
             BasicValueEnum::IntValue(i) => Ok(i),
-            _ => Err(CodegenError::TypeError("Expected integer value".to_string())),
+            _ => Err(CodegenError::TypeError(
+                "Expected integer value".to_string(),
+            )),
         }
     }
 }

@@ -694,10 +694,9 @@ impl LoopIRLowerer {
     fn is_float_value(&self, value: &Value) -> bool {
         match value {
             Value::FloatConst(_, _) => true,
-            Value::Var(_, ty) | Value::Undef(ty) => matches!(
-                ty,
-                LoopType::Scalar(ScalarType::Float(_))
-            ),
+            Value::Var(_, ty) | Value::Undef(ty) => {
+                matches!(ty, LoopType::Scalar(ScalarType::Float(_)))
+            }
             _ => false,
         }
     }
@@ -709,7 +708,9 @@ impl LoopIRLowerer {
             Value::FloatConst(_, ScalarType::Float(64)) => true,
             Value::Var(_, ty) | Value::Undef(ty) => matches!(
                 ty,
-                LoopType::Scalar(ScalarType::Int(64) | ScalarType::UInt(64) | ScalarType::Float(64))
+                LoopType::Scalar(
+                    ScalarType::Int(64) | ScalarType::UInt(64) | ScalarType::Float(64)
+                )
             ),
             _ => false,
         }

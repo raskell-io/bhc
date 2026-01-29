@@ -139,12 +139,10 @@ foo x = Node [Leaf x, foo x]
             ),
             doc_link: Some("https://bhc.dev/docs/type-inference"),
             related_codes: &["E0001", "E0022"],
-            common_mistakes: &[
-                CommonMistake {
-                    pattern: "Building a list containing the result of a recursive call",
-                    fix: "Use a proper recursive data type instead of lists",
-                },
-            ],
+            common_mistakes: &[CommonMistake {
+                pattern: "Building a list containing the result of a recursive call",
+                fix: "Use a proper recursive data type instead of lists",
+            }],
         },
     );
 
@@ -268,12 +266,10 @@ foo (Point x _) = x      -- Ignore second field
             ),
             doc_link: Some("https://bhc.dev/docs/pattern-matching"),
             related_codes: &["E0004", "E0008"],
-            common_mistakes: &[
-                CommonMistake {
-                    pattern: "Missing pattern variables",
-                    fix: "Use wildcards (_) for fields you don't need",
-                },
-            ],
+            common_mistakes: &[CommonMistake {
+                pattern: "Missing pattern variables",
+                fix: "Use wildcards (_) for fields you don't need",
+            }],
         },
     );
 
@@ -348,12 +344,10 @@ foo :: Maybe Int  -- Correct: Maybe :: * -> *, Int :: *
             ),
             doc_link: Some("https://bhc.dev/docs/kinds"),
             related_codes: &["E0001"],
-            common_mistakes: &[
-                CommonMistake {
-                    pattern: "Type arguments in wrong order",
-                    fix: "Put type constructor before its argument",
-                },
-            ],
+            common_mistakes: &[CommonMistake {
+                pattern: "Type arguments in wrong order",
+                fix: "Put type constructor before its argument",
+            }],
         },
     );
 
@@ -390,12 +384,10 @@ result = add 1 2  -- Correct: 2 arguments
             ),
             doc_link: Some("https://bhc.dev/docs/functions"),
             related_codes: &["E0005", "E0009"],
-            common_mistakes: &[
-                CommonMistake {
-                    pattern: "Passing extra arguments",
-                    fix: "Check the function's type signature for argument count",
-                },
-            ],
+            common_mistakes: &[CommonMistake {
+                pattern: "Passing extra arguments",
+                fix: "Check the function's type signature for argument count",
+            }],
         },
     );
 
@@ -764,7 +756,10 @@ pub fn all_error_codes() -> Vec<&'static str> {
 pub fn format_explanation(explanation: &ErrorExplanation) -> String {
     let mut output = String::new();
 
-    output.push_str(&format!("# {} - {}\n\n", explanation.code, explanation.title));
+    output.push_str(&format!(
+        "# {} - {}\n\n",
+        explanation.code, explanation.title
+    ));
     output.push_str(explanation.explanation.trim());
     output.push_str("\n\n");
 
@@ -795,7 +790,8 @@ pub fn format_explanation(explanation: &ErrorExplanation) -> String {
     if !explanation.related_codes.is_empty() {
         output.push_str("## Related\n\n");
         output.push_str("See also: ");
-        let codes: Vec<String> = explanation.related_codes
+        let codes: Vec<String> = explanation
+            .related_codes
             .iter()
             .map(|c| format!("`{}`", c))
             .collect();

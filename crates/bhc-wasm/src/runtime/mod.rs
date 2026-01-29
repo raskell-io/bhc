@@ -41,7 +41,7 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            initial_pages: 32, // 2MB (room for stack + arena)
+            initial_pages: 32,    // 2MB (room for stack + arena)
             max_pages: Some(256), // 16MB
             stack_size: DEFAULT_STACK_SIZE,
             enable_arena: true,
@@ -55,9 +55,9 @@ impl RuntimeConfig {
     #[must_use]
     pub fn edge() -> Self {
         Self {
-            initial_pages: 8, // 512KB (room for stack + arena)
+            initial_pages: 8,    // 512KB (room for stack + arena)
             max_pages: Some(64), // 4MB
-            stack_size: 32768, // 32KB
+            stack_size: 32768,   // 32KB
             enable_arena: true,
             arena_size: 256 * 1024, // 256KB arena
         }
@@ -66,7 +66,11 @@ impl RuntimeConfig {
     /// Calculate the total initial memory requirement.
     #[must_use]
     pub fn total_initial_memory(&self) -> u32 {
-        let arena_size = if self.enable_arena { self.arena_size } else { 0 };
+        let arena_size = if self.enable_arena {
+            self.arena_size
+        } else {
+            0
+        };
         self.stack_size + arena_size
     }
 
@@ -74,14 +78,14 @@ impl RuntimeConfig {
     pub fn validate(&self) -> WasmResult<()> {
         if self.initial_pages == 0 {
             return Err(WasmError::MemoryError(
-                "Initial pages must be greater than 0".to_string()
+                "Initial pages must be greater than 0".to_string(),
             ));
         }
 
         if let Some(max) = self.max_pages {
             if self.initial_pages > max {
                 return Err(WasmError::MemoryError(
-                    "Initial pages exceeds maximum pages".to_string()
+                    "Initial pages exceeds maximum pages".to_string(),
                 ));
             }
         }
@@ -332,7 +336,7 @@ mod tests {
     #[test]
     fn test_runtime_config_edge() {
         let config = RuntimeConfig::edge();
-        assert_eq!(config.initial_pages, 8);  // 512KB for stack + arena
+        assert_eq!(config.initial_pages, 8); // 512KB for stack + arena
         assert_eq!(config.stack_size, 32768);
     }
 
@@ -348,7 +352,7 @@ mod tests {
         assert!(invalid.validate().is_err());
 
         let too_small = RuntimeConfig {
-            initial_pages: 1, // Only 64KB
+            initial_pages: 1,       // Only 64KB
             stack_size: 128 * 1024, // Needs 128KB
             ..RuntimeConfig::default()
         };
@@ -396,8 +400,8 @@ mod tests {
 
         // 1. Add basic allocator function
         let mut alloc_func = WasmFunc::new(WasmFuncType::new(
-            vec![crate::WasmType::I32],  // size
-            vec![crate::WasmType::I32],  // ptr
+            vec![crate::WasmType::I32], // size
+            vec![crate::WasmType::I32], // ptr
         ));
         alloc_func.name = Some("alloc".to_string());
         alloc_func.exported = true;
@@ -409,7 +413,7 @@ mod tests {
 
         // 2. Add free function
         let mut free_func = WasmFunc::new(WasmFuncType::new(
-            vec![crate::WasmType::I32],  // ptr
+            vec![crate::WasmType::I32], // ptr
             vec![],
         ));
         free_func.name = Some("free".to_string());
@@ -421,10 +425,7 @@ mod tests {
         func_idx += 1;
 
         // 3. Add arena reset function
-        let mut arena_reset_func = WasmFunc::new(WasmFuncType::new(
-            vec![],
-            vec![],
-        ));
+        let mut arena_reset_func = WasmFunc::new(WasmFuncType::new(vec![], vec![]));
         arena_reset_func.name = Some("arena_reset".to_string());
         arena_reset_func.exported = true;
         for instr in generate_arena_reset_function(DEFAULT_HEAP_START) {
@@ -453,11 +454,8 @@ mod tests {
         let gc_collect_idx = func_idx + 3; // gc_collect function added later
         let heap_ptr_global_idx = 0; // First global
         let heap_end_global_idx = 1; // Second global
-        let gc_alloc = gc::generate_gc_alloc(
-            gc_collect_idx,
-            heap_ptr_global_idx,
-            heap_end_global_idx,
-        );
+        let gc_alloc =
+            gc::generate_gc_alloc(gc_collect_idx, heap_ptr_global_idx, heap_end_global_idx);
         module.add_function(gc_alloc);
         func_idx += 1;
 
@@ -522,7 +520,11 @@ mod tests {
 
         // Count functions we added (17 total)
         let function_count = 17;
-        println!("Runtime binary size: {:.2} KB ({} bytes)", size_kb, binary.len());
+        println!(
+            "Runtime binary size: {:.2} KB ({} bytes)",
+            size_kb,
+            binary.len()
+        );
         println!("Functions: {}", function_count);
 
         // Assert under 100KB
@@ -536,6 +538,10 @@ mod tests {
 
         // Also verify it's a valid WASM module (has magic number)
         assert_eq!(&binary[0..4], b"\x00asm", "Invalid WASM magic number");
-        assert_eq!(&binary[4..8], &[0x01, 0x00, 0x00, 0x00], "Invalid WASM version");
+        assert_eq!(
+            &binary[4..8],
+            &[0x01, 0x00, 0x00, 0x00],
+            "Invalid WASM version"
+        );
     }
 }

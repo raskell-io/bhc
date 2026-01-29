@@ -234,7 +234,11 @@ fn generate_fused_ops_body(ops: &[TensorOp], params: &KernelParams) -> GpuResult
     body.push_str("    // Bounds check\n");
     body.push_str(&format!(
         "    if (gid >= arrayLength(&{})) {{\n        return;\n    }}\n\n",
-        params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0")
+        params
+            .outputs
+            .first()
+            .map(|o| o.name.as_str())
+            .unwrap_or("out0")
     ));
 
     for (op_idx, op) in ops.iter().enumerate() {
@@ -250,17 +254,45 @@ fn generate_fused_ops_body(ops: &[TensorOp], params: &KernelParams) -> GpuResult
 fn generate_op_wgsl(op: &TensorOp, params: &KernelParams) -> GpuResult<String> {
     match op {
         TensorOp::Unary(unary_op, _ref) => {
-            let dtype = params.inputs.first().map(|i| i.dtype).unwrap_or(DType::Float32);
-            let input_name = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-            let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+            let dtype = params
+                .inputs
+                .first()
+                .map(|i| i.dtype)
+                .unwrap_or(DType::Float32);
+            let input_name = params
+                .inputs
+                .first()
+                .map(|i| i.name.as_str())
+                .unwrap_or("in0");
+            let output_name = params
+                .outputs
+                .first()
+                .map(|o| o.name.as_str())
+                .unwrap_or("out0");
             let op_expr = generate_unary_op(*unary_op, &format!("{}[gid]", input_name), dtype);
             Ok(format!("    {}[gid] = {};\n", output_name, op_expr))
         }
         TensorOp::Binary(binary_op, _ref1, _ref2) => {
-            let dtype = params.inputs.first().map(|i| i.dtype).unwrap_or(DType::Float32);
-            let in0 = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-            let in1 = params.inputs.get(1).map(|i| i.name.as_str()).unwrap_or("in1");
-            let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+            let dtype = params
+                .inputs
+                .first()
+                .map(|i| i.dtype)
+                .unwrap_or(DType::Float32);
+            let in0 = params
+                .inputs
+                .first()
+                .map(|i| i.name.as_str())
+                .unwrap_or("in0");
+            let in1 = params
+                .inputs
+                .get(1)
+                .map(|i| i.name.as_str())
+                .unwrap_or("in1");
+            let output_name = params
+                .outputs
+                .first()
+                .map(|o| o.name.as_str())
+                .unwrap_or("out0");
             let op_expr = generate_binary_op(
                 *binary_op,
                 &format!("{}[gid]", in0),
@@ -271,28 +303,44 @@ fn generate_op_wgsl(op: &TensorOp, params: &KernelParams) -> GpuResult<String> {
         }
         TensorOp::Map(_map_fn, _ref) => {
             // Generic map - apply function to each element
-            let input_name = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-            let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+            let input_name = params
+                .inputs
+                .first()
+                .map(|i| i.name.as_str())
+                .unwrap_or("in0");
+            let output_name = params
+                .outputs
+                .first()
+                .map(|o| o.name.as_str())
+                .unwrap_or("out0");
             Ok(format!(
                 "    {}[gid] = {}[gid] * 2.0; // TODO: Custom map function\n",
                 output_name, input_name
             ))
         }
         TensorOp::ZipWith(_zip_fn, _ref1, _ref2) => {
-            let in0 = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-            let in1 = params.inputs.get(1).map(|i| i.name.as_str()).unwrap_or("in1");
-            let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+            let in0 = params
+                .inputs
+                .first()
+                .map(|i| i.name.as_str())
+                .unwrap_or("in0");
+            let in1 = params
+                .inputs
+                .get(1)
+                .map(|i| i.name.as_str())
+                .unwrap_or("in1");
+            let output_name = params
+                .outputs
+                .first()
+                .map(|o| o.name.as_str())
+                .unwrap_or("out0");
             Ok(format!(
                 "    {}[gid] = {}[gid] + {}[gid]; // TODO: Custom zipWith function\n",
                 output_name, in0, in1
             ))
         }
-        TensorOp::Reduce(reduce_op, _axis, _ref) => {
-            generate_reduce_wgsl(params, *reduce_op)
-        }
-        TensorOp::ReduceAll(reduce_op, _ref) => {
-            generate_reduce_wgsl(params, *reduce_op)
-        }
+        TensorOp::Reduce(reduce_op, _axis, _ref) => generate_reduce_wgsl(params, *reduce_op),
+        TensorOp::ReduceAll(reduce_op, _ref) => generate_reduce_wgsl(params, *reduce_op),
         TensorOp::MatMul(_ref1, _ref2) => {
             // Simple matrix multiply (not tiled)
             Ok(format!(
@@ -305,9 +353,21 @@ fn generate_op_wgsl(op: &TensorOp, params: &KernelParams) -> GpuResult<String> {
     }}
     {}[gid] = sum;
 "#,
-                params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0"),
-                params.inputs.get(1).map(|i| i.name.as_str()).unwrap_or("in1"),
-                params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0")
+                params
+                    .inputs
+                    .first()
+                    .map(|i| i.name.as_str())
+                    .unwrap_or("in0"),
+                params
+                    .inputs
+                    .get(1)
+                    .map(|i| i.name.as_str())
+                    .unwrap_or("in1"),
+                params
+                    .outputs
+                    .first()
+                    .map(|o| o.name.as_str())
+                    .unwrap_or("out0")
             ))
         }
         // Structure operations
@@ -315,8 +375,16 @@ fn generate_op_wgsl(op: &TensorOp, params: &KernelParams) -> GpuResult<String> {
         | TensorOp::Slice(_, _)
         | TensorOp::Transpose(_, _)
         | TensorOp::Broadcast(_, _) => {
-            let input_name = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-            let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+            let input_name = params
+                .inputs
+                .first()
+                .map(|i| i.name.as_str())
+                .unwrap_or("in0");
+            let output_name = params
+                .outputs
+                .first()
+                .map(|o| o.name.as_str())
+                .unwrap_or("out0");
             Ok(format!("    {}[gid] = {}[gid];\n", output_name, input_name))
         }
         _ => Err(GpuError::NotSupported(format!(
@@ -328,10 +396,22 @@ fn generate_op_wgsl(op: &TensorOp, params: &KernelParams) -> GpuResult<String> {
 
 /// Generate WGSL code for reduction operations.
 fn generate_reduce_wgsl(params: &KernelParams, reduce_op: ReduceOp) -> GpuResult<String> {
-    let dtype = params.inputs.first().map(|i| i.dtype).unwrap_or(DType::Float32);
+    let dtype = params
+        .inputs
+        .first()
+        .map(|i| i.dtype)
+        .unwrap_or(DType::Float32);
     let ty = dtype_to_wgsl(dtype);
-    let input_name = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-    let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+    let input_name = params
+        .inputs
+        .first()
+        .map(|i| i.name.as_str())
+        .unwrap_or("in0");
+    let output_name = params
+        .outputs
+        .first()
+        .map(|o| o.name.as_str())
+        .unwrap_or("out0");
     let reduce_expr = reduce_op_wgsl(reduce_op, "shared_data[lid]", "shared_data[lid + stride]");
 
     Ok(format!(
@@ -358,8 +438,16 @@ fn generate_reduce_wgsl(params: &KernelParams, reduce_op: ReduceOp) -> GpuResult
 
 /// Generate WGSL body for loop nest (fallback to simple copy).
 fn generate_loop_nest_body(params: &KernelParams) -> GpuResult<String> {
-    let input_name = params.inputs.first().map(|i| i.name.as_str()).unwrap_or("in0");
-    let output_name = params.outputs.first().map(|o| o.name.as_str()).unwrap_or("out0");
+    let input_name = params
+        .inputs
+        .first()
+        .map(|i| i.name.as_str())
+        .unwrap_or("in0");
+    let output_name = params
+        .outputs
+        .first()
+        .map(|o| o.name.as_str())
+        .unwrap_or("out0");
     Ok(format!(
         r#"    // Loop nest (simplified)
     if (gid < arrayLength(&{0})) {{
@@ -374,8 +462,10 @@ fn generate_loop_nest_body(params: &KernelParams) -> GpuResult<String> {
 mod tests {
     use super::*;
     use bhc_index::Idx;
-    use bhc_tensor_ir::{KernelId, Layout, Shape, Strides, TensorId, TensorMeta, TensorRef, MapFn, FusionInfo};
     use bhc_intern::Symbol;
+    use bhc_tensor_ir::{
+        FusionInfo, KernelId, Layout, MapFn, Shape, Strides, TensorId, TensorMeta, TensorRef,
+    };
 
     fn make_test_kernel() -> Kernel {
         let dtype = DType::Float32;

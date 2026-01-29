@@ -2,11 +2,11 @@
 //!
 //! Outputs the documentation model as JSON for tooling integration.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
-use crate::model::ModuleDoc;
 use super::RenderConfig;
+use crate::model::ModuleDoc;
 
 /// Render documentation to JSON.
 pub fn render(docs: &[ModuleDoc], output: &Path, _config: &RenderConfig) -> Result<()> {

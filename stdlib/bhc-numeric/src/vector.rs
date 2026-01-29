@@ -149,7 +149,10 @@ where
 {
     /// Sum all elements
     pub fn sum(&self) -> T {
-        self.data.iter().copied().fold(T::default(), |acc, x| acc + x)
+        self.data
+            .iter()
+            .copied()
+            .fold(T::default(), |acc, x| acc + x)
     }
 
     /// Element-wise addition
@@ -598,10 +601,7 @@ pub unsafe extern "C" fn bhc_vector_get_f64(vec: *const Vector<f64>, index: usiz
 
 /// Compute dot product
 #[no_mangle]
-pub unsafe extern "C" fn bhc_vector_dot_f64(
-    a: *const Vector<f64>,
-    b: *const Vector<f64>,
-) -> f64 {
+pub unsafe extern "C" fn bhc_vector_dot_f64(a: *const Vector<f64>, b: *const Vector<f64>) -> f64 {
     if a.is_null() || b.is_null() {
         return 0.0;
     }
@@ -737,10 +737,7 @@ pub extern "C" fn bhc_vector_len_f32(vec: *const Vector<f32>) -> usize {
 
 /// Compute dot product
 #[no_mangle]
-pub unsafe extern "C" fn bhc_vector_dot_f32(
-    a: *const Vector<f32>,
-    b: *const Vector<f32>,
-) -> f32 {
+pub unsafe extern "C" fn bhc_vector_dot_f32(a: *const Vector<f32>, b: *const Vector<f32>) -> f32 {
     if a.is_null() || b.is_null() {
         return 0.0;
     }
@@ -855,10 +852,7 @@ pub extern "C" fn bhc_vector_sum_i64(vec: *const Vector<i64>) -> i64 {
 
 /// Compute dot product
 #[no_mangle]
-pub unsafe extern "C" fn bhc_vector_dot_i64(
-    a: *const Vector<i64>,
-    b: *const Vector<i64>,
-) -> i64 {
+pub unsafe extern "C" fn bhc_vector_dot_i64(a: *const Vector<i64>, b: *const Vector<i64>) -> i64 {
     if a.is_null() || b.is_null() {
         return 0;
     }

@@ -396,7 +396,15 @@ fn main() -> Result<()> {
             types,
             locations,
         } => {
-            inspect_ir(&file, stage, format, function.as_deref(), types, locations, cli.verbose)?;
+            inspect_ir(
+                &file,
+                stage,
+                format,
+                function.as_deref(),
+                types,
+                locations,
+                cli.verbose,
+            )?;
         }
         Commands::Kernel {
             file,
@@ -475,8 +483,8 @@ fn inspect_ir(
     show_locations: bool,
     verbose: bool,
 ) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     // Detect stage from file extension if not provided
     let stage = stage.unwrap_or_else(|| detect_stage(file));
@@ -705,14 +713,18 @@ fn view_kernel_report(
     simd: bool,
     format: OutputFormat,
 ) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     // Try JSON first, then fall back to generating sample data
     let report: FusionReport = serde_json::from_str(&content).unwrap_or_else(|_| {
         // Generate sample report for demonstration
         FusionReport {
-            module: file.file_stem().unwrap_or_default().to_string_lossy().to_string(),
+            module: file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
             timestamp: chrono_lite(),
             profile: "numeric".to_string(),
             kernels: vec![
@@ -842,10 +854,7 @@ fn print_fusion_report_text(report: &FusionReport, failures_only: bool, timing: 
         println!("  Failed:        {}", summary.failed.to_string().red());
     }
     if timing {
-        println!(
-            "  Total time:    {:.2}μs",
-            summary.total_time_us
-        );
+        println!("  Total time:    {:.2}μs", summary.total_time_us);
     }
     println!();
 
@@ -885,16 +894,21 @@ fn print_fusion_report_text(report: &FusionReport, failures_only: bool, timing: 
 
         // Fused operations
         if !kernel.fused_ops.is_empty() {
-            println!(
-                "    Fused ops: {}",
-                kernel.fused_ops.join(" → ").green()
-            );
+            println!("    Fused ops: {}", kernel.fused_ops.join(" → ").green());
         }
 
         // SIMD info
         if simd {
             if let Some(width) = kernel.simd_width {
-                println!("    SIMD: {}x{}", width, kernel.inputs.first().map(|i| &i.dtype).unwrap_or(&"?".to_string()));
+                println!(
+                    "    SIMD: {}x{}",
+                    width,
+                    kernel
+                        .inputs
+                        .first()
+                        .map(|i| &i.dtype)
+                        .unwrap_or(&"?".to_string())
+                );
             }
             if kernel.parallel {
                 println!("    Parallel: {}", "yes".cyan());
@@ -954,8 +968,8 @@ fn print_fusion_report_dot(report: &FusionReport) {
 // ============================================================================
 
 fn analyze_memory(file: &PathBuf, heap_only: bool, arena: bool, by_site: bool) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     let report: MemoryReport = serde_json::from_str(&content).unwrap_or_else(|_| {
         // Sample data
@@ -1045,7 +1059,10 @@ fn analyze_memory(file: &PathBuf, heap_only: bool, arena: bool, by_site: bool) -
         // Group by site
         let mut by_site_map: HashMap<String, Vec<&Allocation>> = HashMap::new();
         for alloc in &allocs {
-            by_site_map.entry(alloc.site.clone()).or_default().push(alloc);
+            by_site_map
+                .entry(alloc.site.clone())
+                .or_default()
+                .push(alloc);
         }
 
         for (site, site_allocs) in by_site_map {
@@ -1106,8 +1123,8 @@ fn show_callgraph(
     depth: Option<usize>,
     cycles: bool,
 ) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     let graph: CallGraph = serde_json::from_str(&content).unwrap_or_else(|_| {
         // Sample data
@@ -1198,7 +1215,15 @@ fn print_callgraph_text(
             }
         }
 
-        print_call_tree(&root.id, &adj, &graph.nodes, 0, depth.unwrap_or(10), show_cycles, &mut std::collections::HashSet::new());
+        print_call_tree(
+            &root.id,
+            &adj,
+            &graph.nodes,
+            0,
+            depth.unwrap_or(10),
+            show_cycles,
+            &mut std::collections::HashSet::new(),
+        );
     }
 
     // Show recursive cycles
@@ -1265,7 +1290,15 @@ fn print_call_tree(
                 print!("{}  (×{}){}", "│  ".repeat(indent), edge.count, suffix);
             }
 
-            print_call_tree(&edge.to, adj, nodes, indent + 1, max_depth, show_cycles, visited);
+            print_call_tree(
+                &edge.to,
+                adj,
+                nodes,
+                indent + 1,
+                max_depth,
+                show_cycles,
+                visited,
+            );
         }
     }
 
@@ -1296,10 +1329,7 @@ fn print_callgraph_dot(graph: &CallGraph, filter: Option<&str>, show_cycles: boo
         } else {
             "".to_string()
         };
-        println!(
-            "  {} -> {} [style={}{}];",
-            edge.from, edge.to, style, label
-        );
+        println!("  {} -> {} [style={}{}];", edge.from, edge.to, style, label);
     }
 
     if show_cycles {
@@ -1324,8 +1354,8 @@ fn diff_ir(
     let before_content = fs::read_to_string(before)
         .with_context(|| format!("Failed to read {}", before.display()))?;
 
-    let after_content = fs::read_to_string(after)
-        .with_context(|| format!("Failed to read {}", after.display()))?;
+    let after_content =
+        fs::read_to_string(after).with_context(|| format!("Failed to read {}", after.display()))?;
 
     let (before_text, after_text) = if ignore_whitespace {
         (
@@ -1399,14 +1429,9 @@ fn normalize_whitespace(s: &str) -> String {
 // Statistics
 // ============================================================================
 
-fn show_stats(
-    file: &PathBuf,
-    timing: bool,
-    memory: bool,
-    compare: Option<&PathBuf>,
-) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+fn show_stats(file: &PathBuf, timing: bool, memory: bool, compare: Option<&PathBuf>) -> Result<()> {
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     let stats: CompileStats = serde_json::from_str(&content).unwrap_or_else(|_| {
         // Sample data
@@ -1524,11 +1549,7 @@ fn show_stats(
         }
 
         println!("  {}", "─".repeat(50));
-        println!(
-            "  {:<20} {:>8.1}ms",
-            "Total".bold(),
-            summary.total_time_ms
-        );
+        println!("  {:<20} {:>8.1}ms", "Total".bold(), summary.total_time_ms);
         println!();
     }
 
@@ -1538,19 +1559,11 @@ fn show_stats(
         println!("{}", "─".repeat(70));
 
         for phase in &stats.phases {
-            println!(
-                "  {:<20} {:>8.1} MB",
-                phase.name,
-                phase.memory_mb
-            );
+            println!("  {:<20} {:>8.1} MB", phase.name, phase.memory_mb);
         }
 
         println!("  {}", "─".repeat(50));
-        println!(
-            "  {:<20} {:>8.1} MB",
-            "Peak".bold(),
-            summary.peak_memory_mb
-        );
+        println!("  {:<20} {:>8.1} MB", "Peak".bold(), summary.peak_memory_mb);
     }
 
     Ok(())
@@ -1561,8 +1574,8 @@ fn show_stats(
 // ============================================================================
 
 fn pretty_print(file: &PathBuf, stage: Option<IrStage>, width: usize, indent: usize) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     let stage = stage.unwrap_or_else(|| detect_stage(file));
 
@@ -1624,8 +1637,8 @@ fn validate_ir(
     check_types: bool,
     check_invariants: bool,
 ) -> Result<()> {
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read {}", file.display()))?;
+    let content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read {}", file.display()))?;
 
     let stage = stage.unwrap_or_else(|| detect_stage(file));
 
@@ -1694,7 +1707,10 @@ fn validate_ir(
         IrStage::Loop => {
             if check_invariants {
                 // Check for unvectorized loops
-                if content.contains("for ") && !content.contains("simd") && !content.contains("parallel") {
+                if content.contains("for ")
+                    && !content.contains("simd")
+                    && !content.contains("parallel")
+                {
                     warnings.push("Found non-vectorized, non-parallel loop".to_string());
                 }
             }

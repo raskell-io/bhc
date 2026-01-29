@@ -71,9 +71,8 @@ impl<T: FfiSafe> PinnedBuffer<T> {
             ));
         }
 
-        let layout = Layout::array::<T>(capacity).map_err(|e| {
-            FfiError::AllocationFailed(format!("invalid layout: {e}"))
-        })?;
+        let layout = Layout::array::<T>(capacity)
+            .map_err(|e| FfiError::AllocationFailed(format!("invalid layout: {e}")))?;
 
         // Allocate pinned memory
         // In a real implementation, this would use bhc_rts_gc::alloc_pinned
@@ -109,9 +108,8 @@ impl<T: FfiSafe> PinnedBuffer<T> {
             ));
         }
 
-        let layout = Layout::array::<T>(capacity).map_err(|e| {
-            FfiError::AllocationFailed(format!("invalid layout: {e}"))
-        })?;
+        let layout = Layout::array::<T>(capacity)
+            .map_err(|e| FfiError::AllocationFailed(format!("invalid layout: {e}")))?;
 
         let ptr = unsafe {
             let raw = std::alloc::alloc_zeroed(layout);
@@ -142,11 +140,7 @@ impl<T: FfiSafe> PinnedBuffer<T> {
 
         // Copy data to pinned buffer
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.as_ptr(),
-                buffer.ptr.as_ptr(),
-                data.len(),
-            );
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buffer.ptr.as_ptr(), data.len());
         }
         buffer.len = data.len();
 
@@ -251,8 +245,7 @@ impl<T: FfiSafe> PinnedBuffer<T> {
 impl<T: FfiSafe> Drop for PinnedBuffer<T> {
     fn drop(&mut self) {
         if self.capacity > 0 {
-            let layout = Layout::array::<T>(self.capacity)
-                .expect("layout was valid at allocation");
+            let layout = Layout::array::<T>(self.capacity).expect("layout was valid at allocation");
             unsafe {
                 std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
             }
@@ -498,7 +491,8 @@ mod tests {
         let sum = with_pinned(&data, |ptr, len| {
             let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
             slice.iter().sum::<f64>()
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(sum, 10.0);
     }
@@ -512,7 +506,8 @@ mod tests {
             for x in slice {
                 *x *= 2.0;
             }
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(data, vec![2.0, 4.0, 6.0, 8.0]);
     }

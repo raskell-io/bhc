@@ -104,15 +104,13 @@ fn scalar_to_wasm(scalar: ScalarType) -> WasmResult<WasmType> {
     match scalar {
         ScalarType::Bool => Ok(WasmType::I32),
 
-        ScalarType::Int(bits) | ScalarType::UInt(bits) => {
-            match bits {
-                8 | 16 | 32 => Ok(WasmType::I32),
-                64 => Ok(WasmType::I64),
-                _ => Err(WasmError::NotSupported(format!(
-                    "Integer with {bits} bits not supported in WASM"
-                ))),
-            }
-        }
+        ScalarType::Int(bits) | ScalarType::UInt(bits) => match bits {
+            8 | 16 | 32 => Ok(WasmType::I32),
+            64 => Ok(WasmType::I64),
+            _ => Err(WasmError::NotSupported(format!(
+                "Integer with {bits} bits not supported in WASM"
+            ))),
+        },
 
         ScalarType::Float(bits) => {
             match bits {
@@ -159,7 +157,7 @@ pub fn alignment_for_type(ty: &LoopType) -> u32 {
         LoopType::Void => 0,
         LoopType::Scalar(scalar) => scalar_alignment(*scalar),
         LoopType::Vector(_, _) => 4, // v128 uses 16-byte alignment, log2 = 4
-        LoopType::Ptr(_) => 2, // 4-byte alignment for wasm32, log2 = 2
+        LoopType::Ptr(_) => 2,       // 4-byte alignment for wasm32, log2 = 2
     }
 }
 
@@ -172,7 +170,7 @@ fn scalar_alignment(scalar: ScalarType) -> u32 {
         ScalarType::Int(32) | ScalarType::UInt(32) | ScalarType::Float(32) => 2,
         ScalarType::Int(64) | ScalarType::UInt(64) | ScalarType::Float(64) => 3,
         ScalarType::Float(16) => 1, // f16 has 2-byte alignment
-        _ => 2, // Default to 4-byte alignment
+        _ => 2,                     // Default to 4-byte alignment
     }
 }
 
@@ -183,7 +181,13 @@ pub fn size_for_type(ty: &LoopType, is_64bit: bool) -> usize {
         LoopType::Void => 0,
         LoopType::Scalar(scalar) => scalar_size(*scalar),
         LoopType::Vector(scalar, width) => scalar_size(*scalar) * (*width as usize),
-        LoopType::Ptr(_) => if is_64bit { 8 } else { 4 },
+        LoopType::Ptr(_) => {
+            if is_64bit {
+                8
+            } else {
+                4
+            }
+        }
     }
 }
 
@@ -209,7 +213,7 @@ pub fn simd_lane_type(scalar: ScalarType) -> SimdLaneType {
         ScalarType::Float(32) => SimdLaneType::F32x4,
         ScalarType::Float(64) => SimdLaneType::F64x2,
         ScalarType::Float(16) => SimdLaneType::F32x4, // Promoted to f32
-        _ => SimdLaneType::I32x4, // Default
+        _ => SimdLaneType::I32x4,                     // Default
     }
 }
 

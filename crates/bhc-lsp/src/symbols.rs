@@ -183,7 +183,11 @@ impl SymbolOutline {
     pub fn symbols_at_line(&self, line: u32) -> Vec<&OutlineSymbol> {
         let mut result = Vec::new();
 
-        fn find_at_line<'a>(symbols: &'a [OutlineSymbol], line: u32, result: &mut Vec<&'a OutlineSymbol>) {
+        fn find_at_line<'a>(
+            symbols: &'a [OutlineSymbol],
+            line: u32,
+            result: &mut Vec<&'a OutlineSymbol>,
+        ) {
             for symbol in symbols {
                 if symbol.line == line {
                     result.push(symbol);
@@ -201,11 +205,7 @@ impl SymbolOutline {
 pub fn symbol_path(analysis: &AnalysisResult, line: u32) -> Vec<String> {
     let mut path = Vec::new();
 
-    fn find_containing<'a>(
-        symbols: &'a [Symbol],
-        line: u32,
-        path: &mut Vec<String>,
-    ) -> bool {
+    fn find_containing<'a>(symbols: &'a [Symbol], line: u32, path: &mut Vec<String>) -> bool {
         for symbol in symbols {
             if symbol.range.start.line <= line && symbol.range.end.line >= line {
                 path.push(symbol.name.clone());
@@ -235,12 +235,24 @@ mod tests {
             name: name.to_string(),
             kind,
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: 10 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 10,
+                },
             },
             selection_range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: name.len() as u32 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: name.len() as u32,
+                },
             },
             children: Vec::new(),
             type_sig: None,

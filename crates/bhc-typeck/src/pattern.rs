@@ -92,11 +92,12 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
                     }
 
                     // Build name -> type map
-                    let field_type_map: std::collections::HashMap<bhc_intern::Symbol, Ty> = field_defs
-                        .iter()
-                        .zip(expected_field_types.iter())
-                        .map(|((name, _), ty)| (*name, ty.clone()))
-                        .collect();
+                    let field_type_map: std::collections::HashMap<bhc_intern::Symbol, Ty> =
+                        field_defs
+                            .iter()
+                            .zip(expected_field_types.iter())
+                            .map(|((name, _), ty)| (*name, ty.clone()))
+                            .collect();
 
                     // Check each field pattern against its expected type
                     for fp in field_pats {

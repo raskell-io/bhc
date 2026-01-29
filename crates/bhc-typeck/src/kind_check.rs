@@ -69,7 +69,9 @@ pub fn infer_kind(ctx: &mut TyCtxt, env: &KindEnv, ty: &Ty, span: Span) -> Kind 
 
         Ty::Con(c) => {
             // Type constructor kind from environment or declaration
-            env.lookup_con(c.name).cloned().unwrap_or_else(|| c.kind.clone())
+            env.lookup_con(c.name)
+                .cloned()
+                .unwrap_or_else(|| c.kind.clone())
         }
 
         Ty::Prim(_) => {
@@ -136,7 +138,6 @@ pub fn infer_kind(ctx: &mut TyCtxt, env: &KindEnv, ty: &Ty, span: Span) -> Kind 
         Ty::Error => Kind::Star,
 
         // === M9 Dependent Types ===
-
         Ty::Nat(n) => {
             // Type-level naturals have kind Nat
             check_nat_kind(ctx, env, n, span);
@@ -161,12 +162,7 @@ fn check_nat_kind(ctx: &mut TyCtxt, env: &KindEnv, n: &TyNat, span: Span) {
             // Variable must have kind Nat
             let var_kind = env.lookup_var(v).cloned().unwrap_or_else(|| v.kind.clone());
             if !matches!(var_kind, Kind::Nat) {
-                diagnostics::emit_kind_mismatch(
-                    ctx,
-                    "Nat",
-                    &format!("{var_kind:?}"),
-                    span,
-                );
+                diagnostics::emit_kind_mismatch(ctx, "Nat", &format!("{var_kind:?}"), span);
             }
         }
         TyNat::Add(a, b) | TyNat::Mul(a, b) => {
@@ -190,12 +186,7 @@ fn infer_ty_list_kind(ctx: &mut TyCtxt, env: &KindEnv, l: &TyList, span: Span) -
             match var_kind {
                 Kind::List(elem) => *elem,
                 _ => {
-                    diagnostics::emit_kind_mismatch(
-                        ctx,
-                        "[k]",
-                        &format!("{var_kind:?}"),
-                        span,
-                    );
+                    diagnostics::emit_kind_mismatch(ctx, "[k]", &format!("{var_kind:?}"), span);
                     Kind::Nat
                 }
             }
@@ -241,9 +232,7 @@ fn kinds_unify(k1: &Kind, k2: &Kind) -> bool {
         (Kind::Star, Kind::Star) => true,
         (Kind::Constraint, Kind::Constraint) => true,
         (Kind::Nat, Kind::Nat) => true,
-        (Kind::Arrow(a1, r1), Kind::Arrow(a2, r2)) => {
-            kinds_unify(a1, a2) && kinds_unify(r1, r2)
-        }
+        (Kind::Arrow(a1, r1), Kind::Arrow(a2, r2)) => kinds_unify(a1, a2) && kinds_unify(r1, r2),
         (Kind::List(e1), Kind::List(e2)) => kinds_unify(e1, e2),
         (Kind::Var(_), _) | (_, Kind::Var(_)) => {
             // For now, variables unify with anything (simple approach)
@@ -257,12 +246,7 @@ fn kinds_unify(k1: &Kind, k2: &Kind) -> bool {
 pub fn check_star_kind(ctx: &mut TyCtxt, env: &KindEnv, ty: &Ty, span: Span) {
     let kind = infer_kind(ctx, env, ty, span);
     if !matches!(kind, Kind::Star) {
-        diagnostics::emit_kind_mismatch(
-            ctx,
-            "*",
-            &format!("{kind:?}"),
-            span,
-        );
+        diagnostics::emit_kind_mismatch(ctx, "*", &format!("{kind:?}"), span);
     }
 }
 

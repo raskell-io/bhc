@@ -135,7 +135,6 @@ pub enum Kind {
     Var(u32),
 
     // === M9 Dependent Types Preview ===
-
     /// `Nat` - The kind of type-level natural numbers.
     ///
     /// Used for tensor dimensions in shape-indexed types:
@@ -182,10 +181,7 @@ impl Kind {
     #[must_use]
     pub fn tensor_kind() -> Self {
         // Tensor :: [Nat] -> * -> *
-        Self::Arrow(
-            Box::new(Self::nat_list()),
-            Box::new(Self::star_to_star()),
-        )
+        Self::Arrow(Box::new(Self::nat_list()), Box::new(Self::star_to_star()))
     }
 
     /// Returns true if this is a list kind.
@@ -241,7 +237,6 @@ pub enum Ty {
     Error,
 
     // === M9 Dependent Types Preview ===
-
     /// A type-level natural number (e.g., `1024` in `Tensor '[1024] Float`).
     ///
     /// Has kind `Nat`. Used for tensor dimensions.
@@ -639,9 +634,7 @@ impl Subst {
     pub fn apply_ty_list(&self, l: &TyList) -> TyList {
         match l {
             TyList::Nil => TyList::Nil,
-            TyList::Cons(head, tail) => {
-                TyList::cons(self.apply(head), self.apply_ty_list(tail))
-            }
+            TyList::Cons(head, tail) => TyList::cons(self.apply(head), self.apply_ty_list(tail)),
             TyList::Var(v) => {
                 // Check if this variable is mapped to a TyList type
                 match self.get(v) {
@@ -768,6 +761,126 @@ impl PrimTy {
 impl std::fmt::Display for PrimTy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+/// Match a pattern type against a target type, returning a substitution.
+///
+/// Performs one-way pattern matching where type variables in the pattern
+/// are bound to concrete types in the target. This enables polymorphic instance
+/// matching like `instance Eq a => Eq [a]` to match `Eq [Int]` with `{a -> Int}`.
+///
+/// # Arguments
+/// * `pattern` - The instance type pattern (may contain type variables)
+/// * `target` - The concrete type to match against
+///
+/// # Returns
+/// `Some(subst)` if the match succeeds, where `subst` maps type variables to types.
+/// `None` if the types cannot be matched.
+#[must_use]
+pub fn types_match(pattern: &Ty, target: &Ty) -> Option<Subst> {
+    let mut subst = Subst::new();
+    if types_match_with_subst(pattern, target, &mut subst) {
+        Some(subst)
+    } else {
+        None
+    }
+}
+
+/// Helper function that accumulates substitutions during type matching.
+///
+/// Returns `true` if the pattern matches the target, accumulating bindings
+/// from type variables to concrete types in `subst`.
+pub fn types_match_with_subst(pattern: &Ty, target: &Ty, subst: &mut Subst) -> bool {
+    match (pattern, target) {
+        // Type variable in pattern: bind to target type
+        (Ty::Var(v), _) => {
+            if let Some(bound_ty) = subst.get(v) {
+                // Must match the existing binding
+                types_equal(bound_ty, target)
+            } else {
+                subst.insert(v, target.clone());
+                true
+            }
+        }
+
+        // Type constructors must match by name
+        (Ty::Con(c1), Ty::Con(c2)) => c1.name == c2.name,
+
+        // Primitive types must match exactly
+        (Ty::Prim(p1), Ty::Prim(p2)) => p1 == p2,
+
+        // Type applications: match both the function and argument
+        (Ty::App(f1, a1), Ty::App(f2, a2)) => {
+            types_match_with_subst(f1, f2, subst) && types_match_with_subst(a1, a2, subst)
+        }
+
+        // Function types: match argument and result types
+        (Ty::Fun(a1, r1), Ty::Fun(a2, r2)) => {
+            types_match_with_subst(a1, a2, subst) && types_match_with_subst(r1, r2, subst)
+        }
+
+        // Tuple types: must have same length and matching elements
+        (Ty::Tuple(ts1), Ty::Tuple(ts2)) if ts1.len() == ts2.len() => ts1
+            .iter()
+            .zip(ts2.iter())
+            .all(|(t1, t2)| types_match_with_subst(t1, t2, subst)),
+
+        // List types: match element types
+        (Ty::List(e1), Ty::List(e2)) => types_match_with_subst(e1, e2, subst),
+
+        // Forall types: match bodies (simplified, no alpha-renaming)
+        (Ty::Forall(_, body1), Ty::Forall(_, body2)) => types_match_with_subst(body1, body2, subst),
+
+        // Type-level naturals
+        (Ty::Nat(n1), Ty::Nat(n2)) => n1 == n2,
+
+        // Type-level lists
+        (Ty::TyList(l1), Ty::TyList(l2)) => l1 == l2,
+
+        // Error types match anything (to avoid cascading errors)
+        (Ty::Error, _) | (_, Ty::Error) => true,
+
+        // All other combinations don't match
+        _ => false,
+    }
+}
+
+/// Match multiple pattern types against target types, returning combined substitution.
+///
+/// Both lists must have the same length. The resulting substitution combines
+/// all bindings from matching each pair.
+#[must_use]
+pub fn types_match_multi(patterns: &[Ty], targets: &[Ty]) -> Option<Subst> {
+    if patterns.len() != targets.len() {
+        return None;
+    }
+
+    let mut subst = Subst::new();
+    for (pattern, target) in patterns.iter().zip(targets.iter()) {
+        if !types_match_with_subst(pattern, target, &mut subst) {
+            return None;
+        }
+    }
+    Some(subst)
+}
+
+/// Check if two types are structurally equal.
+#[must_use]
+pub fn types_equal(t1: &Ty, t2: &Ty) -> bool {
+    match (t1, t2) {
+        (Ty::Var(v1), Ty::Var(v2)) => v1.id == v2.id,
+        (Ty::Con(c1), Ty::Con(c2)) => c1.name == c2.name,
+        (Ty::Prim(p1), Ty::Prim(p2)) => p1 == p2,
+        (Ty::App(f1, a1), Ty::App(f2, a2)) => types_equal(f1, f2) && types_equal(a1, a2),
+        (Ty::Fun(a1, r1), Ty::Fun(a2, r2)) => types_equal(a1, a2) && types_equal(r1, r2),
+        (Ty::Tuple(ts1), Ty::Tuple(ts2)) if ts1.len() == ts2.len() => ts1
+            .iter()
+            .zip(ts2.iter())
+            .all(|(t1, t2)| types_equal(t1, t2)),
+        (Ty::List(e1), Ty::List(e2)) => types_equal(e1, e2),
+        (Ty::Error, Ty::Error) => true,
+        _ => false,
     }
 }
 
@@ -934,5 +1047,53 @@ mod tests {
         let prim = Ty::int_prim();
         let result = subst.apply(&prim);
         assert_eq!(result, prim);
+    }
+
+    #[test]
+    fn test_types_match_variable_binding() {
+        let a = TyVar::new_star(0);
+        let int_con = TyCon::new(Symbol::intern("Int"), Kind::Star);
+        let int_ty = Ty::Con(int_con);
+
+        let result = types_match(&Ty::Var(a.clone()), &int_ty);
+        assert!(result.is_some());
+        let subst = result.unwrap();
+        assert_eq!(subst.apply(&Ty::Var(a)), int_ty);
+    }
+
+    #[test]
+    fn test_types_match_constructor() {
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+        let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+
+        assert!(types_match(&int_ty, &int_ty).is_some());
+        assert!(types_match(&int_ty, &bool_ty).is_none());
+    }
+
+    #[test]
+    fn test_types_match_application() {
+        let a = TyVar::new_star(0);
+        let list_con = Ty::Con(TyCon::new(Symbol::intern("[]"), Kind::star_to_star()));
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+
+        // Pattern: [] a, Target: [] Int
+        let pattern = Ty::App(Box::new(list_con.clone()), Box::new(Ty::Var(a.clone())));
+        let target = Ty::App(Box::new(list_con), Box::new(int_ty.clone()));
+
+        let result = types_match(&pattern, &target);
+        assert!(result.is_some());
+        let subst = result.unwrap();
+        assert_eq!(subst.apply(&Ty::Var(a)), int_ty);
+    }
+
+    #[test]
+    fn test_types_match_multi_basic() {
+        let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
+        let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
+
+        assert!(types_match_multi(&[int_ty.clone()], &[int_ty.clone()]).is_some());
+        assert!(types_match_multi(&[int_ty.clone()], &[bool_ty]).is_none());
+        assert!(types_match_multi(&[], &[]).is_some());
+        assert!(types_match_multi(&[int_ty.clone()], &[]).is_none());
     }
 }

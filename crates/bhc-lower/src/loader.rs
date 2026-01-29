@@ -287,7 +287,8 @@ fn collect_decl_exports(
                 // Determine if constructors should be exported
                 // In export_all mode, export all constructors
                 // With explicit exports, check for Type(..) syntax
-                let export_constructors = export_all || should_export_constructors(type_name, explicit_exports);
+                let export_constructors =
+                    export_all || should_export_constructors(type_name, explicit_exports);
 
                 if export_constructors {
                     let type_param_count = data_decl.params.len();
@@ -300,18 +301,30 @@ fn collect_decl_exports(
                         let (arity, field_names) = match &con.fields {
                             ast::ConFields::Positional(fields) => (fields.len(), None),
                             ast::ConFields::Record(fields) => {
-                                let names: Vec<Symbol> = fields.iter().map(|f| f.name.name).collect();
+                                let names: Vec<Symbol> =
+                                    fields.iter().map(|f| f.name.name).collect();
                                 (fields.len(), Some(names))
                             }
                         };
-                        ctx.define_constructor_with_type(con_def_id, con_name, con.span, arity, type_name, type_param_count, field_names.clone());
-                        exports.constructors.insert(con_name, ConstructorInfo {
-                            def_id: con_def_id,
+                        ctx.define_constructor_with_type(
+                            con_def_id,
+                            con_name,
+                            con.span,
                             arity,
-                            type_con_name: type_name,
+                            type_name,
                             type_param_count,
-                            field_names,
-                        });
+                            field_names.clone(),
+                        );
+                        exports.constructors.insert(
+                            con_name,
+                            ConstructorInfo {
+                                def_id: con_def_id,
+                                arity,
+                                type_con_name: type_name,
+                                type_param_count,
+                                field_names,
+                            },
+                        );
 
                         // Export record field accessors
                         if let ast::ConFields::Record(fields) = &con.fields {
@@ -337,7 +350,8 @@ fn collect_decl_exports(
                 exports.types.insert(type_name, type_def_id);
 
                 // Export the constructor
-                let export_constructors = export_all || should_export_constructors(type_name, explicit_exports);
+                let export_constructors =
+                    export_all || should_export_constructors(type_name, explicit_exports);
                 if export_constructors {
                     let con_name = newtype_decl.constr.name.name;
                     let con_def_id = ctx.fresh_def_id();
@@ -352,14 +366,25 @@ fn collect_decl_exports(
                     };
 
                     // Newtypes always have arity 1
-                    ctx.define_constructor_with_type(con_def_id, con_name, newtype_decl.constr.span, 1, type_name, type_param_count, field_names.clone());
-                    exports.constructors.insert(con_name, ConstructorInfo {
-                        def_id: con_def_id,
-                        arity: 1,
-                        type_con_name: type_name,
+                    ctx.define_constructor_with_type(
+                        con_def_id,
+                        con_name,
+                        newtype_decl.constr.span,
+                        1,
+                        type_name,
                         type_param_count,
-                        field_names,
-                    });
+                        field_names.clone(),
+                    );
+                    exports.constructors.insert(
+                        con_name,
+                        ConstructorInfo {
+                            def_id: con_def_id,
+                            arity: 1,
+                            type_con_name: type_name,
+                            type_param_count,
+                            field_names,
+                        },
+                    );
 
                     // Export record field if present
                     if let ast::ConFields::Record(fields) = &newtype_decl.constr.fields {
@@ -515,10 +540,7 @@ pub fn load_module(
 /// Apply an import specification to filter module exports.
 ///
 /// Handles both `import M (a, b, c)` (Only) and `import M hiding (a, b)` (Hiding).
-pub fn apply_import_spec(
-    exports: &ModuleExports,
-    spec: &Option<ast::ImportSpec>,
-) -> ModuleExports {
+pub fn apply_import_spec(exports: &ModuleExports, spec: &Option<ast::ImportSpec>) -> ModuleExports {
     match spec {
         None => exports.clone(), // Import everything
         Some(ast::ImportSpec::Only(items)) => {

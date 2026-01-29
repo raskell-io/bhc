@@ -19,4 +19,4 @@
 #![warn(missing_docs)]
 #![allow(unsafe_code)]
 
-pub mod char;  // Unicode primitives - actually needed
+pub mod char; // Unicode primitives - actually needed

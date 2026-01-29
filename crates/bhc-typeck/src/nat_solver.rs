@@ -59,9 +59,7 @@ impl NatConstraint {
     #[must_use]
     pub fn apply_subst(&self, subst: &NatSubst) -> Self {
         match self {
-            Self::Equal(left, right) => {
-                Self::Equal(subst.apply(left), subst.apply(right))
-            }
+            Self::Equal(left, right) => Self::Equal(subst.apply(left), subst.apply(right)),
         }
     }
 }
@@ -159,7 +157,10 @@ impl NatSubst {
 
         // Add bindings from other that aren't in self
         for (&var_id, value) in &other.mapping {
-            result.mapping.entry(var_id).or_insert_with(|| value.clone());
+            result
+                .mapping
+                .entry(var_id)
+                .or_insert_with(|| value.clone());
         }
 
         result
@@ -204,7 +205,11 @@ impl std::fmt::Display for SolverError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::LiteralMismatch { expected, found } => {
-                write!(f, "dimension mismatch: expected {}, found {}", expected, found)
+                write!(
+                    f,
+                    "dimension mismatch: expected {}, found {}",
+                    expected, found
+                )
             }
             Self::OccursCheck { var_id, term } => {
                 write!(f, "infinite type: n{} occurs in {}", var_id, term)
@@ -362,22 +367,16 @@ impl NatSolver {
 
         match (&left, &right) {
             // Same literal - trivially satisfied
-            (TyNat::Lit(n1), TyNat::Lit(n2)) if n1 == n2 => {
-                Ok(SolveResult::Trivial)
-            }
+            (TyNat::Lit(n1), TyNat::Lit(n2)) if n1 == n2 => Ok(SolveResult::Trivial),
 
             // Different literals - contradiction
-            (TyNat::Lit(n1), TyNat::Lit(n2)) => {
-                Err(SolverError::LiteralMismatch {
-                    expected: *n1,
-                    found: *n2,
-                })
-            }
+            (TyNat::Lit(n1), TyNat::Lit(n2)) => Err(SolverError::LiteralMismatch {
+                expected: *n1,
+                found: *n2,
+            }),
 
             // Same variable - trivially satisfied
-            (TyNat::Var(v1), TyNat::Var(v2)) if v1.id == v2.id => {
-                Ok(SolveResult::Trivial)
-            }
+            (TyNat::Var(v1), TyNat::Var(v2)) if v1.id == v2.id => Ok(SolveResult::Trivial),
 
             // Variable on left - bind it
             (TyNat::Var(v), _) => {
@@ -431,19 +430,12 @@ impl NatSolver {
             }
 
             // Can't solve - defer
-            _ => {
-                Ok(SolveResult::Deferred(NatConstraint::equal(left, right)))
-            }
+            _ => Ok(SolveResult::Deferred(NatConstraint::equal(left, right))),
         }
     }
 
     /// Tries to solve `a + b = n` where n is a literal.
-    fn solve_add_equals_lit(
-        &mut self,
-        a: &TyNat,
-        b: &TyNat,
-        n: u64,
-    ) -> SolverResult<SolveResult> {
+    fn solve_add_equals_lit(&mut self, a: &TyNat, b: &TyNat, n: u64) -> SolverResult<SolveResult> {
         let a = self.normalize(a);
         let b = self.normalize(b);
 
@@ -473,22 +465,15 @@ impl NatSolver {
             }
 
             // Can't solve yet
-            _ => {
-                Ok(SolveResult::Deferred(NatConstraint::equal(
-                    TyNat::add(a, b),
-                    TyNat::lit(n),
-                )))
-            }
+            _ => Ok(SolveResult::Deferred(NatConstraint::equal(
+                TyNat::add(a, b),
+                TyNat::lit(n),
+            ))),
         }
     }
 
     /// Tries to solve `a * b = n` where n is a literal.
-    fn solve_mul_equals_lit(
-        &mut self,
-        a: &TyNat,
-        b: &TyNat,
-        n: u64,
-    ) -> SolverResult<SolveResult> {
+    fn solve_mul_equals_lit(&mut self, a: &TyNat, b: &TyNat, n: u64) -> SolverResult<SolveResult> {
         let a = self.normalize(a);
         let b = self.normalize(b);
 
@@ -518,12 +503,10 @@ impl NatSolver {
             }
 
             // Can't solve yet
-            _ => {
-                Ok(SolveResult::Deferred(NatConstraint::equal(
-                    TyNat::mul(a, b),
-                    TyNat::lit(n),
-                )))
-            }
+            _ => Ok(SolveResult::Deferred(NatConstraint::equal(
+                TyNat::mul(a, b),
+                TyNat::lit(n),
+            ))),
         }
     }
 
@@ -538,9 +521,7 @@ impl NatSolver {
         match term {
             TyNat::Lit(_) => false,
             TyNat::Var(v) => v.id == var.id,
-            TyNat::Add(a, b) | TyNat::Mul(a, b) => {
-                self.occurs_in(var, a) || self.occurs_in(var, b)
-            }
+            TyNat::Add(a, b) | TyNat::Mul(a, b) => self.occurs_in(var, a) || self.occurs_in(var, b),
         }
     }
 
@@ -737,7 +718,13 @@ mod tests {
         solver.add_equal(TyNat::lit(768), TyNat::lit(512));
 
         let result = solver.solve();
-        assert!(matches!(result, Err(SolverError::LiteralMismatch { expected: 768, found: 512 })));
+        assert!(matches!(
+            result,
+            Err(SolverError::LiteralMismatch {
+                expected: 768,
+                found: 512
+            })
+        ));
     }
 
     #[test]
@@ -772,9 +759,7 @@ mod tests {
     #[test]
     fn test_convenience_function() {
         let m = nat_var(1);
-        let constraints = vec![
-            (TyNat::Var(m.clone()), TyNat::lit(256)),
-        ];
+        let constraints = vec![(TyNat::Var(m.clone()), TyNat::lit(256))];
 
         let subst = solve_nat_constraints(constraints).unwrap();
         assert_eq!(subst.apply(&TyNat::Var(m)), TyNat::lit(256));

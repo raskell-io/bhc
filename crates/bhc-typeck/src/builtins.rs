@@ -248,10 +248,7 @@ impl Builtins {
         env.register_data_con(
             right_id,
             Symbol::intern("Right"),
-            Scheme::poly(
-                vec![a, b.clone()],
-                Ty::fun(Ty::Var(b), either_ab),
-            ),
+            Scheme::poly(vec![a, b.clone()], Ty::fun(Ty::Var(b), either_ab)),
         );
 
         // Unit constructor
@@ -291,10 +288,7 @@ impl Builtins {
                 vec![triple_a.clone(), triple_b.clone(), triple_c.clone()],
                 Ty::fun(
                     Ty::Var(triple_a),
-                    Ty::fun(
-                        Ty::Var(triple_b),
-                        Ty::fun(Ty::Var(triple_c), triple_ty),
-                    ),
+                    Ty::fun(Ty::Var(triple_b), Ty::fun(Ty::Var(triple_c), triple_ty)),
                 ),
             ),
         );
@@ -417,7 +411,8 @@ impl Builtins {
     pub fn register_primitive_ops(&self, env: &mut TypeEnv) {
         // Start after types (9) and constructors (11: 6 basic + 3 list/unit + 2 tuples) = 20
         // Order MUST match bhc_lower::context::define_builtins
-        let mut next_id = BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + BUILTIN_LIST_UNIT_COUNT + BUILTIN_TUPLE_COUNT;
+        let mut next_id =
+            BUILTIN_TYPE_COUNT + BUILTIN_CON_COUNT + BUILTIN_LIST_UNIT_COUNT + BUILTIN_TUPLE_COUNT;
 
         // Type variables for polymorphic types
         let a = TyVar::new_star(BUILTIN_TYVAR_A);
@@ -558,18 +553,13 @@ impl Builtins {
                 let mb = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(b.clone())));
                 Scheme::poly(
                     vec![m.clone(), a.clone(), b.clone()],
-                    Ty::fun(ma, Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), mb.clone()),
-                        mb,
-                    )),
+                    Ty::fun(ma, Ty::fun(Ty::fun(Ty::Var(a.clone()), mb.clone()), mb)),
                 )
             }),
             (">>", {
                 // (>>) :: IO () -> IO () -> IO () (very specific for debugging)
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(
-                    Ty::fun(io_unit.clone(), Ty::fun(io_unit.clone(), io_unit)),
-                )
+                Scheme::mono(Ty::fun(io_unit.clone(), Ty::fun(io_unit.clone(), io_unit)))
             }),
             ("=<<", {
                 // (=<<) :: (a -> m b) -> m a -> m b (flipped >>=)
@@ -579,10 +569,7 @@ impl Builtins {
                 let mb = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(b.clone())));
                 Scheme::poly(
                     vec![m.clone(), a.clone(), b.clone()],
-                    Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), mb.clone()),
-                        Ty::fun(ma, mb),
-                    ),
+                    Ty::fun(Ty::fun(Ty::Var(a.clone()), mb.clone()), Ty::fun(ma, mb)),
                 )
             }),
             // Applicative/Functor operators (list-specialized)
@@ -733,7 +720,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
                         Ty::fun(list_a, Ty::fun(list_b, list_c)),
                     ),
                 )
@@ -750,7 +740,10 @@ impl Builtins {
             }),
             ("mapM", {
                 // mapM :: (a -> IO b) -> [a] -> IO [b] (IO-specialized)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let io_list_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_b));
@@ -764,20 +757,23 @@ impl Builtins {
             }),
             ("mapM_", {
                 // mapM_ :: (a -> IO b) -> [a] -> IO () (IO-specialized)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), io_b),
-                        Ty::fun(list_a, io_unit),
-                    ),
+                    Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), Ty::fun(list_a, io_unit)),
                 )
             }),
             ("forM", {
                 // forM :: [a] -> (a -> IO b) -> IO [b] (flipped mapM)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let io_list_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_b));
@@ -791,20 +787,23 @@ impl Builtins {
             }),
             ("forM_", {
                 // forM_ :: [a] -> (a -> IO b) -> IO () (flipped mapM_)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(
-                        list_a,
-                        Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), io_unit),
-                    ),
+                    Ty::fun(list_a, Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), io_unit)),
                 )
             }),
             ("sequence", {
                 // sequence :: [IO a] -> IO [a] (IO-specialized)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let list_io_a = Ty::List(Box::new(io_a));
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_list_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a));
@@ -812,7 +811,10 @@ impl Builtins {
             }),
             ("sequence_", {
                 // sequence_ :: [IO a] -> IO () (IO-specialized)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let list_io_a = Ty::List(Box::new(io_a));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(vec![a.clone()], Ty::fun(list_io_a, io_unit))
@@ -820,28 +822,43 @@ impl Builtins {
             ("when", {
                 // when :: Bool -> IO () -> IO ()
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(self.bool_ty.clone(), Ty::fun(io_unit.clone(), io_unit)))
+                Scheme::mono(Ty::fun(
+                    self.bool_ty.clone(),
+                    Ty::fun(io_unit.clone(), io_unit),
+                ))
             }),
             ("unless", {
                 // unless :: Bool -> IO () -> IO ()
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(self.bool_ty.clone(), Ty::fun(io_unit.clone(), io_unit)))
+                Scheme::mono(Ty::fun(
+                    self.bool_ty.clone(),
+                    Ty::fun(io_unit.clone(), io_unit),
+                ))
             }),
             ("void", {
                 // void :: IO a -> IO ()
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a, io_unit))
             }),
             ("liftIO", {
                 // liftIO :: IO a -> IO a (identity for base IO)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a.clone(), io_a))
             }),
             // Reader/State monad operations (simplified/polymorphic)
             ("ask", {
                 // ask :: r -> r (simplified: Reader r r identity)
-                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                )
             }),
             ("asks", {
                 // asks :: (r -> a) -> r -> a (simplified)
@@ -945,7 +962,10 @@ impl Builtins {
             }),
             ("runReaderT", {
                 // runReaderT :: (r -> IO a) -> r -> IO a (simplified)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
@@ -968,7 +988,10 @@ impl Builtins {
             ("runStateT", {
                 // runStateT :: (s -> IO (a, s)) -> s -> IO (a, s) (simplified)
                 let pair = Ty::Tuple(vec![Ty::Var(b.clone()), Ty::Var(a.clone())]);
-                let io_pair = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(pair.clone()));
+                let io_pair = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(pair.clone()),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
@@ -992,7 +1015,10 @@ impl Builtins {
                 // evalStateT :: (s -> IO (a, s)) -> s -> IO a
                 let pair = Ty::Tuple(vec![Ty::Var(b.clone()), Ty::Var(a.clone())]);
                 let io_pair = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(pair));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
@@ -1016,7 +1042,10 @@ impl Builtins {
                 // execStateT :: (s -> IO (a, s)) -> s -> IO s
                 let pair = Ty::Tuple(vec![Ty::Var(b.clone()), Ty::Var(a.clone())]);
                 let io_pair = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(pair));
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
@@ -1027,13 +1056,19 @@ impl Builtins {
             }),
             ("lift", {
                 // lift :: IO a -> IO a (identity for base IO monad)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a.clone(), io_a))
             }),
             // Exception handling (simplified with String as exception type)
             ("catch", {
                 // catch :: IO a -> (String -> IO a) -> IO a (simplified)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone()],
                     Ty::fun(
@@ -1044,7 +1079,10 @@ impl Builtins {
             }),
             ("try", {
                 // try :: IO a -> IO (Either String a) (simplified)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let either_result = Ty::App(
                     Box::new(Ty::App(
                         Box::new(Ty::Con(self.either_con.clone())),
@@ -1052,24 +1090,42 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(a.clone())),
                 );
-                let io_either = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(either_result));
+                let io_either = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(either_result),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a, io_either))
             }),
             ("throw", {
                 // throw :: String -> a (simplified with String exception)
-                Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())),
+                )
             }),
             ("throwIO", {
                 // throwIO :: String -> IO a (simplified)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), io_a))
             }),
             ("bracket", {
                 // bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
-                let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
+                let io_c = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(c.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
@@ -1084,9 +1140,18 @@ impl Builtins {
             ("bracket_", {
                 // bracket_ :: IO a -> IO b -> IO c -> IO c
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
-                let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
+                let io_c = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(c.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(io_a, Ty::fun(io_b, Ty::fun(io_c.clone(), io_c))),
@@ -1095,9 +1160,18 @@ impl Builtins {
             ("bracketOnError", {
                 // bracketOnError :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
-                let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
+                let io_c = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(c.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
@@ -1111,8 +1185,14 @@ impl Builtins {
             }),
             ("finally", {
                 // finally :: IO a -> IO b -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(io_a.clone(), Ty::fun(io_b, io_a)),
@@ -1120,8 +1200,14 @@ impl Builtins {
             }),
             ("onException", {
                 // onException :: IO a -> IO b -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(io_a.clone(), Ty::fun(io_b, io_a)),
@@ -1129,7 +1215,10 @@ impl Builtins {
             }),
             ("handle", {
                 // handle :: (String -> IO a) -> IO a -> IO a (flipped catch)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone()],
                     Ty::fun(
@@ -1140,8 +1229,14 @@ impl Builtins {
             }),
             ("handleJust", {
                 // handleJust :: (String -> Maybe b) -> (b -> IO a) -> IO a -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let maybe_b = Ty::App(Box::new(Ty::Con(self.maybe_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let maybe_b = Ty::App(
+                    Box::new(Ty::Con(self.maybe_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
@@ -1155,20 +1250,35 @@ impl Builtins {
             }),
             ("catchJust", {
                 // catchJust :: (String -> Maybe b) -> IO a -> (b -> IO a) -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let maybe_b = Ty::App(Box::new(Ty::Con(self.maybe_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let maybe_b = Ty::App(
+                    Box::new(Ty::Con(self.maybe_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
                         Ty::fun(self.string_ty.clone(), maybe_b),
-                        Ty::fun(io_a.clone(), Ty::fun(Ty::fun(Ty::Var(b.clone()), io_a.clone()), io_a)),
+                        Ty::fun(
+                            io_a.clone(),
+                            Ty::fun(Ty::fun(Ty::Var(b.clone()), io_a.clone()), io_a),
+                        ),
                     ),
                 )
             }),
             ("tryJust", {
                 // tryJust :: (String -> Maybe b) -> IO a -> IO (Either b a)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let maybe_b = Ty::App(Box::new(Ty::Con(self.maybe_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let maybe_b = Ty::App(
+                    Box::new(Ty::Con(self.maybe_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let either_ba = Ty::App(
                     Box::new(Ty::App(
                         Box::new(Ty::Con(self.either_con.clone())),
@@ -1176,21 +1286,34 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(a.clone())),
                 );
-                let io_either = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(either_ba));
+                let io_either =
+                    Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(either_ba));
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::fun(self.string_ty.clone(), maybe_b), Ty::fun(io_a, io_either)),
+                    Ty::fun(
+                        Ty::fun(self.string_ty.clone(), maybe_b),
+                        Ty::fun(io_a, io_either),
+                    ),
                 )
             }),
             ("evaluate", {
                 // evaluate :: a -> IO a (force evaluation)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), io_a))
             }),
             ("mask", {
                 // mask :: ((IO a -> IO a) -> IO b) -> IO b (simplified)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(Ty::fun(Ty::fun(io_a.clone(), io_a), io_b.clone()), io_b),
@@ -1198,13 +1321,22 @@ impl Builtins {
             }),
             ("mask_", {
                 // mask_ :: IO a -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a.clone(), io_a))
             }),
             ("uninterruptibleMask", {
                 // uninterruptibleMask :: ((IO a -> IO a) -> IO b) -> IO b
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(Ty::fun(Ty::fun(io_a.clone(), io_a), io_b.clone()), io_b),
@@ -1212,19 +1344,28 @@ impl Builtins {
             }),
             ("uninterruptibleMask_", {
                 // uninterruptibleMask_ :: IO a -> IO a
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a.clone(), io_a))
             }),
             // IO operations (Handle abstracted as Int for now)
             ("hPutStr", {
                 // hPutStr :: Handle -> String -> IO ()
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.string_ty.clone(), io_unit)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.string_ty.clone(), io_unit),
+                ))
             }),
             ("hPutStrLn", {
                 // hPutStrLn :: Handle -> String -> IO ()
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.string_ty.clone(), io_unit)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.string_ty.clone(), io_unit),
+                ))
             }),
             ("hPrint", {
                 // hPrint :: Show a => Handle -> a -> IO ()
@@ -1236,12 +1377,18 @@ impl Builtins {
             }),
             ("hGetLine", {
                 // hGetLine :: Handle -> IO String
-                let io_string = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.string_ty.clone()));
+                let io_string = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.string_ty.clone()),
+                );
                 Scheme::mono(Ty::fun(self.int_ty.clone(), io_string))
             }),
             ("hGetContents", {
                 // hGetContents :: Handle -> IO String
-                let io_string = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.string_ty.clone()));
+                let io_string = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.string_ty.clone()),
+                );
                 Scheme::mono(Ty::fun(self.int_ty.clone(), io_string))
             }),
             ("hClose", {
@@ -1251,12 +1398,21 @@ impl Builtins {
             }),
             ("openFile", {
                 // openFile :: FilePath -> IOMode -> IO Handle (FilePath = String, IOMode = Int, Handle = Int)
-                let io_handle = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.int_ty.clone()));
-                Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::fun(self.int_ty.clone(), io_handle)))
+                let io_handle = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.int_ty.clone()),
+                );
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::fun(self.int_ty.clone(), io_handle),
+                ))
             }),
             ("withFile", {
                 // withFile :: FilePath -> IOMode -> (Handle -> IO r) -> IO r
-                let io_r = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_r = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(
                     vec![a.clone()],
                     Ty::fun(
@@ -1287,16 +1443,25 @@ impl Builtins {
             }),
             ("hIsEOF", {
                 // hIsEOF :: Handle -> IO Bool
-                let io_bool = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.bool_ty.clone()));
+                let io_bool = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.bool_ty.clone()),
+                );
                 Scheme::mono(Ty::fun(self.int_ty.clone(), io_bool))
             }),
             ("isEOF", {
                 // isEOF :: IO Bool
-                Scheme::mono(Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.bool_ty.clone())))
+                Scheme::mono(Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.bool_ty.clone()),
+                ))
             }),
             ("getContents", {
                 // getContents :: IO String
-                Scheme::mono(Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.string_ty.clone())))
+                Scheme::mono(Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.string_ty.clone()),
+                ))
             }),
             ("interact", {
                 // interact :: (String -> String) -> IO ()
@@ -1309,7 +1474,10 @@ impl Builtins {
             ("appendFile", {
                 // appendFile :: FilePath -> String -> IO ()
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::fun(self.string_ty.clone(), io_unit)))
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::fun(self.string_ty.clone(), io_unit),
+                ))
             }),
             // List operations (these need proper types for list comprehensions)
             ("map", {
@@ -1339,7 +1507,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
                     ),
                 )
@@ -1350,7 +1521,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
                     ),
                 )
@@ -1361,7 +1535,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
                     ),
                 )
@@ -1448,7 +1625,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
                         Ty::fun(list_a, Ty::fun(list_b, list_c)),
                     ),
                 )
@@ -1459,7 +1639,11 @@ impl Builtins {
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
-                let triple_ty = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone()), Ty::Var(c.clone())]);
+                let triple_ty = Ty::Tuple(vec![
+                    Ty::Var(a.clone()),
+                    Ty::Var(b.clone()),
+                    Ty::Var(c.clone()),
+                ]);
                 let list_triple = Ty::List(Box::new(triple_ty));
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
@@ -1477,7 +1661,13 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone(), d.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c.clone()), Ty::Var(d.clone())))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(
+                                Ty::Var(b.clone()),
+                                Ty::fun(Ty::Var(c.clone()), Ty::Var(d.clone())),
+                            ),
+                        ),
                         Ty::fun(list_a, Ty::fun(list_b, Ty::fun(list_c, list_d))),
                     ),
                 )
@@ -1494,13 +1684,20 @@ impl Builtins {
             ("unzip3", {
                 // unzip3 :: [(a, b, c)] -> ([a], [b], [c])
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let triple_ty = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone()), Ty::Var(c.clone())]);
+                let triple_ty = Ty::Tuple(vec![
+                    Ty::Var(a.clone()),
+                    Ty::Var(b.clone()),
+                    Ty::Var(c.clone()),
+                ]);
                 let list_triple = Ty::List(Box::new(triple_ty));
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
                 let result = Ty::Tuple(vec![list_a, list_b, list_c]);
-                Scheme::poly(vec![a.clone(), b.clone(), c.clone()], Ty::fun(list_triple, result))
+                Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(list_triple, result),
+                )
             }),
             ("lines", {
                 // lines :: String -> [String]
@@ -1531,12 +1728,18 @@ impl Builtins {
                 // intercalate :: [a] -> [[a]] -> [a]
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_list_a = Ty::List(Box::new(list_a.clone()));
-                Scheme::poly(vec![a.clone()], Ty::fun(list_a.clone(), Ty::fun(list_list_a, list_a)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(list_a.clone(), Ty::fun(list_list_a, list_a)),
+                )
             }),
             ("intersperse", {
                 // intersperse :: a -> [a] -> [a]
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a.clone(), list_a)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a.clone(), list_a)),
+                )
             }),
             ("transpose", {
                 // transpose :: [[a]] -> [[a]]
@@ -1563,7 +1766,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, list_b)),
                     ),
                 )
@@ -1575,7 +1781,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, list_b)),
                     ),
                 )
@@ -1587,7 +1796,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
+                        ),
                         Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, list_b)),
                     ),
                 )
@@ -1836,7 +2048,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), self.int_ty.clone())),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(a.clone()), self.int_ty.clone()),
+                        ),
                         Ty::fun(list_a.clone(), list_a),
                     ),
                 )
@@ -1871,84 +2086,174 @@ impl Builtins {
             ("genericTake", {
                 // genericTake :: Integral i => i -> [a] -> [a]
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(self.int_ty.clone(), Ty::fun(list_a.clone(), list_a)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(list_a.clone(), list_a)),
+                )
             }),
             ("genericDrop", {
                 // genericDrop :: Integral i => i -> [a] -> [a]
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(self.int_ty.clone(), Ty::fun(list_a.clone(), list_a)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(list_a.clone(), list_a)),
+                )
             }),
             ("genericSplitAt", {
                 // genericSplitAt :: Integral i => i -> [a] -> ([a], [a])
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let pair = Ty::Tuple(vec![list_a.clone(), list_a.clone()]);
-                Scheme::poly(vec![a.clone()], Ty::fun(self.int_ty.clone(), Ty::fun(list_a, pair)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(list_a, pair)),
+                )
             }),
             ("genericIndex", {
                 // genericIndex :: Integral i => [a] -> i -> a
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(list_a, Ty::fun(self.int_ty.clone(), Ty::Var(a.clone()))))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(list_a, Ty::fun(self.int_ty.clone(), Ty::Var(a.clone()))),
+                )
             }),
             ("genericReplicate", {
                 // genericReplicate :: Integral i => i -> a -> [a]
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], Ty::fun(self.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), list_a)))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), list_a)),
+                )
             }),
             // Prelude functions
-            ("id", Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))),
-            ("const", Scheme::poly(
-                vec![a.clone(), b.clone()],
-                Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone()))),
-            )),
+            (
+                "id",
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                ),
+            ),
+            (
+                "const",
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone())),
+                    ),
+                ),
+            ),
             ("flip", {
                 // flip :: (a -> b -> c) -> b -> a -> c
                 let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone())),
+                        ),
                     ),
                 )
             }),
-            ("error", Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())))),
-            ("undefined", Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))),
-            ("seq", Scheme::poly(
-                vec![a.clone(), b.clone()],
-                Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
-            )),
+            (
+                "error",
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())),
+                ),
+            ),
+            (
+                "undefined",
+                Scheme::poly(vec![a.clone()], Ty::Var(a.clone())),
+            ),
+            (
+                "seq",
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
+                    ),
+                ),
+            ),
             // Numeric operations
-            ("fromInteger", Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone()))),
+            (
+                "fromInteger",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone())),
+            ),
             ("fromRational", {
                 // fromRational :: Rational -> Float (simplified)
                 // Rational approximated as (Int, Int) tuple
                 let rational = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
                 Scheme::mono(Ty::fun(rational, self.float_ty.clone()))
             }),
-            ("negate", Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone()))),
-            ("abs", Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone()))),
-            ("signum", Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone()))),
-            ("sqrt", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
-            ("exp", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
-            ("log", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
-            ("sin", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
-            ("cos", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
-            ("tan", Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone()))),
+            (
+                "negate",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone())),
+            ),
+            (
+                "abs",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone())),
+            ),
+            (
+                "signum",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.int_ty.clone())),
+            ),
+            (
+                "sqrt",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
+            (
+                "exp",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
+            (
+                "log",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
+            (
+                "sin",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
+            (
+                "cos",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
+            (
+                "tan",
+                Scheme::mono(Ty::fun(self.float_ty.clone(), self.float_ty.clone())),
+            ),
             // Comparison
             ("compare", {
                 // compare :: Ord a => a -> a -> Ordering (using Int as Ordering: -1, 0, 1)
                 Scheme::qualified(
                     vec![a.clone()],
                     vec![ord_constraint(Ty::Var(a.clone()))],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), self.int_ty.clone())),
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(a.clone()), self.int_ty.clone()),
+                    ),
                 )
             }),
             ("min", num_binop()),
             ("max", num_binop()),
             // Show
-            ("show", Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), self.string_ty.clone()))),
+            (
+                "show",
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), self.string_ty.clone()),
+                ),
+            ),
             // Boolean
-            ("not", Scheme::mono(Ty::fun(self.bool_ty.clone(), self.bool_ty.clone()))),
+            (
+                "not",
+                Scheme::mono(Ty::fun(self.bool_ty.clone(), self.bool_ty.clone())),
+            ),
             ("otherwise", Scheme::mono(self.bool_ty.clone())),
             // Maybe
             ("maybe", {
@@ -2002,30 +2307,57 @@ impl Builtins {
                 )
             }),
             // IO
-            ("print", Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(Ty::unit()),
-            )))),
-            ("putStrLn", Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(Ty::unit()),
-            )))),
-            ("putStr", Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(Ty::unit()),
-            )))),
-            ("getLine", Scheme::mono(Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(self.string_ty.clone()),
-            ))),
-            ("readFile", Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(self.string_ty.clone()),
-            )))),
-            ("writeFile", Scheme::mono(Ty::fun(self.string_ty.clone(), Ty::fun(self.string_ty.clone(), Ty::App(
-                Box::new(Ty::Con(self.io_con.clone())),
-                Box::new(Ty::unit()),
-            ))))),
+            (
+                "print",
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit())),
+                    ),
+                ),
+            ),
+            (
+                "putStrLn",
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit())),
+                )),
+            ),
+            (
+                "putStr",
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit())),
+                )),
+            ),
+            (
+                "getLine",
+                Scheme::mono(Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(self.string_ty.clone()),
+                )),
+            ),
+            (
+                "readFile",
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::App(
+                        Box::new(Ty::Con(self.io_con.clone())),
+                        Box::new(self.string_ty.clone()),
+                    ),
+                )),
+            ),
+            (
+                "writeFile",
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::fun(
+                        self.string_ty.clone(),
+                        Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit())),
+                    ),
+                )),
+            ),
             // Guard helper
             ("guard", {
                 // guard :: Alternative f => Bool -> f ()
@@ -2037,12 +2369,18 @@ impl Builtins {
             ("fst", {
                 // fst :: (a, b) -> a
                 let pair_ty = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(pair_ty, Ty::Var(a.clone())))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(pair_ty, Ty::Var(a.clone())),
+                )
             }),
             ("snd", {
                 // snd :: (a, b) -> b
                 let pair_ty = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(pair_ty, Ty::Var(b.clone())))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(pair_ty, Ty::Var(b.clone())),
+                )
             }),
             ("curry", {
                 // curry :: ((a, b) -> c) -> a -> b -> c
@@ -2052,7 +2390,10 @@ impl Builtins {
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
                         Ty::fun(pair_ty, Ty::Var(c.clone())),
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
                     ),
                 )
             }),
@@ -2063,7 +2404,10 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
                         Ty::fun(pair_ty, Ty::Var(c.clone())),
                     ),
                 )
@@ -2075,26 +2419,86 @@ impl Builtins {
                 Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(pair_ab, pair_ba))
             }),
             // Character functions
-            ("ord", Scheme::mono(Ty::fun(self.char_ty.clone(), self.int_ty.clone()))),
-            ("chr", Scheme::mono(Ty::fun(self.int_ty.clone(), self.char_ty.clone()))),
-            ("isAlpha", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isAlphaNum", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isAscii", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isControl", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isDigit", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isHexDigit", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isLetter", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isLower", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isNumber", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isPrint", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isPunctuation", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isSpace", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isSymbol", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("isUpper", Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone()))),
-            ("toLower", Scheme::mono(Ty::fun(self.char_ty.clone(), self.char_ty.clone()))),
-            ("toUpper", Scheme::mono(Ty::fun(self.char_ty.clone(), self.char_ty.clone()))),
-            ("digitToInt", Scheme::mono(Ty::fun(self.char_ty.clone(), self.int_ty.clone()))),
-            ("intToDigit", Scheme::mono(Ty::fun(self.int_ty.clone(), self.char_ty.clone()))),
+            (
+                "ord",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.int_ty.clone())),
+            ),
+            (
+                "chr",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.char_ty.clone())),
+            ),
+            (
+                "isAlpha",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isAlphaNum",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isAscii",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isControl",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isDigit",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isHexDigit",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isLetter",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isLower",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isNumber",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isPrint",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isPunctuation",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isSpace",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isSymbol",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "isUpper",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "toLower",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.char_ty.clone())),
+            ),
+            (
+                "toUpper",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.char_ty.clone())),
+            ),
+            (
+                "digitToInt",
+                Scheme::mono(Ty::fun(self.char_ty.clone(), self.int_ty.clone())),
+            ),
+            (
+                "intToDigit",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.char_ty.clone())),
+            ),
             // Enum functions (Int-specialized)
             ("succ", {
                 // succ :: Int -> Int (simplified for Int)
@@ -2106,11 +2510,17 @@ impl Builtins {
             }),
             ("toEnum", {
                 // toEnum :: Int -> a (polymorphic result)
-                Scheme::poly(vec![a.clone()], Ty::fun(self.int_ty.clone(), Ty::Var(a.clone())))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::Var(a.clone())),
+                )
             }),
             ("fromEnum", {
                 // fromEnum :: a -> Int (polymorphic input)
-                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), self.int_ty.clone()))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), self.int_ty.clone()),
+                )
             }),
             ("enumFrom", {
                 // enumFrom :: Int -> [Int] (Int-specialized, [n..])
@@ -2120,12 +2530,18 @@ impl Builtins {
             ("enumFromThen", {
                 // enumFromThen :: Int -> Int -> [Int] (Int-specialized, [n,m..])
                 let list_int = Ty::List(Box::new(self.int_ty.clone()));
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), list_int)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.int_ty.clone(), list_int),
+                ))
             }),
             ("enumFromTo", {
                 // enumFromTo :: Int -> Int -> [Int] (Int-specialized, [n..m])
                 let list_int = Ty::List(Box::new(self.int_ty.clone()));
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), list_int)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.int_ty.clone(), list_int),
+                ))
             }),
             ("enumFromThenTo", {
                 // enumFromThenTo :: Int -> Int -> Int -> [Int] (Int-specialized, [n,m..o])
@@ -2147,7 +2563,10 @@ impl Builtins {
             // Read functions (simplified)
             ("read", {
                 // read :: String -> a (polymorphic result, may fail at runtime)
-                Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())),
+                )
             }),
             ("reads", {
                 // reads :: String -> [(a, String)] (with remaining string)
@@ -2157,7 +2576,10 @@ impl Builtins {
             }),
             ("readMaybe", {
                 // readMaybe :: String -> Maybe a
-                let maybe_a = Ty::App(Box::new(Ty::Con(self.maybe_con.clone())), Box::new(Ty::Var(a.clone())));
+                let maybe_a = Ty::App(
+                    Box::new(Ty::Con(self.maybe_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), maybe_a))
             }),
             ("readEither", {
@@ -2169,7 +2591,10 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(a.clone())),
                 );
-                Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), either_result))
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.string_ty.clone(), either_result),
+                )
             }),
             // Numeric conversion (simplified)
             ("toInteger", {
@@ -2201,8 +2626,14 @@ impl Builtins {
                 // floor :: Float -> Int
                 Scheme::mono(Ty::fun(self.float_ty.clone(), self.int_ty.clone()))
             }),
-            ("even", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
-            ("odd", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
+            (
+                "even",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone())),
+            ),
+            (
+                "odd",
+                Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone())),
+            ),
             ("gcd", num_binop()),
             ("lcm", num_binop()),
             ("quot", num_binop()),
@@ -2211,13 +2642,19 @@ impl Builtins {
                 // quotRem :: Integral a => a -> a -> (a, a)
                 // Using Int for now (no type class constraints)
                 let pair = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), pair)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.int_ty.clone(), pair),
+                ))
             }),
             ("divMod", {
                 // divMod :: Integral a => a -> a -> (a, a)
                 // Using Int for now (no type class constraints)
                 let pair = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
-                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), pair)))
+                Scheme::mono(Ty::fun(
+                    self.int_ty.clone(),
+                    Ty::fun(self.int_ty.clone(), pair),
+                ))
             }),
             ("recip", {
                 // recip :: Fractional a => a -> a
@@ -2231,10 +2668,16 @@ impl Builtins {
                 Scheme::poly(
                     vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                        ),
                         Ty::fun(
                             Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone())),
+                            ),
                         ),
                     ),
                 )
@@ -2243,7 +2686,10 @@ impl Builtins {
                 // fix :: (a -> a) -> a
                 Scheme::poly(
                     vec![a.clone()],
-                    Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())), Ty::Var(a.clone())),
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                        Ty::Var(a.clone()),
+                    ),
                 )
             }),
             // Data.Maybe (additional)
@@ -2317,7 +2763,10 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(b.clone())),
                 );
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(either_ab, self.bool_ty.clone()))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(either_ab, self.bool_ty.clone()),
+                )
             }),
             ("isRight", {
                 // isRight :: Either a b -> Bool
@@ -2328,7 +2777,10 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(b.clone())),
                 );
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(either_ab, self.bool_ty.clone()))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(either_ab, self.bool_ty.clone()),
+                )
             }),
             ("lefts", {
                 // lefts :: [Either a b] -> [a]
@@ -2375,7 +2827,10 @@ impl Builtins {
             ("optional", {
                 // optional :: [a] -> [Maybe a] (list-specialized)
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let maybe_a = Ty::App(Box::new(Ty::Con(self.maybe_con.clone())), Box::new(Ty::Var(a.clone())));
+                let maybe_a = Ty::App(
+                    Box::new(Ty::Con(self.maybe_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let list_maybe = Ty::List(Box::new(maybe_a));
                 Scheme::poly(vec![a.clone()], Ty::fun(list_a, list_maybe))
             }),
@@ -2469,7 +2924,10 @@ impl Builtins {
             // Data.Traversable (IO-specialized)
             ("traverse", {
                 // traverse :: (a -> IO b) -> [a] -> IO [b] (same as mapM)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let io_list_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_b));
@@ -2483,20 +2941,23 @@ impl Builtins {
             }),
             ("traverse_", {
                 // traverse_ :: (a -> IO b) -> [a] -> IO () (same as mapM_)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(
-                        Ty::fun(Ty::Var(a.clone()), io_b),
-                        Ty::fun(list_a, io_unit),
-                    ),
+                    Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), Ty::fun(list_a, io_unit)),
                 )
             }),
             ("for", {
                 // for :: [a] -> (a -> IO b) -> IO [b] (flipped traverse)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                 let io_list_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_b));
@@ -2510,20 +2971,23 @@ impl Builtins {
             }),
             ("for_", {
                 // for_ :: [a] -> (a -> IO b) -> IO () (flipped traverse_)
-                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let io_b = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(
-                        list_a,
-                        Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), io_unit),
-                    ),
+                    Ty::fun(list_a, Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b), io_unit)),
                 )
             }),
             ("sequenceA", {
                 // sequenceA :: [IO a] -> IO [a] (same as sequence)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let list_io_a = Ty::List(Box::new(io_a));
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 let io_list_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a));
@@ -2531,7 +2995,10 @@ impl Builtins {
             }),
             ("sequenceA_", {
                 // sequenceA_ :: [IO a] -> IO () (same as sequence_)
-                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_a = Ty::App(
+                    Box::new(Ty::Con(self.io_con.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
                 let list_io_a = Ty::List(Box::new(io_a));
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(vec![a.clone()], Ty::fun(list_io_a, io_unit))
@@ -2562,7 +3029,10 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(b.clone())),
                 );
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), either_ab))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(Ty::Var(a.clone()), either_ab),
+                )
             }),
             ("Right", {
                 // Right :: b -> Either a b
@@ -2573,7 +3043,10 @@ impl Builtins {
                     )),
                     Box::new(Ty::Var(b.clone())),
                 );
-                Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(b.clone()), either_ab))
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(Ty::Var(b.clone()), either_ab),
+                )
             }),
         ];
 
@@ -2617,10 +3090,7 @@ impl Builtins {
 
         // 1. toDynamic :: forall shape a. Tensor shape a -> DynTensor a
         let to_dynamic_ty = Ty::fun(tensor_shape_a.clone(), dyn_tensor_a.clone());
-        let to_dynamic_scheme = Scheme::poly(
-            vec![shape_var.clone(), a_var.clone()],
-            to_dynamic_ty,
-        );
+        let to_dynamic_scheme = Scheme::poly(vec![shape_var.clone(), a_var.clone()], to_dynamic_ty);
         env.register_value(
             DefId::new(BUILTIN_TO_DYNAMIC_ID),
             Symbol::intern("toDynamic"),
@@ -2632,10 +3102,8 @@ impl Builtins {
             witness_shape.clone(),
             Ty::fun(dyn_tensor_a.clone(), maybe_tensor),
         );
-        let from_dynamic_scheme = Scheme::poly(
-            vec![shape_var.clone(), a_var.clone()],
-            from_dynamic_ty,
-        );
+        let from_dynamic_scheme =
+            Scheme::poly(vec![shape_var.clone(), a_var.clone()], from_dynamic_ty);
         env.register_value(
             DefId::new(BUILTIN_FROM_DYNAMIC_ID),
             Symbol::intern("fromDynamic"),
@@ -2643,7 +3111,10 @@ impl Builtins {
         );
 
         // 3. dynShape :: forall a. DynTensor a -> [Int]
-        let dyn_shape_ty = Ty::fun(dyn_tensor_a.clone(), Ty::List(Box::new(self.int_ty.clone())));
+        let dyn_shape_ty = Ty::fun(
+            dyn_tensor_a.clone(),
+            Ty::List(Box::new(self.int_ty.clone())),
+        );
         let dyn_shape_scheme = Scheme::poly(vec![a_var.clone()], dyn_shape_ty);
         env.register_value(
             DefId::new(BUILTIN_DYN_SHAPE_ID),
@@ -2671,14 +3142,9 @@ impl Builtins {
             vec![inner_shape_var],
             Box::new(Ty::fun(tensor_inner, Ty::Var(r_var.clone()))),
         );
-        let with_dyn_shape_ty = Ty::fun(
-            dyn_tensor_a,
-            Ty::fun(continuation, Ty::Var(r_var.clone())),
-        );
-        let with_dyn_shape_scheme = Scheme::poly(
-            vec![a_var.clone(), r_var],
-            with_dyn_shape_ty,
-        );
+        let with_dyn_shape_ty =
+            Ty::fun(dyn_tensor_a, Ty::fun(continuation, Ty::Var(r_var.clone())));
+        let with_dyn_shape_scheme = Scheme::poly(vec![a_var.clone(), r_var], with_dyn_shape_ty);
         env.register_value(
             DefId::new(BUILTIN_WITH_DYN_SHAPE_ID),
             Symbol::intern("withDynShape"),
@@ -2695,10 +3161,7 @@ impl Builtins {
 
         // 7. MkDynTensor :: forall shape a. Tensor shape a -> DynTensor a (data constructor)
         let mk_dyn_tensor_ty = Ty::fun(tensor_shape_a, self.dyn_tensor_of(Ty::Var(a_var.clone())));
-        let mk_dyn_tensor_scheme = Scheme::poly(
-            vec![shape_var, a_var],
-            mk_dyn_tensor_ty,
-        );
+        let mk_dyn_tensor_scheme = Scheme::poly(vec![shape_var, a_var], mk_dyn_tensor_ty);
         env.register_data_con(
             DefId::new(BUILTIN_MK_DYN_TENSOR_ID),
             Symbol::intern("MkDynTensor"),
@@ -2718,7 +3181,7 @@ impl Builtins {
 // We skip the type DefIds (0-8) and start constructors at 9.
 const BUILTIN_TYPE_COUNT: usize = 9; // Int, Float, Double, Char, Bool, String, IO, Maybe, Either
 
-const BUILTIN_TRUE_ID: usize = BUILTIN_TYPE_COUNT;     // 9
+const BUILTIN_TRUE_ID: usize = BUILTIN_TYPE_COUNT; // 9
 const BUILTIN_FALSE_ID: usize = BUILTIN_TYPE_COUNT + 1; // 10
 const BUILTIN_NOTHING_ID: usize = BUILTIN_TYPE_COUNT + 2; // 11
 const BUILTIN_JUST_ID: usize = BUILTIN_TYPE_COUNT + 3; // 12
@@ -2848,7 +3311,9 @@ mod tests {
                 assert_eq!(**elem, builtins.float_ty);
                 match f.as_ref() {
                     Ty::App(tensor, shape) => {
-                        assert!(matches!(tensor.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("Tensor")));
+                        assert!(
+                            matches!(tensor.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("Tensor"))
+                        );
                         assert!(matches!(shape.as_ref(), Ty::TyList(_)));
                     }
                     _ => panic!("expected Tensor applied to shape"),
@@ -2874,7 +3339,10 @@ mod tests {
         let builtins = Builtins::new();
 
         // ShapeWitness has kind [Nat] -> *
-        assert_eq!(builtins.shape_witness_con.name, Symbol::intern("ShapeWitness"));
+        assert_eq!(
+            builtins.shape_witness_con.name,
+            Symbol::intern("ShapeWitness")
+        );
         match &builtins.shape_witness_con.kind {
             Kind::Arrow(from, to) => {
                 assert_eq!(**from, Kind::nat_list());
@@ -2893,7 +3361,9 @@ mod tests {
 
         match &dyn_type {
             Ty::App(f, elem) => {
-                assert!(matches!(f.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("DynTensor")));
+                assert!(
+                    matches!(f.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("DynTensor"))
+                );
                 assert_eq!(**elem, builtins.float_ty);
             }
             _ => panic!("expected application"),
@@ -2910,7 +3380,9 @@ mod tests {
 
         match &witness {
             Ty::App(f, shape_arg) => {
-                assert!(matches!(f.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("ShapeWitness")));
+                assert!(
+                    matches!(f.as_ref(), Ty::Con(tc) if tc.name == Symbol::intern("ShapeWitness"))
+                );
                 assert!(matches!(shape_arg.as_ref(), Ty::TyList(_)));
             }
             _ => panic!("expected application"),
@@ -2932,7 +3404,10 @@ mod tests {
 
         // Check fromDynamic is registered
         let from_dyn_scheme = env.lookup_local(Symbol::intern("fromDynamic"));
-        assert!(from_dyn_scheme.is_some(), "fromDynamic should be registered");
+        assert!(
+            from_dyn_scheme.is_some(),
+            "fromDynamic should be registered"
+        );
         let from_dyn = from_dyn_scheme.unwrap();
         assert_eq!(from_dyn.vars.len(), 2); // shape, a
 
@@ -2948,7 +3423,10 @@ mod tests {
 
         // Check withDynShape is registered
         let with_dyn_scheme = env.lookup_local(Symbol::intern("withDynShape"));
-        assert!(with_dyn_scheme.is_some(), "withDynShape should be registered");
+        assert!(
+            with_dyn_scheme.is_some(),
+            "withDynShape should be registered"
+        );
 
         // Check MkDynTensor data constructor is registered
         let mk_dyn = env.lookup_data_con(Symbol::intern("MkDynTensor"));

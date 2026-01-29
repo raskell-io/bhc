@@ -5,7 +5,7 @@ use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
 
-use crate::{ParseResult, Parser, ParseError};
+use crate::{ParseError, ParseResult, Parser};
 
 impl<'src> Parser<'src> {
     /// Check if the current token can start a pattern.
@@ -114,7 +114,7 @@ impl<'src> Parser<'src> {
                     | TokenKind::LBracket
                     | TokenKind::Underscore
                     | TokenKind::Tilde        // Lazy pattern ~x
-                    | TokenKind::Bang         // Strict pattern !x
+                    | TokenKind::Bang // Strict pattern !x
             ),
             None => false,
         }

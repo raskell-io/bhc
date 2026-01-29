@@ -132,7 +132,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging
-    let level = if cli.verbose { Level::DEBUG } else { Level::INFO };
+    let level = if cli.verbose {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
     let subscriber = FmtSubscriber::builder()
         .with_max_level(level)
         .with_target(false)
@@ -202,10 +206,8 @@ fn main() -> Result<()> {
             threshold,
             format,
         } => {
-            let report = bhc_docs::coverage::run(bhc_docs::coverage::CoverageConfig {
-                input,
-                threshold,
-            })?;
+            let report =
+                bhc_docs::coverage::run(bhc_docs::coverage::CoverageConfig { input, threshold })?;
 
             match format {
                 CoverageFormat::Text => println!("{}", report),

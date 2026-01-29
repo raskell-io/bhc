@@ -478,11 +478,7 @@ fn generate_parallel_loop_header_amd(
             .unwrap();
         }
     }
-    writeln!(
-        code,
-        "    s_and_saveexec_b64 s[22:23], s[20:21]"
-    )
-    .unwrap();
+    writeln!(code, "    s_and_saveexec_b64 s[22:23], s[20:21]").unwrap();
     writeln!(code, "    s_cbranch_execz .L_loop_exit_{}", loop_idx).unwrap();
     writeln!(code).unwrap();
 
@@ -520,12 +516,7 @@ fn generate_sequential_loop_header_amd(
     // Bounds check
     match &loop_info.upper {
         bhc_tensor_ir::Dim::Static(n) => {
-            writeln!(
-                code,
-                "    v_cmp_ge_u32 s[20:21], {}, {}",
-                v_idx, n
-            )
-            .unwrap();
+            writeln!(code, "    v_cmp_ge_u32 s[20:21], {}, {}", v_idx, n).unwrap();
         }
         bhc_tensor_ir::Dim::Dynamic(sym) => {
             writeln!(

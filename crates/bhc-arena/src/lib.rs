@@ -55,7 +55,8 @@ impl Arena {
 
     /// Allocate a string in the arena.
     pub fn alloc_str(&self, s: &str) -> &str {
-        self.bytes_allocated.set(self.bytes_allocated.get() + s.len());
+        self.bytes_allocated
+            .set(self.bytes_allocated.get() + s.len());
         self.bump.alloc_str(s)
     }
 

@@ -223,7 +223,7 @@ impl Evaluator {
             ("fromList", PrimOp::UArrayFromList),
             ("toList", PrimOp::UArrayToList),
             ("uarrayMap", PrimOp::UArrayMap),
-            ("map", PrimOp::UArrayMap),  // Standard list map
+            ("map", PrimOp::UArrayMap), // Standard list map
             ("uarrayZipWith", PrimOp::UArrayZipWith),
             ("uarrayFold", PrimOp::UArrayFold),
             ("sum", PrimOp::UArraySum),
@@ -314,71 +314,92 @@ impl Evaluator {
 
         // Register list constructors
         prims.insert(Symbol::intern("[]"), Value::nil());
-        prims.insert(Symbol::intern(":"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern(":"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("[]"), bhc_types::Kind::star_to_star()),
-                tag: 1,
-                arity: 2,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern(":"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern(":"),
+                    ty_con: bhc_types::TyCon::new(
+                        Symbol::intern("[]"),
+                        bhc_types::Kind::star_to_star(),
+                    ),
+                    tag: 1,
+                    arity: 2,
+                },
+                args: vec![],
+            }),
+        );
 
         // Register tuple constructors
         // Unit tuple ()
-        prims.insert(Symbol::intern("()"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern("()"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("()"), bhc_types::Kind::Star),
-                tag: 0,
-                arity: 0,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern("()"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("()"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("()"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 0,
+                },
+                args: vec![],
+            }),
+        );
 
         // Pair (,)
-        prims.insert(Symbol::intern("(,)"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern("(,)"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("(,)"), bhc_types::Kind::Star),
-                tag: 0,
-                arity: 2,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern("(,)"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("(,)"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("(,)"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 2,
+                },
+                args: vec![],
+            }),
+        );
 
         // Triple (,,)
-        prims.insert(Symbol::intern("(,,)"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern("(,,)"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("(,,)"), bhc_types::Kind::Star),
-                tag: 0,
-                arity: 3,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern("(,,)"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("(,,)"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("(,,)"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 3,
+                },
+                args: vec![],
+            }),
+        );
 
         // Quadruple (,,,)
-        prims.insert(Symbol::intern("(,,,)"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern("(,,,)"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("(,,,)"), bhc_types::Kind::Star),
-                tag: 0,
-                arity: 4,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern("(,,,)"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("(,,,)"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("(,,,)"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 4,
+                },
+                args: vec![],
+            }),
+        );
 
         // Quintuple (,,,,)
-        prims.insert(Symbol::intern("(,,,,)"), Value::Data(DataValue {
-            con: crate::DataCon {
-                name: Symbol::intern("(,,,,)"),
-                ty_con: bhc_types::TyCon::new(Symbol::intern("(,,,,)"), bhc_types::Kind::Star),
-                tag: 0,
-                arity: 5,
-            },
-            args: vec![],
-        }));
+        prims.insert(
+            Symbol::intern("(,,,,)"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("(,,,,)"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("(,,,,)"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 5,
+                },
+                args: vec![],
+            }),
+        );
 
         // Boolean constructors and otherwise
         prims.insert(Symbol::intern("True"), Value::bool(true));
@@ -690,34 +711,110 @@ impl Evaluator {
             }
 
             PrimOp::EqInt => {
-                let a = args[0].as_int().unwrap_or(0);
-                let b = args[1].as_int().unwrap_or(0);
-                Ok(Value::bool(a == b))
+                // Polymorphic equality: dispatch based on argument types.
+                // This handles derived Eq for types with Int, Bool, Char,
+                // Float, Double fields, and enum/ADT types.
+                match (&args[0], &args[1]) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::bool(a == b)),
+                    (Value::Double(a), Value::Double(b)) =>
+                    {
+                        #[allow(clippy::float_cmp)]
+                        Ok(Value::bool(a == b))
+                    }
+                    (Value::Float(a), Value::Float(b)) =>
+                    {
+                        #[allow(clippy::float_cmp)]
+                        Ok(Value::bool(a == b))
+                    }
+                    (Value::Char(a), Value::Char(b)) => Ok(Value::bool(a == b)),
+                    (Value::String(a), Value::String(b)) => Ok(Value::bool(a == b)),
+                    (Value::Data(a), Value::Data(b)) => {
+                        // For nullary constructors (enums), compare tags
+                        if a.args.is_empty() && b.args.is_empty() {
+                            Ok(Value::bool(a.con.tag == b.con.tag))
+                        } else if a.con.tag != b.con.tag {
+                            // Different constructors are never equal
+                            Ok(Value::bool(false))
+                        } else {
+                            // Same constructor: recursively compare all fields
+                            if a.args.len() != b.args.len() {
+                                Ok(Value::bool(false))
+                            } else {
+                                for (fa, fb) in a.args.iter().zip(b.args.iter()) {
+                                    let fa = self.force(fa.clone())?;
+                                    let fb = self.force(fb.clone())?;
+                                    let eq = self.apply_primop(PrimOp::EqInt, vec![fa, fb])?;
+                                    if eq.as_bool() == Some(false) {
+                                        return Ok(Value::bool(false));
+                                    }
+                                }
+                                Ok(Value::bool(true))
+                            }
+                        }
+                    }
+                    _ => {
+                        // Fallback to int comparison for backward compatibility
+                        let a = args[0].as_int().unwrap_or(0);
+                        let b = args[1].as_int().unwrap_or(0);
+                        Ok(Value::bool(a == b))
+                    }
+                }
             }
 
             PrimOp::LtInt => {
-                let a = args[0].as_int().unwrap_or(0);
-                let b = args[1].as_int().unwrap_or(0);
-                Ok(Value::bool(a < b))
+                // Polymorphic less-than for derived Ord support
+                match (&args[0], &args[1]) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::bool(a < b)),
+                    (Value::Double(a), Value::Double(b)) => Ok(Value::bool(a < b)),
+                    (Value::Float(a), Value::Float(b)) => Ok(Value::bool(a < b)),
+                    (Value::Char(a), Value::Char(b)) => Ok(Value::bool(a < b)),
+                    (Value::Data(a), Value::Data(b)) => Ok(Value::bool(a.con.tag < b.con.tag)),
+                    _ => {
+                        let a = args[0].as_int().unwrap_or(0);
+                        let b = args[1].as_int().unwrap_or(0);
+                        Ok(Value::bool(a < b))
+                    }
+                }
             }
 
-            PrimOp::LeInt => {
-                let a = args[0].as_int().unwrap_or(0);
-                let b = args[1].as_int().unwrap_or(0);
-                Ok(Value::bool(a <= b))
-            }
+            PrimOp::LeInt => match (&args[0], &args[1]) {
+                (Value::Int(a), Value::Int(b)) => Ok(Value::bool(a <= b)),
+                (Value::Double(a), Value::Double(b)) => Ok(Value::bool(a <= b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::bool(a <= b)),
+                (Value::Char(a), Value::Char(b)) => Ok(Value::bool(a <= b)),
+                (Value::Data(a), Value::Data(b)) => Ok(Value::bool(a.con.tag <= b.con.tag)),
+                _ => {
+                    let a = args[0].as_int().unwrap_or(0);
+                    let b = args[1].as_int().unwrap_or(0);
+                    Ok(Value::bool(a <= b))
+                }
+            },
 
-            PrimOp::GtInt => {
-                let a = args[0].as_int().unwrap_or(0);
-                let b = args[1].as_int().unwrap_or(0);
-                Ok(Value::bool(a > b))
-            }
+            PrimOp::GtInt => match (&args[0], &args[1]) {
+                (Value::Int(a), Value::Int(b)) => Ok(Value::bool(a > b)),
+                (Value::Double(a), Value::Double(b)) => Ok(Value::bool(a > b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::bool(a > b)),
+                (Value::Char(a), Value::Char(b)) => Ok(Value::bool(a > b)),
+                (Value::Data(a), Value::Data(b)) => Ok(Value::bool(a.con.tag > b.con.tag)),
+                _ => {
+                    let a = args[0].as_int().unwrap_or(0);
+                    let b = args[1].as_int().unwrap_or(0);
+                    Ok(Value::bool(a > b))
+                }
+            },
 
-            PrimOp::GeInt => {
-                let a = args[0].as_int().unwrap_or(0);
-                let b = args[1].as_int().unwrap_or(0);
-                Ok(Value::bool(a >= b))
-            }
+            PrimOp::GeInt => match (&args[0], &args[1]) {
+                (Value::Int(a), Value::Int(b)) => Ok(Value::bool(a >= b)),
+                (Value::Double(a), Value::Double(b)) => Ok(Value::bool(a >= b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::bool(a >= b)),
+                (Value::Char(a), Value::Char(b)) => Ok(Value::bool(a >= b)),
+                (Value::Data(a), Value::Data(b)) => Ok(Value::bool(a.con.tag >= b.con.tag)),
+                _ => {
+                    let a = args[0].as_int().unwrap_or(0);
+                    let b = args[1].as_int().unwrap_or(0);
+                    Ok(Value::bool(a >= b))
+                }
+            },
 
             PrimOp::EqDouble => {
                 let a = args[0].as_double().unwrap_or(0.0);
@@ -819,10 +916,12 @@ impl Evaluator {
 
             PrimOp::UArrayToList => {
                 // Convert a UArray back to a list
-                args[0].uarray_to_list().ok_or_else(|| EvalError::TypeError {
-                    expected: "UArray".into(),
-                    got: format!("{:?}", args[0]),
-                })
+                args[0]
+                    .uarray_to_list()
+                    .ok_or_else(|| EvalError::TypeError {
+                        expected: "UArray".into(),
+                        got: format!("{:?}", args[0]),
+                    })
             }
 
             PrimOp::UArrayMap => {
@@ -859,7 +958,9 @@ impl Evaluator {
                                 })
                             })
                             .collect();
-                        Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(mapped?)))
+                        Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(
+                            mapped?,
+                        )))
                     }
                     // Support mapping over lists - need to force thunks while traversing
                     _ => {
@@ -920,7 +1021,9 @@ impl Evaluator {
                                 })
                             })
                             .collect();
-                        Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(zipped?)))
+                        Ok(Value::UArrayDouble(crate::uarray::UArray::from_vec(
+                            zipped?,
+                        )))
                     }
                     // Support lists - force thunks while traversing
                     _ => {
@@ -930,10 +1033,8 @@ impl Evaluator {
                             .iter()
                             .zip(list2.iter())
                             .map(|(x, y)| {
-                                let result = self.apply(
-                                    self.apply(f.clone(), x.clone())?,
-                                    y.clone(),
-                                )?;
+                                let result =
+                                    self.apply(self.apply(f.clone(), x.clone())?, y.clone())?;
                                 self.force(result)
                             })
                             .collect();
@@ -952,10 +1053,7 @@ impl Evaluator {
                     Value::UArrayInt(uarr) => {
                         let mut acc = init;
                         for x in uarr.as_slice() {
-                            let result = self.apply(
-                                self.apply(f.clone(), acc)?,
-                                Value::Int(*x),
-                            )?;
+                            let result = self.apply(self.apply(f.clone(), acc)?, Value::Int(*x))?;
                             acc = self.force(result)?;
                         }
                         Ok(acc)
@@ -963,10 +1061,8 @@ impl Evaluator {
                     Value::UArrayDouble(uarr) => {
                         let mut acc = init;
                         for x in uarr.as_slice() {
-                            let result = self.apply(
-                                self.apply(f.clone(), acc)?,
-                                Value::Double(*x),
-                            )?;
+                            let result =
+                                self.apply(self.apply(f.clone(), acc)?, Value::Double(*x))?;
                             acc = self.force(result)?;
                         }
                         Ok(acc)
@@ -976,10 +1072,7 @@ impl Evaluator {
                         let list = self.force_list(arr.clone())?;
                         let mut acc = init;
                         for x in list {
-                            let result = self.apply(
-                                self.apply(f.clone(), acc)?,
-                                x,
-                            )?;
+                            let result = self.apply(self.apply(f.clone(), acc)?, x)?;
                             acc = self.force(result)?;
                         }
                         Ok(acc)
@@ -996,16 +1089,18 @@ impl Evaluator {
                         // Force the list and sum it
                         let list = self.force_list(args[0].clone())?;
                         // Try to sum as integers first
-                        let ints: Option<i64> = list.iter().map(Value::as_int).try_fold(0i64, |acc, x| {
-                            x.map(|n| acc.wrapping_add(n))
-                        });
+                        let ints: Option<i64> = list
+                            .iter()
+                            .map(Value::as_int)
+                            .try_fold(0i64, |acc, x| x.map(|n| acc.wrapping_add(n)));
                         if let Some(sum) = ints {
                             return Ok(Value::Int(sum));
                         }
                         // Try as doubles
-                        let doubles: Option<f64> = list.iter().map(Value::as_double).try_fold(0.0f64, |acc, x| {
-                            x.map(|n| acc + n)
-                        });
+                        let doubles: Option<f64> = list
+                            .iter()
+                            .map(Value::as_double)
+                            .try_fold(0.0f64, |acc, x| x.map(|n| acc + n));
                         if let Some(sum) = doubles {
                             return Ok(Value::Double(sum));
                         }
@@ -1177,7 +1272,8 @@ impl Evaluator {
                 let xs = self.force_list(args[0].clone())?;
                 let ys = self.force_list(args[1].clone())?;
 
-                let pairs: Vec<Value> = xs.into_iter()
+                let pairs: Vec<Value> = xs
+                    .into_iter()
                     .zip(ys.into_iter())
                     .map(|(x, y)| {
                         use bhc_types::{Kind, TyCon};
@@ -1238,7 +1334,9 @@ impl Evaluator {
             PrimOp::Head => {
                 // head xs - partial, errors on empty list
                 let xs = self.force_list(args[0].clone())?;
-                xs.into_iter().next().ok_or(EvalError::UserError("head: empty list".to_string()))
+                xs.into_iter()
+                    .next()
+                    .ok_or(EvalError::UserError("head: empty list".to_string()))
             }
 
             PrimOp::Tail => {
@@ -1254,7 +1352,9 @@ impl Evaluator {
             PrimOp::Last => {
                 // last xs - partial, errors on empty list
                 let xs = self.force_list(args[0].clone())?;
-                xs.into_iter().last().ok_or(EvalError::UserError("last: empty list".to_string()))
+                xs.into_iter()
+                    .last()
+                    .ok_or(EvalError::UserError("last: empty list".to_string()))
             }
 
             PrimOp::Init => {
@@ -1293,9 +1393,9 @@ impl Evaluator {
                     return Err(EvalError::UserError("(!!): negative index".to_string()));
                 }
                 let n = n as usize;
-                xs.into_iter().nth(n).ok_or_else(|| {
-                    EvalError::UserError(format!("(!!): index {} too large", n))
-                })
+                xs.into_iter()
+                    .nth(n)
+                    .ok_or_else(|| EvalError::UserError(format!("(!!): index {} too large", n)))
             }
 
             PrimOp::Replicate => {
@@ -1825,9 +1925,10 @@ impl Evaluator {
                 use std::io::BufRead;
                 let stdin = std::io::stdin();
                 let mut line = String::new();
-                stdin.lock().read_line(&mut line).map_err(|e| {
-                    EvalError::UserError(format!("getLine failed: {e}"))
-                })?;
+                stdin
+                    .lock()
+                    .read_line(&mut line)
+                    .map_err(|e| EvalError::UserError(format!("getLine failed: {e}")))?;
                 // Remove trailing newline
                 if line.ends_with('\n') {
                     line.pop();
@@ -2012,10 +2113,8 @@ impl Evaluator {
                 } else {
                     // For variable patterns like `case e of x -> ...`,
                     // bind x to the scrutinee value
-                    let bindings: Vec<_> = binders
-                        .iter()
-                        .map(|var| (var.id, value.clone()))
-                        .collect();
+                    let bindings: Vec<_> =
+                        binders.iter().map(|var| (var.id, value.clone())).collect();
                     Ok(Some(bindings))
                 }
             }
@@ -2082,7 +2181,10 @@ impl Evaluator {
             (Value::Data(x), Value::Data(y)) => {
                 x.con.name == y.con.name
                     && x.args.len() == y.args.len()
-                    && x.args.iter().zip(y.args.iter()).all(|(a, b)| self.values_equal(a, b))
+                    && x.args
+                        .iter()
+                        .zip(y.args.iter())
+                        .all(|(a, b)| self.values_equal(a, b))
             }
             _ => false,
         }
@@ -2283,7 +2385,8 @@ impl Evaluator {
     /// Parses a dictionary selector name like "$sel_0", "$sel_1", etc.
     /// Returns the field index if the name matches the pattern.
     fn parse_selector_name(name: &str) -> Option<usize> {
-        name.strip_prefix("$sel_").and_then(|n| n.parse::<usize>().ok())
+        name.strip_prefix("$sel_")
+            .and_then(|n| n.parse::<usize>().ok())
     }
 }
 
@@ -2322,7 +2425,11 @@ mod tests {
 
         // (\x -> x) 42
         let x = make_var("x", 0);
-        let lam = Expr::Lam(x.clone(), Box::new(Expr::Var(x, Span::default())), Span::default());
+        let lam = Expr::Lam(
+            x.clone(),
+            Box::new(Expr::Var(x, Span::default())),
+            Span::default(),
+        );
         let app = Expr::App(Box::new(lam), Box::new(make_int(42)), Span::default());
 
         let result = eval.eval(&app, &Env::new()).unwrap();
@@ -2491,7 +2598,11 @@ mod tests {
         // First, create a let binding for the list
         let list_var = make_var("xs", 0);
         let list_expr = build_list_expr(vec![1, 2, 3, 4, 5]);
-        let sum_app = Expr::App(Box::new(sum_var), Box::new(Expr::Var(list_var.clone(), Span::default())), Span::default());
+        let sum_app = Expr::App(
+            Box::new(sum_var),
+            Box::new(Expr::Var(list_var.clone(), Span::default())),
+            Span::default(),
+        );
         let expr = Expr::Let(
             Box::new(Bind::NonRec(list_var, Box::new(list_expr))),
             Box::new(sum_app),
@@ -2574,7 +2685,11 @@ mod tests {
 
         // map (+1) [1, 2, 3, 4, 5]
         let map_app = Expr::App(
-            Box::new(Expr::App(Box::new(map_var), Box::new(add_one), Span::default())),
+            Box::new(Expr::App(
+                Box::new(map_var),
+                Box::new(add_one),
+                Span::default(),
+            )),
             Box::new(list_expr),
             Span::default(),
         );
@@ -2657,7 +2772,11 @@ mod tests {
             );
             let val_expr = make_int(val);
             expr = Expr::App(
-                Box::new(Expr::App(Box::new(cons_var), Box::new(val_expr), Span::default())),
+                Box::new(Expr::App(
+                    Box::new(cons_var),
+                    Box::new(val_expr),
+                    Span::default(),
+                )),
                 Box::new(expr),
                 Span::default(),
             );
@@ -2706,7 +2825,11 @@ mod tests {
 
         // 1 + 2
         let add_expr = Expr::App(
-            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(add),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
@@ -2821,7 +2944,11 @@ mod tests {
 
         // 1 + 2
         let add_expr = Expr::App(
-            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(add),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
@@ -3005,14 +3132,22 @@ mod tests {
 
         // (1 < 2) = true
         let cmp1 = Expr::App(
-            Box::new(Expr::App(Box::new(lt1), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(lt1),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
 
         // (3 < 4) = true
         let cmp2 = Expr::App(
-            Box::new(Expr::App(Box::new(lt2), Box::new(make_int(3)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(lt2),
+                Box::new(make_int(3)),
+                Span::default(),
+            )),
             Box::new(make_int(4)),
             Span::default(),
         );
@@ -3036,14 +3171,22 @@ mod tests {
 
         // (1 > 2) = false
         let cmp1 = Expr::App(
-            Box::new(Expr::App(Box::new(gt), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(gt),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
 
         // (3 < 4) = true
         let cmp2 = Expr::App(
-            Box::new(Expr::App(Box::new(lt), Box::new(make_int(3)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(lt),
+                Box::new(make_int(3)),
+                Span::default(),
+            )),
             Box::new(make_int(4)),
             Span::default(),
         );
@@ -3066,7 +3209,11 @@ mod tests {
 
         // (1 > 2) = false
         let cmp = Expr::App(
-            Box::new(Expr::App(Box::new(gt), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(gt),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
@@ -3102,21 +3249,33 @@ mod tests {
 
         // 1 + 2
         let add_expr = Expr::App(
-            Box::new(Expr::App(Box::new(add), Box::new(make_int(1)), Span::default())),
+            Box::new(Expr::App(
+                Box::new(add),
+                Box::new(make_int(1)),
+                Span::default(),
+            )),
             Box::new(make_int(2)),
             Span::default(),
         );
 
         // (1 + 2) * 3
         let mul_expr = Expr::App(
-            Box::new(Expr::App(Box::new(mul), Box::new(add_expr), Span::default())),
+            Box::new(Expr::App(
+                Box::new(mul),
+                Box::new(add_expr),
+                Span::default(),
+            )),
             Box::new(make_int(3)),
             Span::default(),
         );
 
         // ((1 + 2) * 3) - 4
         let sub_expr = Expr::App(
-            Box::new(Expr::App(Box::new(sub), Box::new(mul_expr), Span::default())),
+            Box::new(Expr::App(
+                Box::new(sub),
+                Box::new(mul_expr),
+                Span::default(),
+            )),
             Box::new(make_int(4)),
             Span::default(),
         );

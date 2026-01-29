@@ -82,14 +82,20 @@ pub enum ShapeError {
 impl std::fmt::Display for ShapeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ShapeError::MatMulDimensionMismatch { left_inner, right_inner } => {
+            ShapeError::MatMulDimensionMismatch {
+                left_inner,
+                right_inner,
+            } => {
                 write!(
                     f,
                     "matrix multiplication dimension mismatch: inner dimensions {} and {} don't match",
                     left_inner, right_inner
                 )
             }
-            ShapeError::MatMulRankMismatch { left_rank, right_rank } => {
+            ShapeError::MatMulRankMismatch {
+                left_rank,
+                right_rank,
+            } => {
                 write!(
                     f,
                     "matrix multiplication requires 2D tensors, got {}D and {}D",
@@ -509,7 +515,10 @@ mod tests {
         let k = TyVar::new(2, Kind::Nat);
         let n = TyVar::new(3, Kind::Nat);
 
-        let a = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m.clone())), Ty::Nat(TyNat::Var(k.clone()))]);
+        let a = TyList::from_vec(vec![
+            Ty::Nat(TyNat::Var(m.clone())),
+            Ty::Nat(TyNat::Var(k.clone())),
+        ]);
         let b = TyList::from_vec(vec![Ty::Nat(TyNat::Var(k)), Ty::Nat(TyNat::Var(n.clone()))]);
 
         // Should reduce to [m, n] since k == k
@@ -535,12 +544,21 @@ mod tests {
         let k2 = TyVar::new(4, Kind::Nat); // Different variable
         let n = TyVar::new(3, Kind::Nat);
 
-        let a = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m)), Ty::Nat(TyNat::Var(k1.clone()))]);
-        let b = TyList::from_vec(vec![Ty::Nat(TyNat::Var(k2.clone())), Ty::Nat(TyNat::Var(n))]);
+        let a = TyList::from_vec(vec![
+            Ty::Nat(TyNat::Var(m)),
+            Ty::Nat(TyNat::Var(k1.clone())),
+        ]);
+        let b = TyList::from_vec(vec![
+            Ty::Nat(TyNat::Var(k2.clone())),
+            Ty::Nat(TyNat::Var(n)),
+        ]);
 
         // This should result in a dimension mismatch error since k1 != k2
         match reduce_matmul_shape(&a, &b) {
-            ReductionResult::Error(ShapeError::MatMulDimensionMismatch { left_inner, right_inner }) => {
+            ReductionResult::Error(ShapeError::MatMulDimensionMismatch {
+                left_inner,
+                right_inner,
+            }) => {
                 assert!(matches!(left_inner, TyNat::Var(v) if v.id == k1.id));
                 assert!(matches!(right_inner, TyNat::Var(v) if v.id == k2.id));
             }

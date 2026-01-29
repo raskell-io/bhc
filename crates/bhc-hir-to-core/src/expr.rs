@@ -105,9 +105,7 @@ pub fn lower_expr(ctx: &mut LowerContext, expr: &hir::Expr) -> LowerResult<core:
             lower_expr(ctx, expr)
         }
 
-        Expr::TypeApp(expr, ty, span) => {
-            lower_type_app(ctx, expr, ty, *span)
-        }
+        Expr::TypeApp(expr, ty, span) => lower_type_app(ctx, expr, ty, *span),
 
         Expr::Error(span) => {
             // Generate a runtime error expression
@@ -157,8 +155,7 @@ fn lower_lit(lit: &Lit, span: Span) -> LowerResult<core::Expr> {
 /// 3. **Regular variables**: Just return a variable reference.
 fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr> {
     // First, check if this is a class method reference
-    let var_name = ctx.lookup_var(def_ref.def_id)
-        .map(|v| v.name);
+    let var_name = ctx.lookup_var(def_ref.def_id).map(|v| v.name);
 
     if let Some(name) = var_name {
         // Check if this is a class method
@@ -167,12 +164,9 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
             // Look for an in-scope dictionary for this class
             if let Some(dict_var) = ctx.lookup_dict(class_name) {
                 // Select the method from the dictionary
-                if let Some(method_expr) = ctx.select_method_from_dict(
-                    dict_var,
-                    class_name,
-                    name,
-                    def_ref.span,
-                ) {
+                if let Some(method_expr) =
+                    ctx.select_method_from_dict(dict_var, class_name, name, def_ref.span)
+                {
                     return Ok(method_expr);
                 }
             }
@@ -205,11 +199,7 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
             for constraint in &constraints {
                 // Try to resolve the dictionary
                 if let Some(dict_expr) = ctx.resolve_dictionary(constraint, def_ref.span) {
-                    result = core::Expr::App(
-                        Box::new(result),
-                        Box::new(dict_expr),
-                        def_ref.span,
-                    );
+                    result = core::Expr::App(Box::new(result), Box::new(dict_expr), def_ref.span);
                 } else {
                     // Dictionary not available - this indicates either:
                     // 1. A type error that should have been caught earlier
@@ -225,11 +215,7 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
                         format_constraint(constraint)
                     );
                     let error_expr = make_error_expr(&error_msg, def_ref.span);
-                    result = core::Expr::App(
-                        Box::new(result),
-                        Box::new(error_expr),
-                        def_ref.span,
-                    );
+                    result = core::Expr::App(Box::new(result), Box::new(error_expr), def_ref.span);
                 }
             }
             return Ok(result);
@@ -261,12 +247,9 @@ fn lower_type_app(
             if let Some(class_name) = ctx.is_class_method(method_name) {
                 // This is a class method being instantiated at a concrete type
                 // Construct the dictionary and select the method from it
-                if let Some(method_expr) = ctx.resolve_method_at_concrete_type(
-                    method_name,
-                    class_name,
-                    ty,
-                    span,
-                ) {
+                if let Some(method_expr) =
+                    ctx.resolve_method_at_concrete_type(method_name, class_name, ty, span)
+                {
                     return Ok(method_expr);
                 }
                 // Fall through to regular handling if resolution fails
@@ -369,7 +352,11 @@ fn lower_lambda(
 }
 
 /// Register all variables bound by a pattern into the context.
-fn register_pattern_vars(ctx: &mut LowerContext, pat: &hir::Pat, vars: &mut Vec<(hir::DefId, Var)>) {
+fn register_pattern_vars(
+    ctx: &mut LowerContext,
+    pat: &hir::Pat,
+    vars: &mut Vec<(hir::DefId, Var)>,
+) {
     match pat {
         hir::Pat::Var(name, def_id, _) => {
             let var = Var {
@@ -468,12 +455,10 @@ fn lower_single_let_binding(
         // Simple variable pattern: let x = e in body
         hir::Pat::Var(name, def_id, _) => {
             let rhs = lower_expr(ctx, &binding.rhs)?;
-            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| {
-                Var {
-                    name: *name,
-                    id: ctx.fresh_id(),
-                    ty: Ty::Error,
-                }
+            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
             });
 
             // Check if the binding is self-recursive
@@ -576,7 +561,12 @@ fn lower_if(
 }
 
 /// Create a Core if expression (case on Bool).
-fn make_if_expr(cond: core::Expr, then_br: core::Expr, else_br: core::Expr, span: Span) -> core::Expr {
+fn make_if_expr(
+    cond: core::Expr,
+    then_br: core::Expr,
+    else_br: core::Expr,
+    span: Span,
+) -> core::Expr {
     let bool_tycon = TyCon::new(Symbol::intern("Bool"), Kind::Star);
     let true_con = DataCon {
         name: Symbol::intern("True"),
@@ -603,12 +593,7 @@ fn make_if_expr(cond: core::Expr, then_br: core::Expr, else_br: core::Expr, span
         rhs: else_br,
     };
 
-    core::Expr::Case(
-        Box::new(cond),
-        vec![true_alt, false_alt],
-        Ty::Error,
-        span,
-    )
+    core::Expr::Case(Box::new(cond), vec![true_alt, false_alt], Ty::Error, span)
 }
 
 /// Lower a tuple expression to Core.
@@ -725,9 +710,10 @@ fn lower_field_access(
 
         let result_var = result_var.unwrap_or_else(|| {
             // Shouldn't happen, but handle it gracefully
-            binders.first().cloned().unwrap_or_else(|| {
-                ctx.fresh_var("$error", Ty::Error, span)
-            })
+            binders
+                .first()
+                .cloned()
+                .unwrap_or_else(|| ctx.fresh_var("$error", Ty::Error, span))
         });
 
         // Look up constructor info for the data constructor
@@ -827,9 +813,19 @@ fn lower_record_update(
             .unwrap_or_default();
 
         let (con_name, tycon, tag, arity) = if let Some(ref ci) = con_info {
-            (ci.name, TyCon::new(ci.type_name, Kind::Star), ci.tag, ci.arity)
+            (
+                ci.name,
+                TyCon::new(ci.type_name, Kind::Star),
+                ci.tag,
+                ci.arity,
+            )
         } else {
-            (info.con_name, TyCon::new(info.type_name, Kind::Star), 0, info.total_fields as u32)
+            (
+                info.con_name,
+                TyCon::new(info.type_name, Kind::Star),
+                0,
+                info.total_fields as u32,
+            )
         };
 
         // Build the constructor application with updated fields
@@ -885,12 +881,10 @@ fn lower_record_update(
         ))
     } else {
         // No field info available - cannot compile record update
-        ctx.error(LowerError::Internal(
-            format!(
-                "cannot compile record update: no information for field '{}'",
-                first_field.name.as_str()
-            ),
-        ));
+        ctx.error(LowerError::Internal(format!(
+            "cannot compile record update: no information for field '{}'",
+            first_field.name.as_str()
+        )));
         Ok(make_pattern_error(span))
     }
 }

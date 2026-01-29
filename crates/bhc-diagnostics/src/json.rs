@@ -241,7 +241,10 @@ pub fn diagnostic_to_json(diagnostic: &Diagnostic, source_map: &SourceMap) -> Js
 
 /// Convert multiple diagnostics to JSON format.
 #[must_use]
-pub fn diagnostics_to_json(diagnostics: &[Diagnostic], source_map: &SourceMap) -> Vec<JsonDiagnostic> {
+pub fn diagnostics_to_json(
+    diagnostics: &[Diagnostic],
+    source_map: &SourceMap,
+) -> Vec<JsonDiagnostic> {
     diagnostics
         .iter()
         .map(|d| diagnostic_to_json(d, source_map))
@@ -249,13 +252,19 @@ pub fn diagnostics_to_json(diagnostics: &[Diagnostic], source_map: &SourceMap) -
 }
 
 /// Serialize diagnostics to a JSON string.
-pub fn to_json_string(diagnostics: &[Diagnostic], source_map: &SourceMap) -> Result<String, serde_json::Error> {
+pub fn to_json_string(
+    diagnostics: &[Diagnostic],
+    source_map: &SourceMap,
+) -> Result<String, serde_json::Error> {
     let json_diags = diagnostics_to_json(diagnostics, source_map);
     serde_json::to_string_pretty(&json_diags)
 }
 
 /// Serialize diagnostics to a JSON string (compact, one per line).
-pub fn to_json_lines(diagnostics: &[Diagnostic], source_map: &SourceMap) -> Result<String, serde_json::Error> {
+pub fn to_json_lines(
+    diagnostics: &[Diagnostic],
+    source_map: &SourceMap,
+) -> Result<String, serde_json::Error> {
     let mut output = String::new();
     for diag in diagnostics {
         let json_diag = diagnostic_to_json(diag, source_map);
@@ -308,10 +317,7 @@ mod tests {
 
         let diag = Diagnostic::error("test error")
             .with_code("E0001")
-            .with_label(
-                FullSpan::new(FileId::new(0), Span::from_raw(0, 6)),
-                "here",
-            );
+            .with_label(FullSpan::new(FileId::new(0), Span::from_raw(0, 6)), "here");
 
         let json_str = to_json_string(&[diag], &sm).unwrap();
 

@@ -404,7 +404,9 @@ impl TensorMeta {
     /// Returns the total size in bytes (if statically known).
     #[must_use]
     pub fn size_bytes(&self) -> Option<usize> {
-        self.shape.num_elements().map(|n| n * self.dtype.size_bytes())
+        self.shape
+            .num_elements()
+            .map(|n| n * self.dtype.size_bytes())
     }
 }
 

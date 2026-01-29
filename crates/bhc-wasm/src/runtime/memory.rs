@@ -92,26 +92,22 @@ impl MemoryLayout {
     /// Validate the layout.
     pub fn validate(&self) -> WasmResult<()> {
         if self.stack_end < self.stack_start {
-            return Err(WasmError::MemoryError(
-                "Invalid stack region".to_string()
-            ));
+            return Err(WasmError::MemoryError("Invalid stack region".to_string()));
         }
 
         if self.heap_end < self.heap_start {
-            return Err(WasmError::MemoryError(
-                "Invalid heap region".to_string()
-            ));
+            return Err(WasmError::MemoryError("Invalid heap region".to_string()));
         }
 
         if self.stack_end > self.heap_start {
             return Err(WasmError::MemoryError(
-                "Stack overlaps with heap".to_string()
+                "Stack overlaps with heap".to_string(),
             ));
         }
 
         if self.heap_end > self.total_size {
             return Err(WasmError::MemoryError(
-                "Heap extends beyond memory".to_string()
+                "Heap extends beyond memory".to_string(),
             ));
         }
 
@@ -247,16 +243,11 @@ impl LinearMemory {
 
         // Check if we have space
         if aligned + data.len() as u32 > self.layout.data_end {
-            return Err(WasmError::MemoryError(
-                "Data segment overflow".to_string()
-            ));
+            return Err(WasmError::MemoryError("Data segment overflow".to_string()));
         }
 
         let offset = aligned;
-        self.data_segments.push(DataSegment {
-            offset,
-            data,
-        });
+        self.data_segments.push(DataSegment { offset, data });
         self.data_offset = offset + self.data_segments.last().unwrap().data.len() as u32;
 
         Ok(offset)
@@ -289,17 +280,13 @@ impl LinearMemory {
 
     /// Allocate an array of f32 values.
     pub fn alloc_f32_array(&mut self, values: &[f32]) -> WasmResult<u32> {
-        let data: Vec<u8> = values.iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let data: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         self.alloc_data(data, 16) // 16-byte alignment for SIMD
     }
 
     /// Allocate an array of f64 values.
     pub fn alloc_f64_array(&mut self, values: &[f64]) -> WasmResult<u32> {
-        let data: Vec<u8> = values.iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
+        let data: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
         self.alloc_data(data, 16)
     }
 
@@ -403,7 +390,7 @@ mod tests {
     fn test_linear_memory_data_segment_overflow() {
         let layout = MemoryLayout::builder()
             .data_size(16)
-            .stack_size(1024)  // Small stack to fit in 1 page
+            .stack_size(1024) // Small stack to fit in 1 page
             .total_pages(1)
             .build()
             .unwrap();

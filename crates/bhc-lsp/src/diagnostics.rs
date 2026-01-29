@@ -71,10 +71,19 @@ mod tests {
 
     #[test]
     fn test_create_error() {
-        let diag = error("Test error", Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 5 },
-        });
+        let diag = error(
+            "Test error",
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 5,
+                },
+            },
+        );
 
         assert_eq!(diag.severity, Some(DiagnosticSeverity::ERROR));
         assert_eq!(diag.message, "Test error");
@@ -82,10 +91,19 @@ mod tests {
 
     #[test]
     fn test_create_warning() {
-        let diag = warning("Test warning", Range {
-            start: Position { line: 1, character: 0 },
-            end: Position { line: 1, character: 10 },
-        });
+        let diag = warning(
+            "Test warning",
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 0,
+                },
+                end: Position {
+                    line: 1,
+                    character: 10,
+                },
+            },
+        );
 
         assert_eq!(diag.severity, Some(DiagnosticSeverity::WARNING));
         assert_eq!(diag.message, "Test warning");

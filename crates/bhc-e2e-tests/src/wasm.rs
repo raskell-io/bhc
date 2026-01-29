@@ -99,10 +99,11 @@ pub fn run_wasm(wasm_path: &Path, timeout: Duration) -> Result<ExecutionOutput, 
 
     // Add fuel for timeout (rough approximation: 1M instructions per second)
     let fuel_per_second = 1_000_000u64;
-    let fuel = fuel_per_second * timeout.as_secs() + fuel_per_second * timeout.subsec_millis() as u64 / 1000;
-    store.set_fuel(fuel).map_err(|e| {
-        E2EError::ExecutionError(format!("Failed to set fuel: {}", e))
-    })?;
+    let fuel = fuel_per_second * timeout.as_secs()
+        + fuel_per_second * timeout.subsec_millis() as u64 / 1000;
+    store
+        .set_fuel(fuel)
+        .map_err(|e| E2EError::ExecutionError(format!("Failed to set fuel: {}", e)))?;
 
     // Create linker and add WASI
     let mut linker = Linker::new(&engine);
@@ -110,9 +111,9 @@ pub fn run_wasm(wasm_path: &Path, timeout: Duration) -> Result<ExecutionOutput, 
         .map_err(|e| E2EError::ExecutionError(format!("Failed to add WASI to linker: {}", e)))?;
 
     // Instantiate the module
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .map_err(|e| E2EError::ExecutionError(format!("Failed to instantiate WASM module: {}", e)))?;
+    let instance = linker.instantiate(&mut store, &module).map_err(|e| {
+        E2EError::ExecutionError(format!("Failed to instantiate WASM module: {}", e))
+    })?;
 
     // Get the _start function (WASI entry point)
     let start_func = instance

@@ -44,4 +44,4 @@ pub mod search;
 pub mod serve;
 
 /// Re-export commonly used types.
-pub use model::{DocItem, ModuleDoc, FunctionDoc, TypeDoc};
+pub use model::{DocItem, FunctionDoc, ModuleDoc, TypeDoc};

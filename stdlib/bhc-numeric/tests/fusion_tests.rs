@@ -32,8 +32,10 @@ mod map_map_fusion {
         // Results should be identical
         for i in 0..4 {
             assert_eq!(
-                *result1.get(&[i]).unwrap(), *result2.get(&[i]).unwrap(),
-                "map/map fusion result mismatch at index {}", i
+                *result1.get(&[i]).unwrap(),
+                *result2.get(&[i]).unwrap(),
+                "map/map fusion result mismatch at index {}",
+                i
             );
         }
     }
@@ -43,10 +45,7 @@ mod map_map_fusion {
         // map f (map g (map h x)) should fuse to single map (f . g . h)
         let t: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0], &[5]).unwrap();
 
-        let result1 = t
-            .map(|x| x + 1.0)
-            .map(|x| x * 2.0)
-            .map(|x| x - 3.0);
+        let result1 = t.map(|x| x + 1.0).map(|x| x * 2.0).map(|x| x - 3.0);
 
         let result2 = t.map(|x| ((x + 1.0) * 2.0) - 3.0);
 
@@ -57,14 +56,17 @@ mod map_map_fusion {
 
     #[test]
     fn test_map_map_2d() {
-        let t: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
 
         let result1 = t.map(|x| x * x).map(|x| x.sqrt());
         let result2 = t.map(|x| (x * x).sqrt());
 
         for i in 0..2 {
             for j in 0..3 {
-                assert!((*result1.get(&[i, j]).unwrap() - *result2.get(&[i, j]).unwrap()).abs() < 1e-10);
+                assert!(
+                    (*result1.get(&[i, j]).unwrap() - *result2.get(&[i, j]).unwrap()).abs() < 1e-10
+                );
             }
         }
     }
@@ -96,7 +98,10 @@ mod zipwith_map_fusion {
         let b: Tensor<f64> = Tensor::from_data(vec![5.0, 6.0, 7.0, 8.0], &[4]).unwrap();
 
         // With intermediate maps
-        let result1 = a.map(|x| x * 2.0).zip_with(&b.map(|x| x + 1.0), |x, y| x + y).unwrap();
+        let result1 = a
+            .map(|x| x * 2.0)
+            .zip_with(&b.map(|x| x + 1.0), |x, y| x + y)
+            .unwrap();
 
         // Fused version (what it should compute)
         let result2 = a.zip_with(&b, |x, y| (x * 2.0) + (y + 1.0)).unwrap();
@@ -245,7 +250,8 @@ mod fold_map_fusion {
     #[test]
     fn test_count_positive() {
         // Count elements satisfying a predicate
-        let t: Tensor<f64> = Tensor::from_data(vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0], &[6]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0], &[6]).unwrap();
 
         let count = t.fold(0.0, |acc, x| if *x > 0.0 { acc + 1.0 } else { acc });
 
@@ -392,7 +398,8 @@ mod memory_efficiency {
         let a = Tensor::<f64>::full(&[1000], 1.0);
         let b = Tensor::<f64>::full(&[1000], 2.0);
 
-        let result = a.map(|x| x * 2.0)
+        let result = a
+            .map(|x| x * 2.0)
             .zip_with(&b.map(|x| x + 1.0), |x, y| x + y)
             .unwrap()
             .sum();
@@ -413,7 +420,8 @@ mod axis_fusion {
     #[test]
     fn test_sum_axis_after_map() {
         // sum_axis 0 (map f x) should fuse
-        let t: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
 
         let result = t.map(|x| x * 2.0).sum_axis(0).unwrap();
 
@@ -477,7 +485,8 @@ mod numerical_stability {
     #[test]
     fn test_variance_numerical_stability() {
         // Variance computation should be stable
-        let t: Tensor<f64> = Tensor::from_data(vec![1e8, 1e8 + 1.0, 1e8 + 2.0, 1e8 + 3.0], &[4]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![1e8, 1e8 + 1.0, 1e8 + 2.0, 1e8 + 3.0], &[4]).unwrap();
 
         let mean = t.mean();
         let variance = t.map(|x| (x - mean) * (x - mean)).mean();
@@ -508,7 +517,8 @@ mod fusion_properties {
     #[test]
     fn test_sum_of_zeros() {
         // sum (map (const 0) x) == 0
-        let t: Tensor<f64> = Tensor::from_data((0..100).map(|x| x as f64).collect(), &[100]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data((0..100).map(|x| x as f64).collect(), &[100]).unwrap();
         let result = t.map(|_| 0.0).sum();
 
         assert_eq!(result, 0.0);

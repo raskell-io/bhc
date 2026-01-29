@@ -261,12 +261,12 @@ fn matmul_blas(
             m,
             n,
             k,
-            1.0,           // alpha
+            1.0, // alpha
             a.buffer(),
             lda,
             b.buffer(),
             ldb,
-            0.0,           // beta
+            0.0, // beta
             c.buffer_mut(),
             ldc,
         )
@@ -338,12 +338,20 @@ fn smatmul_naive(a: &Matrix<f32>, b: &Matrix<f32>, c: &mut Matrix<f32>) {
 }
 
 /// Dot product of two vectors.
-pub fn dot(provider: &dyn BlasProvider, x: &PinnedBuffer<f64>, y: &PinnedBuffer<f64>) -> BlasResult<f64> {
+pub fn dot(
+    provider: &dyn BlasProvider,
+    x: &PinnedBuffer<f64>,
+    y: &PinnedBuffer<f64>,
+) -> BlasResult<f64> {
     provider.ddot(x, y)
 }
 
 /// Single-precision dot product.
-pub fn sdot(provider: &dyn BlasProvider, x: &PinnedBuffer<f32>, y: &PinnedBuffer<f32>) -> BlasResult<f32> {
+pub fn sdot(
+    provider: &dyn BlasProvider,
+    x: &PinnedBuffer<f32>,
+    y: &PinnedBuffer<f32>,
+) -> BlasResult<f32> {
     provider.sdot(x, y)
 }
 
@@ -403,16 +411,9 @@ mod tests {
         // Small matrix (below BLAS threshold)
         let provider = FallbackBlas::new();
 
-        let a = Matrix::from_slice(2, 3, &[
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ]).unwrap();
+        let a = Matrix::from_slice(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-        let b = Matrix::from_slice(3, 2, &[
-            7.0, 8.0,
-            9.0, 10.0,
-            11.0, 12.0,
-        ]).unwrap();
+        let b = Matrix::from_slice(3, 2, &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]).unwrap();
 
         let c = matmul(&provider, &a, &b).unwrap();
 
@@ -468,15 +469,9 @@ mod tests {
     fn test_smatmul() {
         let provider = FallbackBlas::new();
 
-        let a = Matrix::from_slice(2, 2, &[
-            1.0f32, 2.0,
-            3.0, 4.0,
-        ]).unwrap();
+        let a = Matrix::from_slice(2, 2, &[1.0f32, 2.0, 3.0, 4.0]).unwrap();
 
-        let b = Matrix::from_slice(2, 2, &[
-            5.0f32, 6.0,
-            7.0, 8.0,
-        ]).unwrap();
+        let b = Matrix::from_slice(2, 2, &[5.0f32, 6.0, 7.0, 8.0]).unwrap();
 
         let c = smatmul(&provider, &a, &b).unwrap();
 
@@ -501,7 +496,15 @@ mod tests {
         let _c = matmul(&provider, &a, &b).unwrap();
 
         // Addresses should not have changed
-        assert_eq!(a.address(), addr_a, "Matrix A address changed during matmul");
-        assert_eq!(b.address(), addr_b, "Matrix B address changed during matmul");
+        assert_eq!(
+            a.address(),
+            addr_a,
+            "Matrix A address changed during matmul"
+        );
+        assert_eq!(
+            b.address(),
+            addr_b,
+            "Matrix B address changed during matmul"
+        );
     }
 }

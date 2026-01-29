@@ -238,7 +238,12 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
 
                 let con_name = newtype_decl.constr.name.name;
                 let con_def_id = ctx.fresh_def_id();
-                ctx.define(con_def_id, con_name, DefKind::Constructor, newtype_decl.constr.span);
+                ctx.define(
+                    con_def_id,
+                    con_name,
+                    DefKind::Constructor,
+                    newtype_decl.constr.span,
+                );
                 ctx.bind_constructor(con_name, con_def_id);
 
                 // Record fields also become functions (same as data declarations)
@@ -306,11 +311,7 @@ pub fn bind_type_vars(ctx: &mut LowerContext, ty: &ast::Type) -> Vec<(Symbol, De
     bindings
 }
 
-fn collect_type_vars(
-    ctx: &mut LowerContext,
-    ty: &ast::Type,
-    bindings: &mut Vec<(Symbol, DefId)>,
-) {
+fn collect_type_vars(ctx: &mut LowerContext, ty: &ast::Type, bindings: &mut Vec<(Symbol, DefId)>) {
     match ty {
         ast::Type::Var(tyvar, span) => {
             let name = tyvar.name.name;

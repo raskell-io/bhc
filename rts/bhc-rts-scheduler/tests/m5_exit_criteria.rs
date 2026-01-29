@@ -10,9 +10,8 @@
 //! 5. Cooperative cancellation via check_cancelled()
 
 use bhc_rts_scheduler::{
-    check_cancelled, with_deadline, with_scope,
+    check_cancelled, clear_trace_callback, set_trace_callback, with_deadline, with_scope,
     Scheduler, TaskResult,
-    set_trace_callback, clear_trace_callback,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -148,17 +147,19 @@ fn test_deadline_cancels_tasks() {
     let task_cancelled_clone = Arc::clone(&task_cancelled);
 
     let result = with_deadline(&scheduler, Duration::from_millis(50), |scope| {
-        scope.spawn(move || {
-            // Task checks for cancellation
-            for _ in 0..100 {
-                if check_cancelled() {
-                    task_cancelled_clone.store(true, Ordering::SeqCst);
-                    return "cancelled";
+        scope
+            .spawn(move || {
+                // Task checks for cancellation
+                for _ in 0..100 {
+                    if check_cancelled() {
+                        task_cancelled_clone.store(true, Ordering::SeqCst);
+                        return "cancelled";
+                    }
+                    thread::sleep(Duration::from_millis(10));
                 }
-                thread::sleep(Duration::from_millis(10));
-            }
-            "completed"
-        }).await_result()
+                "completed"
+            })
+            .await_result()
     });
 
     // Either the scope returned None (deadline) or task was cancelled
@@ -231,7 +232,10 @@ fn test_trace_events_captured() {
 
     // Should have captured spawn, start, complete events
     let spawn_events = captured.iter().filter(|e| e.contains("TaskSpawn")).count();
-    let complete_events = captured.iter().filter(|e| e.contains("TaskComplete")).count();
+    let complete_events = captured
+        .iter()
+        .filter(|e| e.contains("TaskComplete"))
+        .count();
     let scope_events = captured.iter().filter(|e| e.contains("Scope")).count();
 
     assert!(spawn_events > 0, "Should have TaskSpawn events");

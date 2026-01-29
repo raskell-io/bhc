@@ -71,10 +71,7 @@ mod construction_tests {
 
     #[test]
     fn test_from_rows() {
-        let rows = vec![
-            vec![1.0, 2.0, 3.0],
-            vec![4.0, 5.0, 6.0],
-        ];
+        let rows = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];
         let m = Matrix::from_rows(rows).unwrap();
         assert_eq!(m.rows(), 2);
         assert_eq!(m.cols(), 3);
@@ -517,7 +514,8 @@ mod integer_tests {
 
     #[test]
     fn test_i64_matrix() {
-        let m: Matrix<i64> = Matrix::from_data(2, 2, vec![1000000000, 2000000000, 3000000000, 4000000000]);
+        let m: Matrix<i64> =
+            Matrix::from_data(2, 2, vec![1000000000, 2000000000, 3000000000, 4000000000]);
         assert_eq!(m.sum(), 10000000000);
     }
 }

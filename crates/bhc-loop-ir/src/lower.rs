@@ -17,14 +17,14 @@
 //! 4. **Access Patterns**: Memory access patterns are computed from strides
 
 use crate::{
-    AccessPattern, Alloc, Body, LoopAttrs, LoopId, LoopIR, LoopMetadata, LoopType, Loop,
-    MemRef, Op, BinOp, Param, ScalarType, Stmt, TripCount, Value, ValueId, TargetArch,
+    AccessPattern, Alloc, BinOp, Body, Loop, LoopAttrs, LoopIR, LoopId, LoopMetadata, LoopType,
+    MemRef, Op, Param, ScalarType, Stmt, TargetArch, TripCount, Value, ValueId,
 };
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_tensor_ir::{
-    BufferId, Kernel, KernelBody, TensorOp, TensorRef, ReduceOp as TensorReduceOp,
-    LoopNest as TensorLoopNest,
+    BufferId, Kernel, KernelBody, LoopNest as TensorLoopNest, ReduceOp as TensorReduceOp, TensorOp,
+    TensorRef,
 };
 use rustc_hash::FxHashMap;
 use thiserror::Error;
@@ -138,7 +138,10 @@ impl LowerContext {
 ///
 /// A vector of lowered Loop IR functions.
 pub fn lower_kernels(kernels: &[Kernel], config: LowerConfig) -> Result<Vec<LoopIR>, LowerError> {
-    kernels.iter().map(|k| lower_kernel(k, config.clone())).collect()
+    kernels
+        .iter()
+        .map(|k| lower_kernel(k, config.clone()))
+        .collect()
 }
 
 /// Lower a single kernel to Loop IR.
@@ -262,7 +265,7 @@ fn generate_loop_nest(
         ctx.loop_metadata.push(LoopMetadata {
             id: loop_id,
             trip_count: TripCount::Static(dim_size),
-            vector_width: None, // Will be filled by vectorization pass
+            vector_width: None,   // Will be filled by vectorization pass
             parallel_chunk: None, // Will be filled by parallelization pass
             unroll_factor: None,
             dependencies: Vec::new(),
@@ -384,7 +387,10 @@ fn load_tensor_element(
     let index = compute_linear_index(tensor, loop_vars)?;
 
     // Get buffer ID from tensor metadata
-    let buffer_id = tensor.meta.alias.unwrap_or(BufferId::new(tensor.id.index()));
+    let buffer_id = tensor
+        .meta
+        .alias
+        .unwrap_or(BufferId::new(tensor.id.index()));
 
     // Create memory reference
     let mem_ref = MemRef {
@@ -402,10 +408,7 @@ fn load_tensor_element(
 }
 
 /// Compute linear index from loop variables and tensor strides.
-fn compute_linear_index(
-    _tensor: &TensorRef,
-    loop_vars: &[ValueId],
-) -> Result<Value, LowerError> {
+fn compute_linear_index(_tensor: &TensorRef, loop_vars: &[ValueId]) -> Result<Value, LowerError> {
     // For a tensor with shape [N, M, K] and strides [s0, s1, s2],
     // the linear index is: i*s0 + j*s1 + k*s2
 
@@ -454,7 +457,10 @@ fn lower_reduction(
     };
 
     // Add accumulator initialization (will be at function start)
-    stmts.push(Stmt::Comment(format!("reduction accumulator for {:?}", reduce_op)));
+    stmts.push(Stmt::Comment(format!(
+        "reduction accumulator for {:?}",
+        reduce_op
+    )));
 
     // Initialize acc value
     let acc = ctx.fresh_value();
@@ -474,7 +480,11 @@ fn lower_reduction(
     let new_acc = ctx.fresh_value();
     stmts.push(Stmt::Assign(
         new_acc,
-        Op::Binary(bin_op, Value::Var(acc, LoopType::Scalar(elem_ty)), input_val),
+        Op::Binary(
+            bin_op,
+            Value::Var(acc, LoopType::Scalar(elem_ty)),
+            input_val,
+        ),
     ));
 
     Ok(())
@@ -569,7 +579,9 @@ fn insert_inner_stmts(body: &mut Body, stmts: Vec<Stmt>) {
 mod tests {
     use super::*;
     use bhc_span::Span;
-    use bhc_tensor_ir::{DType, FusionInfo, KernelId, Layout, MapFn, Shape, Strides, TensorId, TensorMeta};
+    use bhc_tensor_ir::{
+        DType, FusionInfo, KernelId, Layout, MapFn, Shape, Strides, TensorId, TensorMeta,
+    };
 
     fn make_test_kernel() -> Kernel {
         let meta = TensorMeta {
@@ -600,9 +612,7 @@ mod tests {
             name: Symbol::intern("test_kernel"),
             inputs: vec![input.clone()],
             outputs: vec![output],
-            body: KernelBody::Fused(vec![
-                TensorOp::Map(map_fn, input),
-            ]),
+            body: KernelBody::Fused(vec![TensorOp::Map(map_fn, input)]),
             allocs: vec![],
             fusion_info: FusionInfo {
                 original_ops: vec![],

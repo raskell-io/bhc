@@ -53,7 +53,12 @@ impl Arch {
     #[must_use]
     pub const fn pointer_width(self) -> u32 {
         match self {
-            Self::X86_64 | Self::Aarch64 | Self::Wasm64 | Self::Riscv64 | Self::Nvptx64 | Self::Amdgcn => 64,
+            Self::X86_64
+            | Self::Aarch64
+            | Self::Wasm64
+            | Self::Riscv64
+            | Self::Nvptx64
+            | Self::Amdgcn => 64,
             Self::Wasm32 | Self::Riscv32 => 32,
         }
     }
@@ -62,7 +67,12 @@ impl Arch {
     #[must_use]
     pub const fn natural_alignment(self) -> u32 {
         match self {
-            Self::X86_64 | Self::Aarch64 | Self::Wasm64 | Self::Riscv64 | Self::Nvptx64 | Self::Amdgcn => 8,
+            Self::X86_64
+            | Self::Aarch64
+            | Self::Wasm64
+            | Self::Riscv64
+            | Self::Nvptx64
+            | Self::Amdgcn => 8,
             Self::Wasm32 | Self::Riscv32 => 4,
         }
     }
@@ -85,7 +95,15 @@ impl Arch {
     /// Check if this architecture supports SIMD.
     #[must_use]
     pub const fn has_simd(self) -> bool {
-        matches!(self, Self::X86_64 | Self::Aarch64 | Self::Wasm32 | Self::Wasm64 | Self::Nvptx64 | Self::Amdgcn)
+        matches!(
+            self,
+            Self::X86_64
+                | Self::Aarch64
+                | Self::Wasm32
+                | Self::Wasm64
+                | Self::Nvptx64
+                | Self::Amdgcn
+        )
     }
 
     /// Check if this is a GPU architecture.
@@ -447,21 +465,11 @@ fn generate_data_layout(arch: Arch, _features: &CpuFeatures) -> String {
         Arch::X86_64 => {
             "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128".to_string()
         }
-        Arch::Aarch64 => {
-            "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128".to_string()
-        }
-        Arch::Wasm32 => {
-            "e-m:e-p:32:32-i64:64-n32:64-S128".to_string()
-        }
-        Arch::Wasm64 => {
-            "e-m:e-p:64:64-i64:64-n32:64-S128".to_string()
-        }
-        Arch::Riscv32 => {
-            "e-m:e-p:32:32-i64:64-n32-S128".to_string()
-        }
-        Arch::Riscv64 => {
-            "e-m:e-p:64:64-i64:64-i128:128-n64-S128".to_string()
-        }
+        Arch::Aarch64 => "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128".to_string(),
+        Arch::Wasm32 => "e-m:e-p:32:32-i64:64-n32:64-S128".to_string(),
+        Arch::Wasm64 => "e-m:e-p:64:64-i64:64-n32:64-S128".to_string(),
+        Arch::Riscv32 => "e-m:e-p:32:32-i64:64-n32-S128".to_string(),
+        Arch::Riscv64 => "e-m:e-p:64:64-i64:64-i128:128-n64-S128".to_string(),
         Arch::Nvptx64 => {
             // NVIDIA PTX data layout (64-bit)
             "e-i64:64-i128:128-v16:16-v32:32-n16:32:64".to_string()

@@ -200,9 +200,13 @@ impl Resolution {
         let mut lockfile = Lockfile::new();
 
         for dep in self.packages.values() {
-            let locked = LockedPackage::new(dep.name.clone(), dep.version.clone(), dep.source.clone().into())
-                .with_dependencies(dep.dependencies.clone())
-                .with_features(dep.features.clone());
+            let locked = LockedPackage::new(
+                dep.name.clone(),
+                dep.version.clone(),
+                dep.source.clone().into(),
+            )
+            .with_dependencies(dep.dependencies.clone())
+            .with_features(dep.features.clone());
             lockfile.add_package(locked);
         }
 
@@ -243,7 +247,13 @@ impl Resolution {
         }
 
         for name in self.packages.keys() {
-            visit(name, &self.packages, &mut visited, &mut temp_mark, &mut result);
+            visit(
+                name,
+                &self.packages,
+                &mut visited,
+                &mut temp_mark,
+                &mut result,
+            );
         }
 
         result
@@ -386,7 +396,8 @@ impl<'a, R: PackageRegistry> Resolver<'a, R> {
 
         // Try to use locked version first
         if let Some(locked) = self.try_locked_version(name, &constraints)? {
-            self.states.insert(name.to_string(), PackageState::Resolved(locked.clone()));
+            self.states
+                .insert(name.to_string(), PackageState::Resolved(locked.clone()));
             return Ok(locked);
         }
 
@@ -429,7 +440,8 @@ impl<'a, R: PackageRegistry> Resolver<'a, R> {
             features: features.into_iter().collect(),
         };
 
-        self.states.insert(name.to_string(), PackageState::Resolved(resolved.clone()));
+        self.states
+            .insert(name.to_string(), PackageState::Resolved(resolved.clone()));
         Ok(resolved)
     }
 
@@ -491,7 +503,8 @@ impl<'a, R: PackageRegistry> Resolver<'a, R> {
         let index = self.registry.get_package(name)?;
         let versions: Vec<Version> = index.versions.iter().map(|v| v.version.clone()).collect();
 
-        self.version_cache.insert(name.to_string(), versions.clone());
+        self.version_cache
+            .insert(name.to_string(), versions.clone());
         Ok(versions)
     }
 
@@ -591,12 +604,13 @@ mod tests {
         }
 
         fn add_package(&mut self, name: &str, version: Version, deps: Vec<(&str, &str)>) {
-            let index = self.packages.entry(name.to_string()).or_insert_with(|| {
-                PackageIndex {
+            let index = self
+                .packages
+                .entry(name.to_string())
+                .or_insert_with(|| PackageIndex {
                     name: name.to_string(),
                     versions: Vec::new(),
-                }
-            });
+                });
 
             let dependencies: HashMap<String, VersionReq> = deps
                 .into_iter()

@@ -36,7 +36,7 @@
 
 pub mod frame;
 
-use bhc_rts_alloc::{align_up, AllocError, AllocResult, Alignment, AllocStats, MemoryRegion};
+use bhc_rts_alloc::{align_up, Alignment, AllocError, AllocResult, AllocStats, MemoryRegion};
 use std::alloc::{alloc, dealloc, Layout};
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -85,8 +85,8 @@ impl HotArena {
     /// Panics if the system cannot allocate the requested memory.
     #[must_use]
     pub fn with_alignment(capacity: usize, alignment: Alignment) -> Self {
-        let layout = Layout::from_size_align(capacity, alignment.as_usize())
-            .expect("invalid arena layout");
+        let layout =
+            Layout::from_size_align(capacity, alignment.as_usize()).expect("invalid arena layout");
 
         // Safety: layout is valid and non-zero
         let base = unsafe { alloc(layout) };
@@ -164,9 +164,8 @@ impl HotArena {
             return Ok(&mut []);
         }
 
-        let layout = Layout::array::<T>(values.len()).map_err(|e| {
-            AllocError::InvalidLayout(format!("invalid array layout: {e}"))
-        })?;
+        let layout = Layout::array::<T>(values.len())
+            .map_err(|e| AllocError::InvalidLayout(format!("invalid array layout: {e}")))?;
 
         let ptr = self.alloc_raw(layout)?;
 
@@ -188,9 +187,8 @@ impl HotArena {
             return Ok(&mut []);
         }
 
-        let layout = Layout::array::<T>(len).map_err(|e| {
-            AllocError::InvalidLayout(format!("invalid array layout: {e}"))
-        })?;
+        let layout = Layout::array::<T>(len)
+            .map_err(|e| AllocError::InvalidLayout(format!("invalid array layout: {e}")))?;
 
         let ptr = self.alloc_raw(layout)?;
 
@@ -207,9 +205,8 @@ impl HotArena {
             return Ok(&mut []);
         }
 
-        let layout = Layout::array::<T>(len).map_err(|e| {
-            AllocError::InvalidLayout(format!("invalid array layout: {e}"))
-        })?;
+        let layout = Layout::array::<T>(len)
+            .map_err(|e| AllocError::InvalidLayout(format!("invalid array layout: {e}")))?;
 
         let ptr = self.alloc_raw(layout)?;
 

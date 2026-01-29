@@ -6,12 +6,12 @@
 //! - JSON (for tooling integration)
 
 pub mod html;
-pub mod markdown;
 pub mod json;
+pub mod markdown;
 
-use std::path::Path;
-use anyhow::Result;
 use crate::model::ModuleDoc;
+use anyhow::Result;
+use std::path::Path;
 
 /// Output format for documentation.
 #[derive(Debug, Clone, Copy)]
@@ -22,7 +22,12 @@ pub enum Format {
 }
 
 /// Render documentation to the specified format.
-pub fn render(docs: &[ModuleDoc], output: &Path, format: Format, config: &RenderConfig) -> Result<()> {
+pub fn render(
+    docs: &[ModuleDoc],
+    output: &Path,
+    format: Format,
+    config: &RenderConfig,
+) -> Result<()> {
     std::fs::create_dir_all(output)?;
 
     match format {

@@ -212,14 +212,25 @@ impl E2ERunner {
     /// Compile the test case to an artifact.
     fn compile(&self, test_case: &E2ETestCase, work_dir: &Path) -> Result<PathBuf, E2EError> {
         match self.config.backend {
-            Backend::Native => crate::native::compile_native(test_case, work_dir, self.config.profile),
+            Backend::Native => {
+                crate::native::compile_native(test_case, work_dir, self.config.profile)
+            }
             Backend::Wasm => crate::wasm::compile_wasm(test_case, work_dir, self.config.profile),
-            Backend::Gpu => crate::gpu::compile_gpu(test_case, work_dir, self.config.profile, self.config.gpu_mock),
+            Backend::Gpu => crate::gpu::compile_gpu(
+                test_case,
+                work_dir,
+                self.config.profile,
+                self.config.gpu_mock,
+            ),
         }
     }
 
     /// Execute the compiled artifact.
-    fn execute(&self, artifact_path: &Path, timeout: Duration) -> Result<ExecutionOutput, E2EError> {
+    fn execute(
+        &self,
+        artifact_path: &Path,
+        timeout: Duration,
+    ) -> Result<ExecutionOutput, E2EError> {
         match self.config.backend {
             Backend::Native => crate::native::run_native(artifact_path, timeout),
             Backend::Wasm => crate::wasm::run_wasm(artifact_path, timeout),
@@ -238,10 +249,7 @@ pub fn format_failure_report(
 ) -> String {
     let mut report = String::new();
 
-    report.push_str(&format!(
-        "\n=== E2E TEST FAILURE: {} ===\n",
-        test_case.name
-    ));
+    report.push_str(&format!("\n=== E2E TEST FAILURE: {} ===\n", test_case.name));
     report.push_str(&format!("Backend: {}\n", backend));
     report.push_str(&format!("Profile: {}\n", profile));
     report.push_str(&format!("Source: {}\n", test_case.source_path.display()));

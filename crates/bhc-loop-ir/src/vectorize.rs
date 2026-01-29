@@ -16,7 +16,7 @@
 //! 4. **Handle remainder**: Scalar loop for non-aligned elements
 
 use crate::{
-    AccessPattern, Body, BinOp, Loop, LoopAttrs, LoopId, LoopIR, LoopMetadata, LoopType, Op,
+    AccessPattern, BinOp, Body, Loop, LoopAttrs, LoopIR, LoopId, LoopMetadata, LoopType, Op,
     ScalarType, Stmt, TargetArch, TripCount, Value,
 };
 use rustc_hash::FxHashMap;
@@ -180,9 +180,9 @@ impl VectorizePass {
         info.has_reduction = has_reduction;
 
         // Check if all accesses are vectorization-friendly
-        let all_sequential = patterns.iter().all(|p| {
-            matches!(p, AccessPattern::Sequential | AccessPattern::Broadcast)
-        });
+        let all_sequential = patterns
+            .iter()
+            .all(|p| matches!(p, AccessPattern::Sequential | AccessPattern::Broadcast));
 
         if !all_sequential {
             info.reason = Some("non-sequential access pattern".to_string());
@@ -390,16 +390,12 @@ impl VectorizePass {
     /// Transform a scalar value to a vector value.
     fn vectorize_value(&self, val: &Value, width: u8) -> Value {
         match val {
-            Value::Var(id, LoopType::Scalar(s)) => {
-                Value::Var(*id, LoopType::Vector(*s, width))
-            }
+            Value::Var(id, LoopType::Scalar(s)) => Value::Var(*id, LoopType::Vector(*s, width)),
             Value::FloatConst(f, s) => {
                 // Scalar constant will be broadcast
                 Value::FloatConst(*f, *s)
             }
-            Value::IntConst(i, s) => {
-                Value::IntConst(*i, *s)
-            }
+            Value::IntConst(i, s) => Value::IntConst(*i, *s),
             _ => val.clone(),
         }
     }
@@ -632,7 +628,10 @@ mod tests {
             ),
         ));
 
-        body.push(Stmt::Store(mem_ref, Value::Var(mul_result, LoopType::Scalar(ScalarType::F32))));
+        body.push(Stmt::Store(
+            mem_ref,
+            Value::Var(mul_result, LoopType::Scalar(ScalarType::F32)),
+        ));
 
         let lp = Loop {
             id: loop_id,
@@ -679,7 +678,10 @@ mod tests {
 
         let info = analysis.get(&loop_id).expect("loop should be analyzed");
         assert!(info.vectorizable, "loop should be vectorizable");
-        assert!(info.recommended_width > 1, "should recommend vector width > 1");
+        assert!(
+            info.recommended_width > 1,
+            "should recommend vector width > 1"
+        );
     }
 
     #[test]
@@ -699,7 +701,9 @@ mod tests {
 
         let mut pass = VectorizePass::new(VectorizeConfig::default());
         pass.analyze(&ir);
-        let report = pass.vectorize(&mut ir).expect("vectorization should succeed");
+        let report = pass
+            .vectorize(&mut ir)
+            .expect("vectorization should succeed");
 
         assert!(report.any_vectorized(), "should have vectorized loops");
         assert_eq!(report.count(), 1, "should have vectorized 1 loop");
@@ -728,10 +732,7 @@ mod tests {
         );
 
         // ARM NEON
-        assert_eq!(
-            SimdIntrinsic::Add.arm_name(ScalarType::F32, 4),
-            "vaddq_f32"
-        );
+        assert_eq!(SimdIntrinsic::Add.arm_name(ScalarType::F32, 4), "vaddq_f32");
         assert_eq!(
             SimdIntrinsic::Fmadd.arm_name(ScalarType::F32, 4),
             "vfmaq_f32"
@@ -768,14 +769,12 @@ mod tests {
     #[test]
     fn test_vectorize_report_display() {
         let report = VectorizeReport {
-            vectorized_loops: vec![
-                VectorizedLoopInfo {
-                    loop_id: LoopId::new(0),
-                    vector_width: 8,
-                    has_fma: true,
-                    has_reduction: false,
-                },
-            ],
+            vectorized_loops: vec![VectorizedLoopInfo {
+                loop_id: LoopId::new(0),
+                vector_width: 8,
+                has_fma: true,
+                has_reduction: false,
+            }],
             failed_loops: vec![],
         };
 

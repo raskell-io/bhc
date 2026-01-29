@@ -294,7 +294,8 @@ impl Registry {
 
         debug!("Fetching index: {}", url);
 
-        let mut request = ureq::get(&url).timeout(std::time::Duration::from_secs(self.config.timeout));
+        let mut request =
+            ureq::get(&url).timeout(std::time::Duration::from_secs(self.config.timeout));
 
         if let Some(ref token) = self.config.token {
             request = request.set("Authorization", &format!("Bearer {}", token));
@@ -334,8 +335,8 @@ impl Registry {
                 continue;
             }
 
-            let entry: IndexEntry =
-                serde_json::from_str(line).map_err(|e| RegistryError::InvalidIndex(e.to_string()))?;
+            let entry: IndexEntry = serde_json::from_str(line)
+                .map_err(|e| RegistryError::InvalidIndex(e.to_string()))?;
 
             if entry.name != name {
                 continue;
@@ -347,11 +348,7 @@ impl Registry {
             let dependencies: HashMap<String, VersionReq> = entry
                 .deps
                 .into_iter()
-                .filter_map(|d| {
-                    VersionReq::parse(&d.req)
-                        .ok()
-                        .map(|req| (d.name, req))
-                })
+                .filter_map(|d| VersionReq::parse(&d.req).ok().map(|req| (d.name, req)))
                 .collect();
 
             versions.push(PackageVersionInfo {
@@ -381,7 +378,8 @@ impl Registry {
 
         debug!("Downloading: {}", url);
 
-        let mut request = ureq::get(&url).timeout(std::time::Duration::from_secs(self.config.timeout));
+        let mut request =
+            ureq::get(&url).timeout(std::time::Duration::from_secs(self.config.timeout));
 
         if let Some(ref token) = self.config.token {
             request = request.set("Authorization", &format!("Bearer {}", token));
@@ -580,12 +578,13 @@ impl PackageRegistry for Registry {
 
         // Get checksum from index
         let index = self.get_package(name)?;
-        let version_info = index.get_version(version).ok_or_else(|| {
-            RegistryError::VersionNotFound {
-                package: name.to_string(),
-                version: version.clone(),
-            }
-        })?;
+        let version_info =
+            index
+                .get_version(version)
+                .ok_or_else(|| RegistryError::VersionNotFound {
+                    package: name.to_string(),
+                    version: version.clone(),
+                })?;
 
         if version_info.yanked {
             return Err(RegistryError::PackageYanked {
@@ -756,8 +755,8 @@ impl PackageRegistry for OfflineRegistry {
                 continue;
             }
 
-            let entry: IndexEntry =
-                serde_json::from_str(line).map_err(|e| RegistryError::InvalidIndex(e.to_string()))?;
+            let entry: IndexEntry = serde_json::from_str(line)
+                .map_err(|e| RegistryError::InvalidIndex(e.to_string()))?;
 
             if entry.name != name {
                 continue;
@@ -769,11 +768,7 @@ impl PackageRegistry for OfflineRegistry {
             let dependencies: HashMap<String, VersionReq> = entry
                 .deps
                 .into_iter()
-                .filter_map(|d| {
-                    VersionReq::parse(&d.req)
-                        .ok()
-                        .map(|req| (d.name, req))
-                })
+                .filter_map(|d| VersionReq::parse(&d.req).ok().map(|req| (d.name, req)))
                 .collect();
 
             versions.push(PackageVersionInfo {

@@ -134,7 +134,7 @@ impl Default for WasmConfig {
     fn default() -> Self {
         Self {
             simd_enabled: cfg!(feature = "simd128"),
-            initial_memory_pages: 16, // 1MB initial
+            initial_memory_pages: 16,    // 1MB initial
             max_memory_pages: Some(256), // 16MB max
             export_memory: true,
             debug_names: true,
@@ -149,7 +149,7 @@ impl WasmConfig {
     pub fn edge_profile() -> Self {
         Self {
             simd_enabled: true,
-            initial_memory_pages: 4, // 256KB initial
+            initial_memory_pages: 4,    // 256KB initial
             max_memory_pages: Some(64), // 4MB max
             export_memory: true,
             debug_names: false,
@@ -798,8 +798,12 @@ impl WasmInstr {
             Self::F64Load(align, offset) => format!("f64.load offset={offset} align={align}"),
             Self::I32Load8U(align, offset) => format!("i32.load8_u offset={offset} align={align}"),
             Self::I32Load8S(align, offset) => format!("i32.load8_s offset={offset} align={align}"),
-            Self::I32Load16U(align, offset) => format!("i32.load16_u offset={offset} align={align}"),
-            Self::I32Load16S(align, offset) => format!("i32.load16_s offset={offset} align={align}"),
+            Self::I32Load16U(align, offset) => {
+                format!("i32.load16_u offset={offset} align={align}")
+            }
+            Self::I32Load16S(align, offset) => {
+                format!("i32.load16_s offset={offset} align={align}")
+            }
             Self::I32Store(align, offset) => format!("i32.store offset={offset} align={align}"),
             Self::I64Store(align, offset) => format!("i64.store offset={offset} align={align}"),
             Self::F32Store(align, offset) => format!("f32.store offset={offset} align={align}"),
@@ -940,10 +944,24 @@ impl WasmInstr {
             Self::V128Load(align, offset) => format!("v128.load offset={offset} align={align}"),
             Self::V128Store(align, offset) => format!("v128.store offset={offset} align={align}"),
             Self::V128Const(bytes) => {
-                format!("v128.const i8x16 {}", bytes.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(" "))
+                format!(
+                    "v128.const i8x16 {}",
+                    bytes
+                        .iter()
+                        .map(|b| b.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
             }
             Self::I8x16Shuffle(lanes) => {
-                format!("i8x16.shuffle {}", lanes.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(" "))
+                format!(
+                    "i8x16.shuffle {}",
+                    lanes
+                        .iter()
+                        .map(|l| l.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
             }
             Self::I8x16Splat => "i8x16.splat".to_string(),
             Self::I16x8Splat => "i16x8.splat".to_string(),

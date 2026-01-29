@@ -491,28 +491,36 @@ static STDERR_HANDLE: OnceLock<std::sync::Mutex<HandlePtr>> = OnceLock::new();
 /// Get stdin handle (FFI)
 #[no_mangle]
 pub extern "C" fn bhc_stdin() -> *mut HandlePtr {
-    let handle = STDIN_HANDLE.get_or_init(|| {
-        std::sync::Mutex::new(HandlePtr { handle: stdin() })
-    });
-    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+    let handle = STDIN_HANDLE.get_or_init(|| std::sync::Mutex::new(HandlePtr { handle: stdin() }));
+    handle
+        .lock()
+        .ok()
+        .map(|mut g| &mut *g as *mut HandlePtr)
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Get stdout handle (FFI)
 #[no_mangle]
 pub extern "C" fn bhc_stdout() -> *mut HandlePtr {
-    let handle = STDOUT_HANDLE.get_or_init(|| {
-        std::sync::Mutex::new(HandlePtr { handle: stdout() })
-    });
-    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+    let handle =
+        STDOUT_HANDLE.get_or_init(|| std::sync::Mutex::new(HandlePtr { handle: stdout() }));
+    handle
+        .lock()
+        .ok()
+        .map(|mut g| &mut *g as *mut HandlePtr)
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Get stderr handle (FFI)
 #[no_mangle]
 pub extern "C" fn bhc_stderr() -> *mut HandlePtr {
-    let handle = STDERR_HANDLE.get_or_init(|| {
-        std::sync::Mutex::new(HandlePtr { handle: stderr() })
-    });
-    handle.lock().ok().map(|mut g| &mut *g as *mut HandlePtr).unwrap_or(std::ptr::null_mut())
+    let handle =
+        STDERR_HANDLE.get_or_init(|| std::sync::Mutex::new(HandlePtr { handle: stderr() }));
+    handle
+        .lock()
+        .ok()
+        .map(|mut g| &mut *g as *mut HandlePtr)
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Open a file (FFI)
@@ -718,7 +726,11 @@ pub extern "C" fn bhc_hIsOpen(_handle: *mut HandlePtr) -> i32 {
 /// Check if handle is closed (FFI)
 #[no_mangle]
 pub extern "C" fn bhc_hIsClosed(handle: *mut HandlePtr) -> i32 {
-    if handle.is_null() { 1 } else { 0 }
+    if handle.is_null() {
+        1
+    } else {
+        0
+    }
 }
 
 /// Check if handle is readable (FFI)

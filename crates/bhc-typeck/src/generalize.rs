@@ -83,7 +83,9 @@ pub fn generalize_with_constraints(
         .into_iter()
         .filter(|c| {
             c.args.iter().any(|arg| {
-                arg.free_vars().iter().any(|v| quantified_ids.contains(&v.id))
+                arg.free_vars()
+                    .iter()
+                    .any(|v| quantified_ids.contains(&v.id))
             })
         })
         .collect();

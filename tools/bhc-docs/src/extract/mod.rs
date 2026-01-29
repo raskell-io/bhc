@@ -3,17 +3,19 @@
 //! This module parses Haskell source files and extracts documentation
 //! from the AST into the internal documentation model.
 
-use std::path::Path;
-use anyhow::{Result, Context};
-use bhc_ast::{Module, Decl, DocComment, DataDecl, ClassDecl, InstanceDecl, TypeAlias, NewtypeDecl, FunBind, TypeSig, ConDecl, ConFields};
+use anyhow::{Context, Result};
+use bhc_ast::{
+    ClassDecl, ConDecl, ConFields, DataDecl, Decl, DocComment, FunBind, InstanceDecl, Module,
+    NewtypeDecl, TypeAlias, TypeSig,
+};
 use bhc_parser::Parser;
 use bhc_span::FileId;
+use std::path::Path;
 
 use crate::haddock;
 use crate::model::{
-    ModuleDoc, DocItem, FunctionDoc, TypeDoc, TypeAliasDoc, NewtypeDoc,
-    ClassDoc, InstanceDoc, ConstructorDoc, FieldsDoc, FieldDoc, DocContent,
-    Annotations, SourceLocation,
+    Annotations, ClassDoc, ConstructorDoc, DocContent, DocItem, FieldDoc, FieldsDoc, FunctionDoc,
+    InstanceDoc, ModuleDoc, NewtypeDoc, SourceLocation, TypeAliasDoc, TypeDoc,
 };
 
 /// Extract documentation from a source file.
@@ -27,7 +29,8 @@ pub fn extract_file(path: &Path) -> Result<ModuleDoc> {
 pub fn extract_source(source: &str, path: &Path) -> Result<ModuleDoc> {
     // Parse the module
     let mut parser = Parser::new(source, FileId::new(0));
-    let module = parser.parse_module()
+    let module = parser
+        .parse_module()
         .map_err(|e| anyhow::anyhow!("Parse error: {:?}", e))?;
 
     // Extract documentation from the AST
@@ -36,15 +39,28 @@ pub fn extract_source(source: &str, path: &Path) -> Result<ModuleDoc> {
 
 /// Extract documentation from a parsed module.
 pub fn extract_module(module: &Module, path: &Path, source: &str) -> Result<ModuleDoc> {
-    let name = module.name
+    let name = module
+        .name
         .as_ref()
-        .map(|n| n.parts.iter().map(|p| p.as_str()).collect::<Vec<_>>().join("."))
-        .unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+        .map(|n| {
+            n.parts
+                .iter()
+                .map(|p| p.as_str())
+                .collect::<Vec<_>>()
+                .join(".")
+        })
+        .unwrap_or_else(|| {
+            path.file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        });
 
     let doc = module.doc.as_ref().map(|d| extract_doc_content(d));
 
     let mut items = Vec::new();
-    let mut type_sigs: std::collections::HashMap<String, TypeSig> = std::collections::HashMap::new();
+    let mut type_sigs: std::collections::HashMap<String, TypeSig> =
+        std::collections::HashMap::new();
 
     // First pass: collect type signatures
     for decl in &module.decls {
@@ -66,7 +82,12 @@ pub fn extract_module(module: &Module, path: &Path, source: &str) -> Result<Modu
                 });
                 if !has_binding {
                     for name in &sig.names {
-                        items.push(DocItem::Function(extract_function_from_sig(sig, name.name.as_str(), path, source)));
+                        items.push(DocItem::Function(extract_function_from_sig(
+                            sig,
+                            name.name.as_str(),
+                            path,
+                            source,
+                        )));
                     }
                 }
             }
@@ -128,11 +149,17 @@ fn make_source_location(path: &Path, source: &str, span: bhc_span::Span) -> Sour
     }
 }
 
-fn extract_function(bind: &FunBind, sig: Option<&TypeSig>, path: &Path, source: &str) -> FunctionDoc {
+fn extract_function(
+    bind: &FunBind,
+    sig: Option<&TypeSig>,
+    path: &Path,
+    source: &str,
+) -> FunctionDoc {
     let name = bind.name.name.as_str().to_string();
 
     // Prefer doc from type signature, then from binding
-    let doc = sig.and_then(|s| s.doc.as_ref())
+    let doc = sig
+        .and_then(|s| s.doc.as_ref())
         .or(bind.doc.as_ref())
         .map(extract_doc_content);
 
@@ -164,10 +191,18 @@ fn extract_function_from_sig(sig: &TypeSig, name: &str, path: &Path, source: &st
 
 fn extract_data_type(data: &DataDecl, path: &Path, source: &str) -> TypeDoc {
     let name = data.name.name.as_str().to_string();
-    let params = data.params.iter().map(|p| p.name.name.as_str().to_string()).collect();
+    let params = data
+        .params
+        .iter()
+        .map(|p| p.name.name.as_str().to_string())
+        .collect();
     let doc = data.doc.as_ref().map(extract_doc_content);
     let constructors = data.constrs.iter().map(extract_constructor).collect();
-    let deriving = data.deriving.iter().map(|d| d.name.as_str().to_string()).collect();
+    let deriving = data
+        .deriving
+        .iter()
+        .map(|d| d.name.as_str().to_string())
+        .collect();
 
     TypeDoc {
         name,
@@ -187,11 +222,14 @@ fn extract_constructor(con: &ConDecl) -> ConstructorDoc {
             types: types.iter().map(format_type).collect(),
         },
         ConFields::Record(fields) => FieldsDoc::Record {
-            fields: fields.iter().map(|f| FieldDoc {
-                name: f.name.name.as_str().to_string(),
-                ty: format_type(&f.ty),
-                doc: f.doc.as_ref().map(extract_doc_content),
-            }).collect(),
+            fields: fields
+                .iter()
+                .map(|f| FieldDoc {
+                    name: f.name.name.as_str().to_string(),
+                    ty: format_type(&f.ty),
+                    doc: f.doc.as_ref().map(extract_doc_content),
+                })
+                .collect(),
         },
     };
 
@@ -201,7 +239,11 @@ fn extract_constructor(con: &ConDecl) -> ConstructorDoc {
 fn extract_type_alias(alias: &TypeAlias, path: &Path, source: &str) -> TypeAliasDoc {
     TypeAliasDoc {
         name: alias.name.name.as_str().to_string(),
-        params: alias.params.iter().map(|p| p.name.name.as_str().to_string()).collect(),
+        params: alias
+            .params
+            .iter()
+            .map(|p| p.name.name.as_str().to_string())
+            .collect(),
         rhs: format_type(&alias.ty),
         doc: alias.doc.as_ref().map(extract_doc_content),
         source: Some(make_source_location(path, source, alias.span)),
@@ -211,33 +253,55 @@ fn extract_type_alias(alias: &TypeAlias, path: &Path, source: &str) -> TypeAlias
 fn extract_newtype(newtype: &NewtypeDecl, path: &Path, source: &str) -> NewtypeDoc {
     NewtypeDoc {
         name: newtype.name.name.as_str().to_string(),
-        params: newtype.params.iter().map(|p| p.name.name.as_str().to_string()).collect(),
+        params: newtype
+            .params
+            .iter()
+            .map(|p| p.name.name.as_str().to_string())
+            .collect(),
         constructor: extract_constructor(&newtype.constr),
         doc: newtype.doc.as_ref().map(extract_doc_content),
-        deriving: newtype.deriving.iter().map(|d| d.name.as_str().to_string()).collect(),
+        deriving: newtype
+            .deriving
+            .iter()
+            .map(|d| d.name.as_str().to_string())
+            .collect(),
         source: Some(make_source_location(path, source, newtype.span)),
     }
 }
 
 fn extract_class(class: &ClassDecl, path: &Path, source: &str) -> ClassDoc {
-    let methods = class.methods.iter().filter_map(|d| {
-        match d {
-            Decl::TypeSig(sig) => {
-                Some(sig.names.iter().map(|n| extract_function_from_sig(sig, n.name.as_str(), path, source)).collect::<Vec<_>>())
-            }
+    let methods = class
+        .methods
+        .iter()
+        .filter_map(|d| match d {
+            Decl::TypeSig(sig) => Some(
+                sig.names
+                    .iter()
+                    .map(|n| extract_function_from_sig(sig, n.name.as_str(), path, source))
+                    .collect::<Vec<_>>(),
+            ),
             _ => None,
-        }
-    }).flatten().collect();
+        })
+        .flatten()
+        .collect();
 
     ClassDoc {
         name: class.name.name.as_str().to_string(),
-        params: class.params.iter().map(|p| p.name.name.as_str().to_string()).collect(),
+        params: class
+            .params
+            .iter()
+            .map(|p| p.name.name.as_str().to_string())
+            .collect(),
         superclasses: class.context.iter().map(|c| format_constraint(c)).collect(),
-        fundeps: class.fundeps.iter().map(|f| {
-            let from: Vec<_> = f.from.iter().map(|i| i.name.as_str()).collect();
-            let to: Vec<_> = f.to.iter().map(|i| i.name.as_str()).collect();
-            format!("{} -> {}", from.join(" "), to.join(" "))
-        }).collect(),
+        fundeps: class
+            .fundeps
+            .iter()
+            .map(|f| {
+                let from: Vec<_> = f.from.iter().map(|i| i.name.as_str()).collect();
+                let to: Vec<_> = f.to.iter().map(|i| i.name.as_str()).collect();
+                format!("{} -> {}", from.join(" "), to.join(" "))
+            })
+            .collect(),
         doc: class.doc.as_ref().map(extract_doc_content),
         methods,
         assoc_types: vec![], // TODO: Extract associated types
@@ -264,7 +328,9 @@ fn format_type(ty: &bhc_ast::Type) -> String {
             format!("{}.{}", parts.join("."), name.name.as_str())
         }
         bhc_ast::Type::App(f, arg, _) => format!("{} {}", format_type(f), format_type_atom(arg)),
-        bhc_ast::Type::Fun(from, to, _) => format!("{} -> {}", format_type_atom(from), format_type(to)),
+        bhc_ast::Type::Fun(from, to, _) => {
+            format!("{} -> {}", format_type_atom(from), format_type(to))
+        }
         bhc_ast::Type::Tuple(elems, _) => {
             if elems.is_empty() {
                 "()".to_string()

@@ -242,7 +242,11 @@ impl RawBlock {
     /// with the given layout.
     #[must_use]
     pub const unsafe fn new(ptr: NonNull<u8>, layout: Layout, region: MemoryRegion) -> Self {
-        Self { ptr, layout, region }
+        Self {
+            ptr,
+            layout,
+            region,
+        }
     }
 
     /// Get the pointer to the block's data.
@@ -495,7 +499,8 @@ impl<T> PinnedBuffer<T> {
             });
         }
 
-        let layout = Layout::array::<T>(len).map_err(|e| AllocError::InvalidLayout(e.to_string()))?;
+        let layout =
+            Layout::array::<T>(len).map_err(|e| AllocError::InvalidLayout(e.to_string()))?;
         let allocator = PinnedAllocator::new();
 
         // Safety: layout is valid and non-zero sized
@@ -518,7 +523,8 @@ impl<T> PinnedBuffer<T> {
             });
         }
 
-        let layout = Layout::array::<T>(len).map_err(|e| AllocError::InvalidLayout(e.to_string()))?;
+        let layout =
+            Layout::array::<T>(len).map_err(|e| AllocError::InvalidLayout(e.to_string()))?;
         let allocator = PinnedAllocator::new();
 
         // Safety: layout is valid and non-zero sized
@@ -978,8 +984,7 @@ mod tests {
     #[test]
     fn test_pinned_buffer_aligned() {
         // Test SIMD-aligned buffer
-        let buffer: PinnedBuffer<f32> =
-            PinnedBuffer::new_aligned(256, Alignment::Simd256).unwrap();
+        let buffer: PinnedBuffer<f32> = PinnedBuffer::new_aligned(256, Alignment::Simd256).unwrap();
 
         assert_eq!(buffer.len(), 256);
         assert!(

@@ -43,9 +43,7 @@ impl<T: Clone> UArray<T> {
     /// Creates a new UArray from a vector.
     #[must_use]
     pub fn from_vec(data: Vec<T>) -> Self {
-        Self {
-            data: data.into(),
-        }
+        Self { data: data.into() }
     }
 
     /// Creates a new UArray from a slice.

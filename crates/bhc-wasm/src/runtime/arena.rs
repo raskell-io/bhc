@@ -21,7 +21,7 @@ impl Default for ArenaConfig {
         Self {
             start_address: super::DEFAULT_HEAP_START,
             size: 1024 * 1024, // 1MB
-            alignment: 16, // 16-byte alignment for SIMD
+            alignment: 16,     // 16-byte alignment for SIMD
         }
     }
 }
@@ -135,7 +135,6 @@ impl WasmArena {
 
         vec![
             WasmInstr::Comment(format!("Arena alloc (align={})", alignment)),
-
             // Align the current pointer
             WasmInstr::GlobalGet(self.ptr_global),
             WasmInstr::I32Const(alignment_mask as i32),
@@ -143,16 +142,13 @@ impl WasmArena {
             WasmInstr::I32Const(-(alignment as i32)),
             WasmInstr::I32And,
             WasmInstr::LocalTee(1), // aligned_ptr
-
             // Add size to get new pointer
             WasmInstr::LocalGet(0), // size parameter
             WasmInstr::I32Add,
             WasmInstr::LocalTee(2), // new_ptr
-
             // Check if we exceeded arena bounds
             WasmInstr::GlobalGet(self.end_global),
             WasmInstr::I32GtU,
-
             // If out of bounds, return 0
             WasmInstr::If(Some(WasmType::I32)),
             WasmInstr::I32Const(0),

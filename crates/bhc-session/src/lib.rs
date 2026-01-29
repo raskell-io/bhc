@@ -329,9 +329,7 @@ impl Session {
         if let Some(ref path) = self.options.output_path {
             path.clone()
         } else {
-            let stem = Utf8Path::new(input_name)
-                .file_stem()
-                .unwrap_or(input_name);
+            let stem = Utf8Path::new(input_name).file_stem().unwrap_or(input_name);
             let ext = match self.options.output_type {
                 OutputType::Object => "o",
                 OutputType::StaticLib => "a",

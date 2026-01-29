@@ -12,9 +12,9 @@
 //! - **Lists**: `*` for unordered, `1.` for ordered
 //! - **BHC sections**: `Complexity:`, `Fusion:`, `SIMD:`, `Profile:`
 
-use std::collections::HashMap;
-use regex::Regex;
 use crate::model::{DocContent, Example};
+use regex::Regex;
+use std::collections::HashMap;
 
 /// Parse Haddock markup into structured documentation.
 pub fn parse(text: &str) -> DocContent {
@@ -204,7 +204,12 @@ fn parse_examples(text: &str) -> Vec<Example> {
                 current_code.clear();
                 current_output.clear();
             }
-            current_code = line.trim().strip_prefix(">>>").unwrap_or("").trim().to_string();
+            current_code = line
+                .trim()
+                .strip_prefix(">>>")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             in_example = true;
         } else if in_example {
             // Output line
@@ -251,11 +256,15 @@ fn parse_inline_markup(text: String) -> String {
 
     // Convert 'identifier' to links
     let id_link = Regex::new(r"'([a-zA-Z_][a-zA-Z0-9_']*)'").unwrap();
-    result = id_link.replace_all(&result, "<a href=\"#$1\">$1</a>").to_string();
+    result = id_link
+        .replace_all(&result, "<a href=\"#$1\">$1</a>")
+        .to_string();
 
     // Convert "Module" to module links
     let mod_link = Regex::new(r#""([A-Z][a-zA-Z0-9_.]*[a-zA-Z0-9])""#).unwrap();
-    result = mod_link.replace_all(&result, "<a href=\"$1.html\">$1</a>").to_string();
+    result = mod_link
+        .replace_all(&result, "<a href=\"$1.html\">$1</a>")
+        .to_string();
 
     // Convert __bold__
     let bold = Regex::new(r"__([^_]+)__").unwrap();
@@ -300,6 +309,9 @@ mod tests {
     #[test]
     fn test_parse_complexity() {
         let doc = parse("Brief.\n\nComplexity: O(n log n)");
-        assert_eq!(doc.sections.get("Complexity"), Some(&"O(n log n)".to_string()));
+        assert_eq!(
+            doc.sections.get("Complexity"),
+            Some(&"O(n log n)".to_string())
+        );
     }
 }

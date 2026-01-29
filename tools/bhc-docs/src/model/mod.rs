@@ -3,8 +3,8 @@
 //! This module defines the internal representation of documentation,
 //! independent of the source format (AST) or output format (HTML/Markdown).
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// A documented module.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,9 +341,15 @@ pub enum TypeExpr {
     /// Type constructor.
     Con { name: String },
     /// Type application.
-    App { func: Box<TypeExpr>, arg: Box<TypeExpr> },
+    App {
+        func: Box<TypeExpr>,
+        arg: Box<TypeExpr>,
+    },
     /// Function type.
-    Arrow { from: Box<TypeExpr>, to: Box<TypeExpr> },
+    Arrow {
+        from: Box<TypeExpr>,
+        to: Box<TypeExpr>,
+    },
     /// Tuple type.
     Tuple { elements: Vec<TypeExpr> },
     /// List type.

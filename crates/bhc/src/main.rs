@@ -149,10 +149,10 @@ fn main() -> Result<()> {
         Level::ERROR
     } else {
         match cli.verbose {
-            0 => Level::WARN,   // Default: only warnings and errors
-            1 => Level::INFO,   // -v: informational messages
-            2 => Level::DEBUG,  // -vv: debug output
-            _ => Level::TRACE,  // -vvv: trace everything
+            0 => Level::WARN,  // Default: only warnings and errors
+            1 => Level::INFO,  // -v: informational messages
+            2 => Level::DEBUG, // -vv: debug output
+            _ => Level::TRACE, // -vvv: trace everything
         }
     };
 
@@ -187,7 +187,10 @@ fn main() -> Result<()> {
         None => {
             if cli.files.is_empty() {
                 // No files specified, print help
-                println!("Basel Haskell Compiler (BHC) v{}", env!("CARGO_PKG_VERSION"));
+                println!(
+                    "Basel Haskell Compiler (BHC) v{}",
+                    env!("CARGO_PKG_VERSION")
+                );
                 println!();
                 println!("Usage: bhc [OPTIONS] [FILES]...");
                 println!();
@@ -212,7 +215,11 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
     use bhc_driver::CompilerBuilder;
     use camino::Utf8PathBuf;
 
-    tracing::info!("Compiling {} file(s) with {:?} profile", files.len(), cli.profile);
+    tracing::info!(
+        "Compiling {} file(s) with {:?} profile",
+        files.len(),
+        cli.profile
+    );
 
     // Convert profile
     let profile = match cli.profile {
@@ -225,7 +232,8 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
     // Determine output type based on target and emit flags
     let output_type = if cli.emit.as_deref() == Some("ptx") {
         bhc_session::OutputType::Object // PTX is emitted as object
-    } else if cli.target.as_deref() == Some("wasm32-wasi") || cli.target.as_deref() == Some("wasm") {
+    } else if cli.target.as_deref() == Some("wasm32-wasi") || cli.target.as_deref() == Some("wasm")
+    {
         bhc_session::OutputType::Wasm
     } else {
         bhc_session::OutputType::Executable
@@ -244,8 +252,10 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
 
     // Set output path if specified
     if let Some(ref output) = cli.output {
-        builder = builder.output_path(Utf8PathBuf::from_path_buf(output.clone())
-            .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in output path"))?);
+        builder = builder.output_path(
+            Utf8PathBuf::from_path_buf(output.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in output path"))?,
+        );
     }
 
     let compiler = builder

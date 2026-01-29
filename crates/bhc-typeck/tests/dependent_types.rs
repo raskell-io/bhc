@@ -10,7 +10,9 @@ use bhc_types::dyn_tensor::{
 };
 use bhc_types::{nat::TyNat, ty_list::TyList, Kind, Scheme, Ty, TyCon, TyVar};
 
-use bhc_typeck::shape_bridge::{extract_static_dims, is_static_shape, shape_from_static, ty_list_to_shape};
+use bhc_typeck::shape_bridge::{
+    extract_static_dims, is_static_shape, shape_from_static, ty_list_to_shape,
+};
 use bhc_typeck::type_families::{
     reduce_broadcast, reduce_concat, reduce_matmul_shape, reduce_transpose, ReductionResult,
     ShapeError,
@@ -142,7 +144,9 @@ fn test_tensor_type_kind() {
     // Verify the structure
     match tensor_kind {
         Kind::Arrow(arg, result) => {
-            assert!(matches!(arg.as_ref(), Kind::List(inner) if matches!(inner.as_ref(), Kind::Nat)));
+            assert!(
+                matches!(arg.as_ref(), Kind::List(inner) if matches!(inner.as_ref(), Kind::Nat))
+            );
             match result.as_ref() {
                 Kind::Arrow(elem, final_kind) => {
                     assert!(elem.is_star());
@@ -483,8 +487,10 @@ fn test_polymorphic_shape_preservation() {
     let k = TyVar::new(2, Kind::Nat);
     let n = TyVar::new(3, Kind::Nat);
 
-    let a_shape =
-        TyList::from_vec(vec![Ty::Nat(TyNat::Var(m.clone())), Ty::Nat(TyNat::Var(k.clone()))]);
+    let a_shape = TyList::from_vec(vec![
+        Ty::Nat(TyNat::Var(m.clone())),
+        Ty::Nat(TyNat::Var(k.clone())),
+    ]);
     let b_shape = TyList::from_vec(vec![Ty::Nat(TyNat::Var(k)), Ty::Nat(TyNat::Var(n.clone()))]);
 
     let result = reduce_matmul_shape(&a_shape, &b_shape);
@@ -541,9 +547,7 @@ fn test_dyn_tensor_of_construction() {
     // Verify structure: App(DynTensor, Float)
     match &dyn_ty {
         Ty::App(f, arg) => {
-            assert!(
-                matches!(f.as_ref(), Ty::Con(tc) if tc.name.as_str() == "DynTensor")
-            );
+            assert!(matches!(f.as_ref(), Ty::Con(tc) if tc.name.as_str() == "DynTensor"));
             assert_eq!(arg.as_ref(), &float_ty);
         }
         _ => panic!("expected App"),
@@ -558,9 +562,7 @@ fn test_shape_witness_of_construction() {
     // Verify structure: App(ShapeWitness, TyList)
     match &witness_ty {
         Ty::App(f, arg) => {
-            assert!(
-                matches!(f.as_ref(), Ty::Con(tc) if tc.name.as_str() == "ShapeWitness")
-            );
+            assert!(matches!(f.as_ref(), Ty::Con(tc) if tc.name.as_str() == "ShapeWitness"));
             match arg.as_ref() {
                 Ty::TyList(list) => {
                     assert_eq!(list.to_static_dims(), Some(vec![1024, 768]));
@@ -620,14 +622,12 @@ fn test_dyn_tensor_gradual_adoption_scenario() {
 
     // Verify witness has correct shape
     match &witness_ty {
-        Ty::App(_, arg) => {
-            match arg.as_ref() {
-                Ty::TyList(list) => {
-                    assert_eq!(list.to_static_dims(), Some(vec![1024, 768]));
-                }
-                _ => panic!("expected TyList"),
+        Ty::App(_, arg) => match arg.as_ref() {
+            Ty::TyList(list) => {
+                assert_eq!(list.to_static_dims(), Some(vec![1024, 768]));
             }
-        }
+            _ => panic!("expected TyList"),
+        },
         _ => panic!("expected App"),
     }
 
@@ -649,9 +649,7 @@ fn test_dyn_tensor_gradual_adoption_scenario() {
             assert!(matches!(f.as_ref(), Ty::Con(tc) if tc.name.as_str() == "Maybe"));
             match arg.as_ref() {
                 Ty::App(tensor_shape, elem) => {
-                    assert!(
-                        matches!(elem.as_ref(), Ty::Con(tc) if tc.name.as_str() == "Float")
-                    );
+                    assert!(matches!(elem.as_ref(), Ty::Con(tc) if tc.name.as_str() == "Float"));
                     match tensor_shape.as_ref() {
                         Ty::App(tensor, shape) => {
                             assert!(
@@ -692,11 +690,11 @@ fn test_dyn_tensor_with_polymorphic_element() {
 // Tensor IR Bridge Tests (Phase 6)
 // ============================================================
 
-use bhc_typeck::shape_bridge::{
-    build_tensor_type, extract_tensor_info, extract_tensor_shape, is_tensor_type,
-    ty_to_dtype, verify_shape, verify_tensor_type, ShapeVerifyError,
-};
 use bhc_tensor_ir::DType;
+use bhc_typeck::shape_bridge::{
+    build_tensor_type, extract_tensor_info, extract_tensor_shape, is_tensor_type, ty_to_dtype,
+    verify_shape, verify_tensor_type, ShapeVerifyError,
+};
 
 #[test]
 fn test_tensor_type_to_ir_shape() {
@@ -719,10 +717,7 @@ fn test_tensor_type_to_ir_shape() {
 fn test_polymorphic_tensor_type_to_ir_shape() {
     // Build a tensor type with polymorphic dimension: Tensor '[m, 768] Float64
     let m = TyVar::new(1, Kind::Nat);
-    let shape = TyList::from_vec(vec![
-        Ty::Nat(TyNat::Var(m)),
-        Ty::Nat(TyNat::Lit(768)),
-    ]);
+    let shape = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m)), Ty::Nat(TyNat::Lit(768))]);
     let float_ty = Ty::Con(TyCon::new(Symbol::intern("Float64"), Kind::Star));
     let tensor_ty = build_tensor_type(shape, float_ty);
 
@@ -799,12 +794,7 @@ fn test_dtype_mapping_comprehensive() {
     for (type_name, expected_dtype) in test_cases {
         let ty = Ty::Con(TyCon::new(Symbol::intern(type_name), Kind::Star));
         let dtype = ty_to_dtype(&ty);
-        assert_eq!(
-            dtype,
-            Some(expected_dtype),
-            "Failed for type {}",
-            type_name
-        );
+        assert_eq!(dtype, Some(expected_dtype), "Failed for type {}", type_name);
     }
 }
 
@@ -815,10 +805,7 @@ fn test_end_to_end_tensor_lowering_scenario() {
 
     // 1. Type system produces: Tensor '[batch, 784] Float32
     let batch = TyVar::new(1, Kind::Nat);
-    let shape = TyList::from_vec(vec![
-        Ty::Nat(TyNat::Var(batch)),
-        Ty::Nat(TyNat::Lit(784)),
-    ]);
+    let shape = TyList::from_vec(vec![Ty::Nat(TyNat::Var(batch)), Ty::Nat(TyNat::Lit(784))]);
     let float_ty = Ty::Con(TyCon::new(Symbol::intern("Float32"), Kind::Star));
     let tensor_ty = build_tensor_type(shape, float_ty);
 
@@ -862,7 +849,10 @@ fn test_verify_tensor_type_integration() {
     // Wrong shape should fail
     let wrong_shape = bhc_tensor_ir::Shape::from_static([256, 64]);
     let err = verify_tensor_type(&tensor_ty, &wrong_shape).unwrap_err();
-    assert!(matches!(err, ShapeVerifyError::DimensionMismatch { axis: 1, .. }));
+    assert!(matches!(
+        err,
+        ShapeVerifyError::DimensionMismatch { axis: 1, .. }
+    ));
 
     // Non-tensor type should fail
     let non_tensor = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));

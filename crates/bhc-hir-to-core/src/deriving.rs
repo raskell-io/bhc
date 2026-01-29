@@ -210,11 +210,7 @@ impl DerivingContext {
             });
         }
 
-        self.make_case(
-            core::Expr::Var(x_var.clone(), span),
-            outer_alts,
-            span,
-        )
+        self.make_case(core::Expr::Var(x_var.clone(), span), outer_alts, span)
     }
 
     /// Generate equality check for data types with fields.
@@ -286,11 +282,7 @@ impl DerivingContext {
             });
         }
 
-        self.make_case(
-            core::Expr::Var(x_var.clone(), span),
-            outer_alts,
-            span,
-        )
+        self.make_case(core::Expr::Var(x_var.clone(), span), outer_alts, span)
     }
 
     /// Generate field-by-field comparisons: x0 == y0 && x1 == y1 && ...
@@ -307,8 +299,11 @@ impl DerivingContext {
         }
 
         // Start with the last comparison and work backwards with &&
-        let mut result =
-            self.make_eq_call(&x_fields[x_fields.len() - 1], &y_fields[y_fields.len() - 1], span);
+        let mut result = self.make_eq_call(
+            &x_fields[x_fields.len() - 1],
+            &y_fields[y_fields.len() - 1],
+            span,
+        );
 
         for i in (0..x_fields.len() - 1).rev() {
             let eq_call = self.make_eq_call(&x_fields[i], &y_fields[i], span);
@@ -532,11 +527,7 @@ impl DerivingContext {
                 });
             }
 
-            let inner_case = self.make_case(
-                core::Expr::Var(y_var.clone(), span),
-                inner_alts,
-                span,
-            );
+            let inner_case = self.make_case(core::Expr::Var(y_var.clone(), span), inner_alts, span);
 
             outer_alts.push(Alt {
                 con: AltCon::DataCon(x_data_con),
@@ -545,11 +536,7 @@ impl DerivingContext {
             });
         }
 
-        self.make_case(
-            core::Expr::Var(x_var.clone(), span),
-            outer_alts,
-            span,
-        )
+        self.make_case(core::Expr::Var(x_var.clone(), span), outer_alts, span)
     }
 
     /// Generate compare for data types with fields.
@@ -618,11 +605,7 @@ impl DerivingContext {
                 });
             }
 
-            let inner_case = self.make_case(
-                core::Expr::Var(y_var.clone(), span),
-                inner_alts,
-                span,
-            );
+            let inner_case = self.make_case(core::Expr::Var(y_var.clone(), span), inner_alts, span);
 
             outer_alts.push(Alt {
                 con: AltCon::DataCon(x_data_con),
@@ -631,11 +614,7 @@ impl DerivingContext {
             });
         }
 
-        self.make_case(
-            core::Expr::Var(x_var.clone(), span),
-            outer_alts,
-            span,
-        )
+        self.make_case(core::Expr::Var(x_var.clone(), span), outer_alts, span)
     }
 
     /// Generate lexicographic field comparison for Ord.
@@ -866,11 +845,7 @@ impl DerivingContext {
             });
         }
 
-        let case_expr = self.make_case(
-            core::Expr::Var(x_var.clone(), span),
-            alts,
-            span,
-        );
+        let case_expr = self.make_case(core::Expr::Var(x_var.clone(), span), alts, span);
 
         core::Expr::Lam(x_var, Box::new(case_expr), span)
     }
@@ -948,11 +923,7 @@ impl DerivingContext {
         let space_str = self.make_string(" ", span);
         let show_inner = self.make_show_call(&inner_var, span);
 
-        let result = self.make_append(
-            self.make_append(con_str, space_str, span),
-            show_inner,
-            span,
-        );
+        let result = self.make_append(self.make_append(con_str, space_str, span), show_inner, span);
 
         let case_expr = self.make_case(
             core::Expr::Var(x_var.clone(), span),
@@ -1242,7 +1213,12 @@ impl DerivingContext {
     /// fmap f x = case x of
     ///   Con1 a1 a2 ... -> Con1 (f a1) a2 ...  -- apply f where type param appears
     ///   Con2 b1 b2 ... -> Con2 b1 (f b2) ...
-    fn generate_fmap_body(&mut self, data_def: &DataDef, type_param: &TyVar, span: Span) -> core::Expr {
+    fn generate_fmap_body(
+        &mut self,
+        data_def: &DataDef,
+        type_param: &TyVar,
+        span: Span,
+    ) -> core::Expr {
         let f_var = self.fresh_var("f", Ty::Error);
         let x_var = self.fresh_var("x", Ty::Error);
         let ty_con = TyCon::new(data_def.name, Kind::Star);
@@ -1428,7 +1404,12 @@ impl DerivingContext {
     /// foldr f z x = case x of
     ///   Con1 a1 a2 ... -> f a1 (f a2 (... z))  -- fold where type param appears
     ///   Con2 -> z  -- no type param fields
-    fn generate_foldr_body(&mut self, data_def: &DataDef, type_param: &TyVar, span: Span) -> core::Expr {
+    fn generate_foldr_body(
+        &mut self,
+        data_def: &DataDef,
+        type_param: &TyVar,
+        span: Span,
+    ) -> core::Expr {
         let f_var = self.fresh_var("f", Ty::Error);
         let z_var = self.fresh_var("z", Ty::Error);
         let x_var = self.fresh_var("x", Ty::Error);
@@ -1617,7 +1598,12 @@ impl DerivingContext {
     /// traverse f x = case x of
     ///   Con1 a1 a2 ... -> Con1 <$> f a1 <*> f a2 <*> ...
     ///   Con2 b1 -> pure (Con2 b1)  -- no type param fields
-    fn generate_traverse_body(&mut self, data_def: &DataDef, type_param: &TyVar, span: Span) -> core::Expr {
+    fn generate_traverse_body(
+        &mut self,
+        data_def: &DataDef,
+        type_param: &TyVar,
+        span: Span,
+    ) -> core::Expr {
         let f_var = self.fresh_var("f", Ty::Error);
         let x_var = self.fresh_var("x", Ty::Error);
         let ty_con = TyCon::new(data_def.name, Kind::Star);
@@ -1664,7 +1650,10 @@ impl DerivingContext {
                     // pure (Con a1 a2 ...)
                     let con_app = self.apply_constructor(
                         data_con.clone(),
-                        binders.iter().map(|v| core::Expr::Var(v.clone(), span)).collect(),
+                        binders
+                            .iter()
+                            .map(|v| core::Expr::Var(v.clone(), span))
+                            .collect(),
                         span,
                     );
                     self.make_pure(con_app, span)
@@ -1878,7 +1867,12 @@ impl DerivingContext {
     }
 
     /// Apply a constructor to arguments.
-    fn apply_constructor(&self, data_con: DataCon, args: Vec<core::Expr>, span: Span) -> core::Expr {
+    fn apply_constructor(
+        &self,
+        data_con: DataCon,
+        args: Vec<core::Expr>,
+        span: Span,
+    ) -> core::Expr {
         let mut result = self.make_constructor(data_con, span);
         for arg in args {
             result = core::Expr::App(Box::new(result), Box::new(arg), span);
@@ -1953,11 +1947,7 @@ impl DerivingContext {
             id: VarId::new(0),
             ty: Ty::Error,
         };
-        core::Expr::App(
-            Box::new(core::Expr::Var(pure_var, span)),
-            Box::new(x),
-            span,
-        )
+        core::Expr::App(Box::new(core::Expr::Var(pure_var, span)), Box::new(x), span)
     }
 
     /// Make a `f <*> x` expression.
@@ -2193,8 +2183,14 @@ mod tests {
         let derived = result.unwrap();
         assert_eq!(derived.instance.class.as_str(), "Enum");
         // Should have fromEnum and toEnum
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("fromEnum")));
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("toEnum")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("fromEnum")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("toEnum")));
         assert_eq!(derived.bindings.len(), 2);
     }
 
@@ -2217,9 +2213,7 @@ mod tests {
                 bhc_hir::ConDef {
                     id: bhc_hir::DefId::new(3),
                     name: Symbol::intern("Just"),
-                    fields: ConFields::Positional(vec![
-                        Ty::Var(TyVar::new(0, Kind::Star)),
-                    ]),
+                    fields: ConFields::Positional(vec![Ty::Var(TyVar::new(0, Kind::Star))]),
                     span: Span::default(),
                 },
             ],
@@ -2269,8 +2263,14 @@ mod tests {
 
         let derived = result.unwrap();
         assert_eq!(derived.instance.class.as_str(), "Bounded");
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("minBound")));
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("maxBound")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("minBound")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("maxBound")));
         assert_eq!(derived.bindings.len(), 2);
     }
 
@@ -2286,9 +2286,7 @@ mod tests {
             cons: vec![bhc_hir::ConDef {
                 id: bhc_hir::DefId::new(2),
                 name: Symbol::intern("Box"),
-                fields: ConFields::Positional(vec![
-                    Ty::Var(TyVar::new(0, Kind::Star)),
-                ]),
+                fields: ConFields::Positional(vec![Ty::Var(TyVar::new(0, Kind::Star))]),
                 span: Span::default(),
             }],
             deriving: vec![Symbol::intern("Functor")],
@@ -2300,7 +2298,10 @@ mod tests {
 
         let derived = result.unwrap();
         assert_eq!(derived.instance.class.as_str(), "Functor");
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("fmap")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("fmap")));
     }
 
     #[test]
@@ -2338,9 +2339,7 @@ mod tests {
             cons: vec![bhc_hir::ConDef {
                 id: bhc_hir::DefId::new(2),
                 name: Symbol::intern("Box"),
-                fields: ConFields::Positional(vec![
-                    Ty::Var(TyVar::new(0, Kind::Star)),
-                ]),
+                fields: ConFields::Positional(vec![Ty::Var(TyVar::new(0, Kind::Star))]),
                 span: Span::default(),
             }],
             deriving: vec![Symbol::intern("Foldable")],
@@ -2352,7 +2351,10 @@ mod tests {
 
         let derived = result.unwrap();
         assert_eq!(derived.instance.class.as_str(), "Foldable");
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("foldr")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("foldr")));
     }
 
     #[test]
@@ -2367,9 +2369,7 @@ mod tests {
             cons: vec![bhc_hir::ConDef {
                 id: bhc_hir::DefId::new(2),
                 name: Symbol::intern("Box"),
-                fields: ConFields::Positional(vec![
-                    Ty::Var(TyVar::new(0, Kind::Star)),
-                ]),
+                fields: ConFields::Positional(vec![Ty::Var(TyVar::new(0, Kind::Star))]),
                 span: Span::default(),
             }],
             deriving: vec![Symbol::intern("Traversable")],
@@ -2381,6 +2381,9 @@ mod tests {
 
         let derived = result.unwrap();
         assert_eq!(derived.instance.class.as_str(), "Traversable");
-        assert!(derived.instance.methods.contains_key(&Symbol::intern("traverse")));
+        assert!(derived
+            .instance
+            .methods
+            .contains_key(&Symbol::intern("traverse")));
     }
 }

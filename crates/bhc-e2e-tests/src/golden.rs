@@ -162,7 +162,10 @@ mod tests {
 
     #[test]
     fn test_normalize_output() {
-        assert_eq!(normalize_output("Hello  \r\n  World  \n\n"), "Hello\n  World");
+        assert_eq!(
+            normalize_output("Hello  \r\n  World  \n\n"),
+            "Hello\n  World"
+        );
     }
 
     #[test]

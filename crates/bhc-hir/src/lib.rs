@@ -742,7 +742,10 @@ mod tests {
                 def_id: DefId::new(0),
                 span: Span::default(),
             },
-            vec![Pat::Var(x, def_x, Span::default()), Pat::Var(y, def_y, Span::default())],
+            vec![
+                Pat::Var(x, def_x, Span::default()),
+                Pat::Var(y, def_y, Span::default()),
+            ],
             Span::default(),
         );
         let vars = tuple_pat.bound_vars();
@@ -776,8 +779,8 @@ mod tests {
             name: Symbol::intern("Convert"),
             params: vec![a_var, b_var],
             fundeps: vec![FunDep {
-                from: vec![0],    // 'a' determines
-                to: vec![1],      // 'b'
+                from: vec![0], // 'a' determines
+                to: vec![1],   // 'b'
                 span: Span::default(),
             }],
             supers: vec![],
@@ -809,13 +812,13 @@ mod tests {
             params: vec![c_var, e_var, i_var],
             fundeps: vec![
                 FunDep {
-                    from: vec![0],    // 'c' determines
-                    to: vec![1],      // 'e'
+                    from: vec![0], // 'c' determines
+                    to: vec![1],   // 'e'
                     span: Span::default(),
                 },
                 FunDep {
-                    from: vec![0],    // 'c' also determines
-                    to: vec![2],      // 'i'
+                    from: vec![0], // 'c' also determines
+                    to: vec![2],   // 'i'
                     span: Span::default(),
                 },
             ],

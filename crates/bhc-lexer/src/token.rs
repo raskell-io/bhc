@@ -422,7 +422,10 @@ impl TokenKind {
     /// Check if this token can start a layout block.
     #[must_use]
     pub fn starts_layout(&self) -> bool {
-        matches!(self, Self::Where | Self::Let | Self::Do | Self::Of | Self::Mdo)
+        matches!(
+            self,
+            Self::Where | Self::Let | Self::Do | Self::Of | Self::Mdo
+        )
     }
 
     /// Check if this token closes an implicit layout context.

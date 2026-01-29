@@ -360,9 +360,7 @@ fn is_external_call(expr: &Expr) -> bool {
             // This would normally check against a set of known externals
             // For now, check if name suggests it's external
             let name = var.name.as_str();
-            name.starts_with("ffi_")
-                || name.starts_with("prim_")
-                || name.starts_with("foreign_")
+            name.starts_with("ffi_") || name.starts_with("prim_") || name.starts_with("foreign_")
         }
         Expr::TyApp(func, _, _) => is_external_call(func),
         _ => false,

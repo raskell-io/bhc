@@ -9,9 +9,9 @@
 //! The type search uses fingerprinting and unification to match queries
 //! like `a -> [a] -> [a]` against functions like `cons :: a -> [a] -> [a]`.
 
-use std::fmt;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Search configuration.
 pub struct SearchConfig {
@@ -91,7 +91,11 @@ pub fn run(config: SearchConfig) -> Result<Vec<SearchResult>> {
     }
 
     // Sort by score (descending)
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Limit results
     results.truncate(config.limit);
@@ -187,7 +191,8 @@ fn parse_simple_type(s: &str) -> SimpleType {
     if s.starts_with('(') && s.ends_with(')') {
         let inner = &s[1..s.len() - 1];
         if inner.contains(',') {
-            let parts: Vec<_> = split_comma(inner).iter()
+            let parts: Vec<_> = split_comma(inner)
+                .iter()
                 .map(|p| parse_simple_type(p))
                 .collect();
             return SimpleType::Tuple(parts);
@@ -300,9 +305,10 @@ fn unify_with_bindings(
             unify_with_bindings(f1, f2, bindings) && unify_with_bindings(a1, a2, bindings)
         }
         (SimpleType::List(e1), SimpleType::List(e2)) => unify_with_bindings(e1, e2, bindings),
-        (SimpleType::Tuple(es1), SimpleType::Tuple(es2)) if es1.len() == es2.len() => {
-            es1.iter().zip(es2.iter()).all(|(a, b)| unify_with_bindings(a, b, bindings))
-        }
+        (SimpleType::Tuple(es1), SimpleType::Tuple(es2)) if es1.len() == es2.len() => es1
+            .iter()
+            .zip(es2.iter())
+            .all(|(a, b)| unify_with_bindings(a, b, bindings)),
         _ => false,
     }
 }

@@ -31,8 +31,8 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use crate::{
-    DType, Dim, FoldFn, Layout, MapFn, Permutation, ReduceOp, Shape, SliceSpec, SliceRange, Strides,
-    TensorId, TensorMeta, TensorOp, TensorRef, ZipFn,
+    DType, Dim, FoldFn, Layout, MapFn, Permutation, ReduceOp, Shape, SliceRange, SliceSpec,
+    Strides, TensorId, TensorMeta, TensorOp, TensorRef, ZipFn,
 };
 
 /// Context for the lowering pass.
@@ -612,7 +612,8 @@ impl LowerContext {
         };
 
         // Extract slice specification (identity if not recognized)
-        let slice_spec = extract_slice_spec(spec_expr).unwrap_or_else(|| make_identity_slice(xs_tensor.meta.shape.rank()));
+        let slice_spec = extract_slice_spec(spec_expr)
+            .unwrap_or_else(|| make_identity_slice(xs_tensor.meta.shape.rank()));
 
         // Compute output shape from slice (for identity slice, same as input)
         let new_shape = compute_slice_output_shape(&slice_spec, &xs_tensor.meta.shape);
@@ -1203,8 +1204,16 @@ mod tests {
         // Slice [2:8, 5:15] -> [6, 10]
         let slice = SliceSpec {
             ranges: smallvec::smallvec![
-                SliceRange { start: Some(2), stop: Some(8), step: 1 },
-                SliceRange { start: Some(5), stop: Some(15), step: 1 },
+                SliceRange {
+                    start: Some(2),
+                    stop: Some(8),
+                    step: 1
+                },
+                SliceRange {
+                    start: Some(5),
+                    stop: Some(15),
+                    step: 1
+                },
             ],
         };
 
@@ -1220,9 +1229,11 @@ mod tests {
 
         // Slice [0:10:2] -> 5 elements (0, 2, 4, 6, 8)
         let slice = SliceSpec {
-            ranges: smallvec::smallvec![
-                SliceRange { start: Some(0), stop: Some(10), step: 2 },
-            ],
+            ranges: smallvec::smallvec![SliceRange {
+                start: Some(0),
+                stop: Some(10),
+                step: 2
+            },],
         };
 
         let output = compute_slice_output_shape(&slice, &shape);

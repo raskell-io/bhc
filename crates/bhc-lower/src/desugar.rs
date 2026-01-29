@@ -155,7 +155,8 @@ fn desugar_let_decls(
             // Simple function binding becomes a pattern binding
             if fun_bind.clauses.len() == 1 && fun_bind.clauses[0].pats.is_empty() {
                 let clause = &fun_bind.clauses[0];
-                let def_id = ctx.lookup_value(fun_bind.name.name)
+                let def_id = ctx
+                    .lookup_value(fun_bind.name.name)
                     .expect("do-let binding should be bound");
                 let pat = hir::Pat::Var(fun_bind.name.name, def_id, fun_bind.span);
                 let rhs = match &clause.rhs {
@@ -376,11 +377,7 @@ fn desugar_guards_with_body(
                         span: *guard_span,
                     };
 
-                    hir::Expr::Case(
-                        Box::new(scrut),
-                        vec![match_alt, default_alt],
-                        span,
-                    )
+                    hir::Expr::Case(Box::new(scrut), vec![match_alt, default_alt], span)
                 }
             }
         }
@@ -406,19 +403,22 @@ fn desugar_guards(
             let inner = if rest.is_empty() {
                 then_branch
             } else {
-                desugar_guards(ctx, rest, then_branch, else_branch.clone(), span, lower_expr, lower_pat)
+                desugar_guards(
+                    ctx,
+                    rest,
+                    then_branch,
+                    else_branch.clone(),
+                    span,
+                    lower_expr,
+                    lower_pat,
+                )
             };
 
             match guard {
                 ast::Guard::Expr(cond_expr, _guard_span) => {
                     // Boolean guard: if cond then inner else else_branch
                     let cond = lower_expr(ctx, cond_expr);
-                    hir::Expr::If(
-                        Box::new(cond),
-                        Box::new(inner),
-                        Box::new(else_branch),
-                        span,
-                    )
+                    hir::Expr::If(Box::new(cond), Box::new(inner), Box::new(else_branch), span)
                 }
                 ast::Guard::Pattern(pat, scrut_expr, guard_span) => {
                     // Pattern guard: case scrut of { pat -> inner; _ -> else_branch }
@@ -445,11 +445,7 @@ fn desugar_guards(
                         span: *guard_span,
                     };
 
-                    hir::Expr::Case(
-                        Box::new(scrut),
-                        vec![match_alt, default_alt],
-                        span,
-                    )
+                    hir::Expr::Case(Box::new(scrut), vec![match_alt, default_alt], span)
                 }
             }
         }
@@ -540,11 +536,7 @@ mod tests {
         // Build: return x
         let return_expr = ast::Expr::Var(return_ident, Span::default());
         let x_expr = ast::Expr::Var(x_ident, Span::default());
-        let return_x = ast::Expr::App(
-            Box::new(return_expr),
-            Box::new(x_expr),
-            Span::default(),
-        );
+        let return_x = ast::Expr::App(Box::new(return_expr), Box::new(x_expr), Span::default());
 
         let stmts = vec![
             ast::Stmt::LetStmt(vec![let_decl], Span::default()),
@@ -601,7 +593,10 @@ mod tests {
         );
 
         // Result should be a Let expression wrapping the body
-        assert!(matches!(result, hir::Expr::Let(_, _, _)),
-            "expected Let expression, got {:?}", result);
+        assert!(
+            matches!(result, hir::Expr::Let(_, _, _)),
+            "expected Let expression, got {:?}",
+            result
+        );
     }
 }

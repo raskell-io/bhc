@@ -51,7 +51,9 @@ pub fn generate_module_header(name: &str, device: &DeviceInfo) -> String {
          #include <metal_stdlib>\n\
          #include <metal_compute>\n\
          using namespace metal;\n\n",
-        METAL_VERSION, name, device.arch_name()
+        METAL_VERSION,
+        name,
+        device.arch_name()
     )
 }
 
@@ -81,19 +83,18 @@ fn generate_kernel_function(
     // Input buffers
     for (i, input) in params.inputs.iter().enumerate() {
         let ty = dtype_to_metal_type(input.dtype);
-        writeln!(
-            code,
-            "    device const {}* in{} [[buffer({})]],",
-            ty, i, i
-        )
-        .unwrap();
+        writeln!(code, "    device const {}* in{} [[buffer({})]],", ty, i, i).unwrap();
     }
 
     // Output buffers
     for (i, output) in params.outputs.iter().enumerate() {
         let ty = dtype_to_metal_type(output.dtype);
         let binding = params.inputs.len() + i;
-        let comma = if i == params.outputs.len() - 1 { "" } else { "," };
+        let comma = if i == params.outputs.len() - 1 {
+            ""
+        } else {
+            ","
+        };
         writeln!(
             code,
             "    device {}* out{} [[buffer({})]]{}",
@@ -320,7 +321,12 @@ fn generate_reduce_op(
 
     // Tree reduction
     writeln!(code, "    // Tree reduction").unwrap();
-    writeln!(code, "    for (uint s = {} / 2; s > 0; s >>= 1) {{", block_size).unwrap();
+    writeln!(
+        code,
+        "    for (uint s = {} / 2; s > 0; s >>= 1) {{",
+        block_size
+    )
+    .unwrap();
     writeln!(code, "        if (tid < s) {{").unwrap();
 
     let reduce_expr = match op {
@@ -334,7 +340,11 @@ fn generate_reduce_op(
 
     writeln!(code, "            shared_data[tid] = {};", reduce_expr).unwrap();
     writeln!(code, "        }}").unwrap();
-    writeln!(code, "        threadgroup_barrier(mem_flags::mem_threadgroup);").unwrap();
+    writeln!(
+        code,
+        "        threadgroup_barrier(mem_flags::mem_threadgroup);"
+    )
+    .unwrap();
     writeln!(code, "    }}").unwrap();
     writeln!(code).unwrap();
 

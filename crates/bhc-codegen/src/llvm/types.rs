@@ -5,8 +5,8 @@
 
 use inkwell::context::Context;
 use inkwell::types::{
-    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType,
-    PointerType, StructType, VoidType,
+    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, PointerType,
+    StructType, VoidType,
 };
 use inkwell::AddressSpace;
 
@@ -140,10 +140,7 @@ impl<'ctx> TypeMapper<'ctx> {
     #[must_use]
     pub fn boxed_int_type(&self) -> StructType<'ctx> {
         self.context.struct_type(
-            &[
-                self.obj_header_type().into(),
-                self.i64_type().into(),
-            ],
+            &[self.obj_header_type().into(), self.i64_type().into()],
             false,
         )
     }

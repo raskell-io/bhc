@@ -195,10 +195,7 @@ impl<Q: Query> QueryStorage<Q> {
         // Check for cached result
         if let Some(entry) = self.results.get(key) {
             if entry.computed_at >= db.current_revision() {
-                tracing::trace!(
-                    query = Q::name(&self.query),
-                    "cache hit"
-                );
+                tracing::trace!(query = Q::name(&self.query), "cache hit");
                 return Ok(entry.value.clone());
             }
         }
@@ -227,10 +224,7 @@ impl<Q: Query> QueryStorage<Q> {
             },
         );
 
-        tracing::trace!(
-            query = Q::name(&self.query),
-            "computed and cached"
-        );
+        tracing::trace!(query = Q::name(&self.query), "computed and cached");
 
         Ok(value)
     }
@@ -323,7 +317,11 @@ impl<DB: QueryDatabase> QueryRuntime<DB> {
     }
 
     /// Execute a query and return its result.
-    pub fn query<Q: Query>(&self, storage: &QueryStorage<Q>, key: &Q::Key) -> QueryResult<Q::Value> {
+    pub fn query<Q: Query>(
+        &self,
+        storage: &QueryStorage<Q>,
+        key: &Q::Key,
+    ) -> QueryResult<Q::Value> {
         storage.get(&self.db, key)
     }
 }

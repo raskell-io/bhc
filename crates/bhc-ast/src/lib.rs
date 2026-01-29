@@ -319,7 +319,9 @@ impl Extension {
             "DeriveLift" => Self::DeriveLift,
             "DerivingVia" => Self::DerivingVia,
             "DerivingStrategies" => Self::DerivingStrategies,
-            "GeneralizedNewtypeDeriving" | "GeneralisedNewtypeDeriving" => Self::GeneralizedNewtypeDeriving,
+            "GeneralizedNewtypeDeriving" | "GeneralisedNewtypeDeriving" => {
+                Self::GeneralizedNewtypeDeriving
+            }
             "StandaloneDeriving" => Self::StandaloneDeriving,
 
             // FFI
@@ -989,7 +991,6 @@ pub enum Type {
     Constrained(Vec<Constraint>, Box<Type>, Span),
 
     // === M9 Dependent Types Preview ===
-
     /// Promoted list: `'[1024, 768]` for tensor shapes
     PromotedList(Vec<Type>, Span),
     /// Type-level natural literal: `1024` in type position

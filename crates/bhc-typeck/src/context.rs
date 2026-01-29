@@ -299,7 +299,9 @@ impl TyCtxt {
             // Tuple instances: Eq (a, b), Ord (a, b), Show (a, b) if all elements have the instance
             Ty::Tuple(elems) => {
                 matches!(class_name, "Eq" | "Ord" | "Show")
-                    && elems.iter().all(|elem| self.is_builtin_instance(class, elem))
+                    && elems
+                        .iter()
+                        .all(|elem| self.is_builtin_instance(class, elem))
             }
             // Maybe instances: handled via App pattern
             // Either instances: handled via App pattern
@@ -424,11 +426,8 @@ impl TyCtxt {
                 // For each fundep, check if we can improve
                 for fundep in &class_info.fundeps {
                     // Check if all "from" types are ground
-                    let from_types: Vec<&Ty> = fundep
-                        .from
-                        .iter()
-                        .filter_map(|&i| args.get(i))
-                        .collect();
+                    let from_types: Vec<&Ty> =
+                        fundep.from.iter().filter_map(|&i| args.get(i)).collect();
 
                     if from_types.iter().any(|t| self.contains_unresolved_var(t)) {
                         continue; // Not all "from" types are ground yet
@@ -496,7 +495,10 @@ impl TyCtxt {
             }
             (Ty::Tuple(e1), Ty::Tuple(e2)) => {
                 e1.len() == e2.len()
-                    && e1.iter().zip(e2.iter()).all(|(t1, t2)| self.types_match_for_fundep(t1, t2))
+                    && e1
+                        .iter()
+                        .zip(e2.iter())
+                        .all(|(t1, t2)| self.types_match_for_fundep(t1, t2))
             }
             (Ty::List(e1), Ty::List(e2)) => self.types_match_for_fundep(e1, e2),
             (Ty::Prim(p1), Ty::Prim(p2)) => p1 == p2,
@@ -510,27 +512,18 @@ impl TyCtxt {
         self.builtins = Builtins::new();
 
         // Register type constructors
-        self.env
-            .register_type_con(self.builtins.int_con.clone());
-        self.env
-            .register_type_con(self.builtins.float_con.clone());
-        self.env
-            .register_type_con(self.builtins.char_con.clone());
-        self.env
-            .register_type_con(self.builtins.bool_con.clone());
-        self.env
-            .register_type_con(self.builtins.string_con.clone());
-        self.env
-            .register_type_con(self.builtins.list_con.clone());
-        self.env
-            .register_type_con(self.builtins.maybe_con.clone());
-        self.env
-            .register_type_con(self.builtins.either_con.clone());
+        self.env.register_type_con(self.builtins.int_con.clone());
+        self.env.register_type_con(self.builtins.float_con.clone());
+        self.env.register_type_con(self.builtins.char_con.clone());
+        self.env.register_type_con(self.builtins.bool_con.clone());
+        self.env.register_type_con(self.builtins.string_con.clone());
+        self.env.register_type_con(self.builtins.list_con.clone());
+        self.env.register_type_con(self.builtins.maybe_con.clone());
+        self.env.register_type_con(self.builtins.either_con.clone());
         self.env.register_type_con(self.builtins.io_con.clone());
 
         // Register shape-indexed tensor type constructors
-        self.env
-            .register_type_con(self.builtins.tensor_con.clone());
+        self.env.register_type_con(self.builtins.tensor_con.clone());
         self.env
             .register_type_con(self.builtins.dyn_tensor_con.clone());
         self.env
@@ -563,7 +556,10 @@ impl TyCtxt {
         // First pass: register data constructors
         for (_def_id, def_info) in defs.iter() {
             // Only process constructor kinds
-            if !matches!(def_info.kind, DefKind::Constructor | DefKind::StubConstructor) {
+            if !matches!(
+                def_info.kind,
+                DefKind::Constructor | DefKind::StubConstructor
+            ) {
                 continue;
             }
 
@@ -600,7 +596,10 @@ impl TyCtxt {
                         )),
                         Box::new(Ty::Var(b.clone())),
                     );
-                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), either_ab))
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), either_ab),
+                    )
                 }
                 "Right" => {
                     // Right :: b -> Either a b
@@ -611,7 +610,10 @@ impl TyCtxt {
                         )),
                         Box::new(Ty::Var(b.clone())),
                     );
-                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(b.clone()), either_ab))
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(b.clone()), either_ab),
+                    )
                 }
 
                 // List constructors
@@ -639,7 +641,10 @@ impl TyCtxt {
                         vec![a.clone(), b.clone()],
                         Ty::fun(
                             Ty::Var(a.clone()),
-                            Ty::fun(Ty::Var(b.clone()), Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())])),
+                            Ty::fun(
+                                Ty::Var(b.clone()),
+                                Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]),
+                            ),
                         ),
                     )
                 }
@@ -654,7 +659,11 @@ impl TyCtxt {
                                 Ty::Var(b.clone()),
                                 Ty::fun(
                                     Ty::Var(c.clone()),
-                                    Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone()), Ty::Var(c.clone())]),
+                                    Ty::Tuple(vec![
+                                        Ty::Var(a.clone()),
+                                        Ty::Var(b.clone()),
+                                        Ty::Var(c.clone()),
+                                    ]),
                                 ),
                             ),
                         ),
@@ -675,9 +684,11 @@ impl TyCtxt {
                 // For imported constructors that aren't known builtins,
                 // create a function type based on the constructor's arity.
                 _ => {
-                    if let (Some(arity), Some(type_con_name), Some(type_param_count)) =
-                        (def_info.arity, def_info.type_con_name, def_info.type_param_count)
-                    {
+                    if let (Some(arity), Some(type_con_name), Some(type_param_count)) = (
+                        def_info.arity,
+                        def_info.type_con_name,
+                        def_info.type_param_count,
+                    ) {
                         // Build proper polymorphic type: forall a1 .. an b1 .. bm. b1 -> b2 -> ... -> bm -> TypeCon a1 .. an
                         // where a1..an are result type params and b1..bm are field type params
 
@@ -694,13 +705,16 @@ impl TyCtxt {
                         // Build the result type: TypeCon a1 a2 ... an
                         let kind = Self::compute_type_con_kind(type_param_count);
                         let type_con = TyCon::new(type_con_name, kind);
-                        let result_ty = result_type_params.iter().fold(Ty::Con(type_con), |acc, param| {
-                            Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
-                        });
+                        let result_ty = result_type_params
+                            .iter()
+                            .fold(Ty::Con(type_con), |acc, param| {
+                                Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
+                            });
 
                         // Build the constructor type: b1 -> b2 -> ... -> bm -> ResultType
                         // Build from inside out: result <- bm <- bm-1 <- ... <- b1
-                        let mut field_types: Vec<Ty> = field_type_params.iter()
+                        let mut field_types: Vec<Ty> = field_type_params
+                            .iter()
                             .map(|tv| Ty::Var(tv.clone()))
                             .collect();
 
@@ -722,7 +736,8 @@ impl TyCtxt {
                         }
 
                         // Combine all type parameters: result params + field params
-                        let all_params: Vec<TyVar> = result_type_params.into_iter()
+                        let all_params: Vec<TyVar> = result_type_params
+                            .into_iter()
                             .chain(field_type_params.into_iter())
                             .collect();
 
@@ -745,7 +760,8 @@ impl TyCtxt {
             };
 
             // Register the constructor with its DefId from the lowering pass
-            self.env.register_data_con(def_info.id, def_info.name, scheme);
+            self.env
+                .register_data_con(def_info.id, def_info.name, scheme);
         }
 
         // Helper to create common type schemes
@@ -811,7 +827,10 @@ impl TyCtxt {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
                         vec![a.clone()],
-                        Ty::fun(list_a, Ty::fun(self.builtins.int_ty.clone(), Ty::Var(a.clone()))),
+                        Ty::fun(
+                            list_a,
+                            Ty::fun(self.builtins.int_ty.clone(), Ty::Var(a.clone())),
+                        ),
                     )
                 }
                 // Function composition
@@ -829,15 +848,13 @@ impl TyCtxt {
                     )
                 }
                 // Function application
-                "$" => {
-                    Scheme::poly(
-                        vec![a.clone(), b.clone()],
-                        Ty::fun(
-                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                        ),
-                    )
-                }
+                "$" => Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                    ),
+                ),
                 // Monadic operators
                 // (>>) :: IO () -> IO () -> IO () (monomorphic for now)
                 ">>" => {
@@ -859,7 +876,10 @@ impl TyCtxt {
                     );
                     Scheme::poly(
                         vec![a.clone(), b.clone()],
-                        Ty::fun(io_a, Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b.clone()), io_b)),
+                        Ty::fun(
+                            io_a,
+                            Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b.clone()), io_b),
+                        ),
                     )
                 }
                 // (=<<) :: (a -> IO b) -> IO a -> IO b (flipped >>=)
@@ -874,7 +894,10 @@ impl TyCtxt {
                     );
                     Scheme::poly(
                         vec![a.clone(), b.clone()],
-                        Ty::fun(Ty::fun(Ty::Var(a.clone()), io_b.clone()), Ty::fun(io_a, io_b)),
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), io_b.clone()),
+                            Ty::fun(io_a, io_b),
+                        ),
                     )
                 }
                 // return :: a -> IO a
@@ -929,19 +952,28 @@ impl TyCtxt {
                 // length :: [a] -> Int
                 "length" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                    Scheme::poly(vec![a.clone()], Ty::fun(list_a, self.builtins.int_ty.clone()))
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(list_a, self.builtins.int_ty.clone()),
+                    )
                 }
                 // null :: [a] -> Bool
                 "null" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                    Scheme::poly(vec![a.clone()], Ty::fun(list_a, self.builtins.bool_ty.clone()))
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(list_a, self.builtins.bool_ty.clone()),
+                    )
                 }
                 // take, drop :: Int -> [a] -> [a]
                 "take" | "drop" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
                         vec![a.clone()],
-                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(list_a.clone(), list_a)),
+                        Ty::fun(
+                            self.builtins.int_ty.clone(),
+                            Ty::fun(list_a.clone(), list_a),
+                        ),
                     )
                 }
                 // sum, product :: [Int] -> Int
@@ -955,7 +987,10 @@ impl TyCtxt {
                     Scheme::poly(
                         vec![a.clone(), b.clone()],
                         Ty::fun(
-                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                            Ty::fun(
+                                Ty::Var(b.clone()),
+                                Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                            ),
                             Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
                         ),
                     )
@@ -966,7 +1001,10 @@ impl TyCtxt {
                     Scheme::poly(
                         vec![a.clone(), b.clone()],
                         Ty::fun(
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
+                            ),
                             Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
                         ),
                     )
@@ -979,7 +1017,10 @@ impl TyCtxt {
                     Scheme::poly(
                         vec![a.clone(), b.clone(), c.clone()],
                         Ty::fun(
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                            ),
                             Ty::fun(list_a, Ty::fun(list_b, list_c)),
                         ),
                     )
@@ -1029,11 +1070,17 @@ impl TyCtxt {
                     )
                 }
                 // id :: a -> a
-                "id" => Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                "id" => Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                ),
                 // const :: a -> b -> a
                 "const" => Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone()))),
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone())),
+                    ),
                 ),
                 // error :: String -> a
                 "error" => Scheme::poly(
@@ -1045,14 +1092,21 @@ impl TyCtxt {
                 // seq :: a -> b -> b
                 "seq" => Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
+                    ),
                 ),
                 // negate, abs, signum :: Int -> Int
-                "negate" | "abs" | "signum" => {
-                    Scheme::mono(Ty::fun(self.builtins.int_ty.clone(), self.builtins.int_ty.clone()))
-                }
+                "negate" | "abs" | "signum" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    self.builtins.int_ty.clone(),
+                )),
                 // not :: Bool -> Bool
-                "not" => Scheme::mono(Ty::fun(self.builtins.bool_ty.clone(), self.builtins.bool_ty.clone())),
+                "not" => Scheme::mono(Ty::fun(
+                    self.builtins.bool_ty.clone(),
+                    self.builtins.bool_ty.clone(),
+                )),
                 // otherwise :: Bool
                 "otherwise" => Scheme::mono(self.builtins.bool_ty.clone()),
                 // show :: a -> String
@@ -1087,19 +1141,28 @@ impl TyCtxt {
                 // fst :: (a, b) -> a
                 "fst" => Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]), Ty::Var(a.clone())),
+                    Ty::fun(
+                        Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]),
+                        Ty::Var(a.clone()),
+                    ),
                 ),
                 // snd :: (a, b) -> b
                 "snd" => Scheme::poly(
                     vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]), Ty::Var(b.clone())),
+                    Ty::fun(
+                        Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]),
+                        Ty::Var(b.clone()),
+                    ),
                 ),
                 // replicate :: Int -> a -> [a]
                 "replicate" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
                         vec![a.clone()],
-                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), list_a)),
+                        Ty::fun(
+                            self.builtins.int_ty.clone(),
+                            Ty::fun(Ty::Var(a.clone()), list_a),
+                        ),
                     )
                 }
                 // enumFromTo :: Int -> Int -> [Int]
@@ -1121,15 +1184,19 @@ impl TyCtxt {
                     self.builtins.char_ty.clone(),
                 )),
                 // flip :: (a -> b -> c) -> b -> a -> c
-                "flip" => {
-                    Scheme::poly(
-                        vec![a.clone(), b.clone(), c.clone()],
+                "flip" => Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(
                         Ty::fun(
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
-                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone()))),
+                            Ty::Var(a.clone()),
+                            Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
                         ),
-                    )
-                }
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone())),
+                        ),
+                    ),
+                ),
                 // even, odd :: Int -> Bool
                 "even" | "odd" => Scheme::mono(Ty::fun(
                     self.builtins.int_ty.clone(),
@@ -1140,7 +1207,10 @@ impl TyCtxt {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
                         vec![a.clone()],
-                        Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a, self.builtins.bool_ty.clone())),
+                        Ty::fun(
+                            Ty::Var(a.clone()),
+                            Ty::fun(list_a, self.builtins.bool_ty.clone()),
+                        ),
                     )
                 }
                 // takeWhile, dropWhile :: (a -> Bool) -> [a] -> [a]
@@ -1216,10 +1286,7 @@ impl TyCtxt {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
                     let result = Ty::Tuple(vec![list_a, list_b]);
-                    Scheme::poly(
-                        vec![a.clone(), b.clone()],
-                        Ty::fun(list_pairs, result),
-                    )
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(list_pairs, result))
                 }
                 // maybe :: b -> (a -> b) -> Maybe a -> b
                 "maybe" => {
@@ -1337,7 +1404,10 @@ impl TyCtxt {
                         Box::new(Ty::Con(self.builtins.maybe_con.clone())),
                         Box::new(Ty::Var(a.clone())),
                     );
-                    Scheme::poly(vec![a.clone()], Ty::fun(maybe_a, self.builtins.bool_ty.clone()))
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(maybe_a, self.builtins.bool_ty.clone()),
+                    )
                 }
                 // curry :: ((a, b) -> c) -> a -> b -> c
                 "curry" => {
@@ -1346,7 +1416,10 @@ impl TyCtxt {
                         vec![a.clone(), b.clone(), c.clone()],
                         Ty::fun(
                             Ty::fun(pair, Ty::Var(c.clone())),
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                            ),
                         ),
                     )
                 }
@@ -1356,7 +1429,10 @@ impl TyCtxt {
                     Scheme::poly(
                         vec![a.clone(), b.clone(), c.clone()],
                         Ty::fun(
-                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                            ),
                             Ty::fun(pair, Ty::Var(c.clone())),
                         ),
                     )
@@ -1380,7 +1456,10 @@ impl TyCtxt {
         // with the closures above.
         for (_def_id, def_info) in defs.iter() {
             // Skip constructors (handled in first pass)
-            if matches!(def_info.kind, DefKind::Constructor | DefKind::StubConstructor) {
+            if matches!(
+                def_info.kind,
+                DefKind::Constructor | DefKind::StubConstructor
+            ) {
                 continue;
             }
             // Skip if already registered
@@ -1412,10 +1491,8 @@ impl TyCtxt {
                 let data_ty = Self::build_applied_type(data.name, &data.params);
 
                 // Store field definitions for record type checking
-                let field_defs: Vec<(Symbol, Ty)> = fields
-                    .iter()
-                    .map(|f| (f.name, f.ty.clone()))
-                    .collect();
+                let field_defs: Vec<(Symbol, Ty)> =
+                    fields.iter().map(|f| (f.name, f.ty.clone())).collect();
                 self.con_field_defs.insert(con.id, field_defs);
 
                 for field in fields {
@@ -1444,10 +1521,8 @@ impl TyCtxt {
         // Register field accessor if this is a record-style newtype
         if let ConFields::Named(fields) = &newtype.con.fields {
             // Store field definitions for record construction type checking
-            let field_defs: Vec<(Symbol, Ty)> = fields
-                .iter()
-                .map(|f| (f.name, f.ty.clone()))
-                .collect();
+            let field_defs: Vec<(Symbol, Ty)> =
+                fields.iter().map(|f| (f.name, f.ty.clone())).collect();
             self.con_field_defs.insert(newtype.con.id, field_defs);
 
             // Build the newtype: T a1 a2 ... an
@@ -1469,7 +1544,9 @@ impl TyCtxt {
     /// or None if it's a positional constructor.
     #[must_use]
     pub fn get_con_fields(&self, def_id: DefId) -> Option<&[(Symbol, Ty)]> {
-        self.con_field_defs.get(&def_id).map(|v: &Vec<(Symbol, Ty)>| v.as_slice())
+        self.con_field_defs
+            .get(&def_id)
+            .map(|v: &Vec<(Symbol, Ty)>| v.as_slice())
     }
 
     /// Register a type class definition.
@@ -1520,7 +1597,8 @@ impl TyCtxt {
         for method in &class.methods {
             // The method's type scheme already has the correct form from lowering.
             // We register it globally so expressions can reference the method.
-            self.env.insert_global_by_name(method.name, method.ty.clone());
+            self.env
+                .insert_global_by_name(method.name, method.ty.clone());
         }
 
         // Type-check default method implementations.
@@ -1533,11 +1611,7 @@ impl TyCtxt {
     /// Register a type class instance.
     pub fn register_instance(&mut self, instance: &InstanceDef) {
         // Build method implementations map
-        let methods = instance
-            .methods
-            .iter()
-            .map(|m| (m.name, m.id))
-            .collect();
+        let methods = instance.methods.iter().map(|m| (m.name, m.id)).collect();
 
         // Convert associated type implementations
         let assoc_type_impls = instance
@@ -1575,11 +1649,7 @@ impl TyCtxt {
     }
 
     /// Compute the type scheme for a data constructor.
-    fn compute_data_con_scheme(
-        &self,
-        data: &DataDef,
-        con: &bhc_hir::ConDef,
-    ) -> Scheme {
+    fn compute_data_con_scheme(&self, data: &DataDef, con: &bhc_hir::ConDef) -> Scheme {
         use bhc_hir::ConFields;
 
         // Build the result type: T a1 a2 ... an
@@ -1628,13 +1698,16 @@ impl TyCtxt {
                 Box::new(Self::fix_type_var_kinds(from, params)),
                 Box::new(Self::fix_type_var_kinds(to, params)),
             ),
-            Ty::Tuple(tys) => {
-                Ty::Tuple(tys.iter().map(|t| Self::fix_type_var_kinds(t, params)).collect())
-            }
+            Ty::Tuple(tys) => Ty::Tuple(
+                tys.iter()
+                    .map(|t| Self::fix_type_var_kinds(t, params))
+                    .collect(),
+            ),
             Ty::List(elem) => Ty::List(Box::new(Self::fix_type_var_kinds(elem, params))),
-            Ty::Forall(vars, body) => {
-                Ty::Forall(vars.clone(), Box::new(Self::fix_type_var_kinds(body, params)))
-            }
+            Ty::Forall(vars, body) => Ty::Forall(
+                vars.clone(),
+                Box::new(Self::fix_type_var_kinds(body, params)),
+            ),
             Ty::Nat(_) | Ty::TyList(_) => ty.clone(),
         }
     }
@@ -1649,9 +1722,7 @@ impl TyCtxt {
         // Newtype has exactly one field
         let field_ty = match &newtype.con.fields {
             ConFields::Positional(tys) => tys.first().cloned().unwrap_or_else(Ty::unit),
-            ConFields::Named(fields) => {
-                fields.first().map_or_else(Ty::unit, |f| f.ty.clone())
-            }
+            ConFields::Named(fields) => fields.first().map_or_else(Ty::unit, |f| f.ty.clone()),
         };
 
         // Fix the kinds of type variables in field type to match params
@@ -1662,11 +1733,11 @@ impl TyCtxt {
     }
 
     /// Build an applied type: T a1 a2 ... an
-    fn build_applied_type(name: bhc_intern::Symbol, params: &[TyVar]) -> Ty {
+    pub fn build_applied_type(name: bhc_intern::Symbol, params: &[TyVar]) -> Ty {
         let base = Ty::Con(TyCon::new(name, Self::compute_type_con_kind(params.len())));
-        params
-            .iter()
-            .fold(base, |acc, param| Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone()))))
+        params.iter().fold(base, |acc, param| {
+            Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
+        })
     }
 
     /// Check a binding group (potentially mutually recursive bindings).
@@ -1848,15 +1919,21 @@ impl TyCtxt {
                     .filter(|c| {
                         c.args.iter().any(|arg| {
                             let arg_ty = self.subst.apply(arg);
-                            arg_ty.free_vars().iter().any(|v| remaining_free_var_ids.contains(&v.id))
+                            arg_ty
+                                .free_vars()
+                                .iter()
+                                .any(|v| remaining_free_var_ids.contains(&v.id))
                         })
                     })
                     .collect();
-                (id, Scheme {
-                    vars: remaining_vars,
-                    constraints: remaining_constraints,
-                    ty: applied_ty,
-                })
+                (
+                    id,
+                    Scheme {
+                        vars: remaining_vars,
+                        constraints: remaining_constraints,
+                        ty: applied_ty,
+                    },
+                )
             })
             .collect();
 

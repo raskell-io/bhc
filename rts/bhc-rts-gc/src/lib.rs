@@ -910,7 +910,11 @@ impl GarbageCollector {
         let pause = marker.start_cycle(roots.iter());
 
         // Record the root scanning pause
-        self.record_pause(pause.duration, CollectionKind::IncrementalMark, pause.timestamp);
+        self.record_pause(
+            pause.duration,
+            CollectionKind::IncrementalMark,
+            pause.timestamp,
+        );
 
         Some(pause)
     }
@@ -938,7 +942,11 @@ impl GarbageCollector {
         })?;
 
         // Record the pause
-        self.record_pause(pause.duration, CollectionKind::IncrementalMark, pause.timestamp);
+        self.record_pause(
+            pause.duration,
+            CollectionKind::IncrementalMark,
+            pause.timestamp,
+        );
 
         // Check if we need to do remark (SATB processing)
         if matches!(marker.state(), incremental::MarkState::Remark) {

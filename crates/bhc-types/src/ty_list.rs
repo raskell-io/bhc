@@ -239,8 +239,11 @@ mod tests {
 
     #[test]
     fn test_from_vec() {
-        let list =
-            TyList::from_vec(vec![Ty::Nat(TyNat::lit(1)), Ty::Nat(TyNat::lit(2)), Ty::Nat(TyNat::lit(3))]);
+        let list = TyList::from_vec(vec![
+            Ty::Nat(TyNat::lit(1)),
+            Ty::Nat(TyNat::lit(2)),
+            Ty::Nat(TyNat::lit(3)),
+        ]);
         assert_eq!(list.static_len(), Some(3));
     }
 

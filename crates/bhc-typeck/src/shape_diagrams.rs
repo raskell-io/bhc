@@ -54,7 +54,10 @@ pub fn format_matmul_diagram(
     let left_str = format!("[{}]", left_dims.join(", "));
     let right_str = format!("[{}]", right_dims.join(", "));
 
-    lines.push(format!("    Left matrix:  {}    Right matrix: {}", left_str, right_str));
+    lines.push(format!(
+        "    Left matrix:  {}    Right matrix: {}",
+        left_str, right_str
+    ));
     lines.push(String::new());
 
     // Visual representation
@@ -67,15 +70,26 @@ pub fn format_matmul_diagram(
 
         lines.push(format!("    ┌─────────┐   ┌─────────┐   ┌─────────┐"));
         lines.push(format!("    │         │   │         │   │         │"));
-        lines.push(format!("    │  {m:^5}  │ × │  {k2:^5}  │ → │  {m:^5}  │", m=m, k2=k2));
+        lines.push(format!(
+            "    │  {m:^5}  │ × │  {k2:^5}  │ → │  {m:^5}  │",
+            m = m,
+            k2 = k2
+        ));
         lines.push(format!("    │    ×    │   │    ×    │   │    ×    │"));
-        lines.push(format!("    │  {k1:^5}  │   │  {n:^5}  │   │  {n:^5}  │", k1=k1, n=n));
+        lines.push(format!(
+            "    │  {k1:^5}  │   │  {n:^5}  │   │  {n:^5}  │",
+            k1 = k1,
+            n = n
+        ));
         lines.push(format!("    │         │   │         │   │         │"));
         lines.push(format!("    └─────────┘   └─────────┘   └─────────┘"));
         lines.push(String::new());
         lines.push(format!("         ↑              ↑"));
         lines.push(format!("         │              │"));
-        lines.push(format!("         └── k = {}    k = {} ──┘", inner_left_str, inner_right_str));
+        lines.push(format!(
+            "         └── k = {}    k = {} ──┘",
+            inner_left_str, inner_right_str
+        ));
         lines.push(format!("                  ↑"));
         lines.push(format!("        These dimensions must match!"));
     } else {
@@ -88,7 +102,9 @@ pub fn format_matmul_diagram(
     }
 
     lines.push(String::new());
-    lines.push(format!("  Hint: For A × B, columns of A must equal rows of B"));
+    lines.push(format!(
+        "  Hint: For A × B, columns of A must equal rows of B"
+    ));
 
     lines.join("\n")
 }
@@ -132,21 +148,26 @@ pub fn format_broadcast_diagram(
         .collect();
 
     // Header row with axis numbers
-    let header: String = col_widths.iter().enumerate()
+    let header: String = col_widths
+        .iter()
+        .enumerate()
         .map(|(i, w)| format!("{:^width$}", format!("axis {}", i), width = w + 2))
         .collect::<Vec<_>>()
         .join(" ");
     lines.push(format!("    {}", header));
 
     // Separator
-    let sep: String = col_widths.iter()
+    let sep: String = col_widths
+        .iter()
         .map(|w| "─".repeat(w + 2))
         .collect::<Vec<_>>()
         .join("─");
     lines.push(format!("    {}", sep));
 
     // Shape 1 row
-    let row1: String = padded1.iter().enumerate()
+    let row1: String = padded1
+        .iter()
+        .enumerate()
         .map(|(i, d)| {
             let marker = if i == failed_axis { "►" } else { " " };
             format!("{}{:^width$}{}", marker, d, marker, width = col_widths[i])
@@ -156,7 +177,9 @@ pub fn format_broadcast_diagram(
     lines.push(format!("    {} (shape 1)", row1));
 
     // Shape 2 row
-    let row2: String = padded2.iter().enumerate()
+    let row2: String = padded2
+        .iter()
+        .enumerate()
         .map(|(i, d)| {
             let marker = if i == failed_axis { "►" } else { " " };
             format!("{}{:^width$}{}", marker, d, marker, width = col_widths[i])
@@ -182,7 +205,12 @@ pub fn format_broadcast_diagram(
     lines.push(format!("    {} (compatible?)", result));
 
     lines.push(String::new());
-    lines.push(format!("  Error at axis {}: {} vs {}", failed_axis, format_nat(dim1), format_nat(dim2)));
+    lines.push(format!(
+        "  Error at axis {}: {} vs {}",
+        failed_axis,
+        format_nat(dim1),
+        format_nat(dim2)
+    ));
     lines.push(String::new());
     lines.push("  Broadcasting rules:".to_string());
     lines.push("    • Dimensions are compatible if they are equal".to_string());
@@ -219,7 +247,11 @@ pub fn format_unification_trace(
         for i in 0..max_rank {
             let e = expected_dims.get(i).map_or("_", String::as_str);
             let f = found_dims.get(i).map_or("_", String::as_str);
-            let status = if e == f || e == "_" || f == "_" { "✓" } else { "✗" };
+            let status = if e == f || e == "_" || f == "_" {
+                "✓"
+            } else {
+                "✗"
+            };
             lines.push(format!("    axis {}: {} vs {} → {}", i, e, f, status));
         }
     } else {
@@ -252,30 +284,41 @@ pub fn format_rank_mismatch(
     lines.push(String::new());
 
     // Visual representation of dimensions
-    let exp_boxes = (0..expected_rank).map(|_| "□").collect::<Vec<_>>().join(" ");
+    let exp_boxes = (0..expected_rank)
+        .map(|_| "□")
+        .collect::<Vec<_>>()
+        .join(" ");
     let fnd_boxes = (0..found_rank).map(|_| "■").collect::<Vec<_>>().join(" ");
 
-    lines.push(format!("    Expected {} dimensions: {} = [{}]",
-        expected_rank, exp_boxes, expected_dims.join(", ")));
-    lines.push(format!("    Found {} dimensions:    {} = [{}]",
-        found_rank, fnd_boxes, found_dims.join(", ")));
+    lines.push(format!(
+        "    Expected {} dimensions: {} = [{}]",
+        expected_rank,
+        exp_boxes,
+        expected_dims.join(", ")
+    ));
+    lines.push(format!(
+        "    Found {} dimensions:    {} = [{}]",
+        found_rank,
+        fnd_boxes,
+        found_dims.join(", ")
+    ));
     lines.push(String::new());
 
     // Describe the tensor type
     let expected_desc = rank_description(expected_rank);
     let found_desc = rank_description(found_rank);
 
-    lines.push(format!("    Expected a {} but got a {}", expected_desc, found_desc));
+    lines.push(format!(
+        "    Expected a {} but got a {}",
+        expected_desc, found_desc
+    ));
 
     lines.join("\n")
 }
 
 /// Format a visual diagram for transpose suggestion.
 #[must_use]
-pub fn format_transpose_suggestion(
-    found_shape: &TyList,
-    expected_shape: &TyList,
-) -> String {
+pub fn format_transpose_suggestion(found_shape: &TyList, expected_shape: &TyList) -> String {
     let found_dims = shape_to_dims(found_shape);
     let expected_dims = shape_to_dims(expected_shape);
 
@@ -290,10 +333,16 @@ pub fn format_transpose_suggestion(
         let (m, n) = (&found_dims[0], &found_dims[1]);
         let (p, q) = (&expected_dims[0], &expected_dims[1]);
 
-        lines.push(format!("    Found:     [{} × {}]     Expected: [{} × {}]", m, n, p, q));
+        lines.push(format!(
+            "    Found:     [{} × {}]     Expected: [{} × {}]",
+            m, n, p, q
+        ));
         lines.push(String::new());
         lines.push(format!("    ┌─────────┐              ┌─────────┐"));
-        lines.push(format!("    │  {} × {} │   transpose  │  {} × {} │", m, n, n, m));
+        lines.push(format!(
+            "    │  {} × {} │   transpose  │  {} × {} │",
+            m, n, n, m
+        ));
         lines.push(format!("    └─────────┘      →       └─────────┘"));
         lines.push(String::new());
         lines.push("  Hint: Try using `transpose` on the tensor".to_string());
@@ -307,10 +356,7 @@ pub fn format_transpose_suggestion(
 
 /// Format element count mismatch for reshape errors.
 #[must_use]
-pub fn format_reshape_element_mismatch(
-    from_shape: &TyList,
-    to_shape: &TyList,
-) -> String {
+pub fn format_reshape_element_mismatch(from_shape: &TyList, to_shape: &TyList) -> String {
     let from_dims = shape_to_dims(from_shape);
     let to_dims = shape_to_dims(to_shape);
 
@@ -325,16 +371,24 @@ pub fn format_reshape_element_mismatch(
 
     lines.push(format!("    From shape: [{}]", from_dims.join(", ")));
     if let Some(count) = from_count {
-        lines.push(format!("                = {} × {} ... = {} elements",
-            from_dims.join(" × "), "", count));
+        lines.push(format!(
+            "                = {} × {} ... = {} elements",
+            from_dims.join(" × "),
+            "",
+            count
+        ));
     }
 
     lines.push(String::new());
 
     lines.push(format!("    To shape:   [{}]", to_dims.join(", ")));
     if let Some(count) = to_count {
-        lines.push(format!("                = {} × {} ... = {} elements",
-            to_dims.join(" × "), "", count));
+        lines.push(format!(
+            "                = {} × {} ... = {} elements",
+            to_dims.join(" × "),
+            "",
+            count
+        ));
     }
 
     lines.push(String::new());
@@ -345,11 +399,7 @@ pub fn format_reshape_element_mismatch(
 
 /// Format a concat shape mismatch error.
 #[must_use]
-pub fn format_concat_mismatch(
-    axis: usize,
-    shapes: &[TyList],
-    mismatch_index: usize,
-) -> String {
+pub fn format_concat_mismatch(axis: usize, shapes: &[TyList], mismatch_index: usize) -> String {
     let mut lines = Vec::new();
 
     lines.push(String::new());
@@ -359,7 +409,12 @@ pub fn format_concat_mismatch(
     for (i, shape) in shapes.iter().enumerate() {
         let dims = shape_to_dims(shape);
         let marker = if i == mismatch_index { "►" } else { " " };
-        lines.push(format!("    {} tensor {}: [{}]", marker, i, dims.join(", ")));
+        lines.push(format!(
+            "    {} tensor {}: [{}]",
+            marker,
+            i,
+            dims.join(", ")
+        ));
     }
 
     lines.push(String::new());
@@ -374,12 +429,13 @@ pub fn format_concat_mismatch(
 /// Convert a TyList to a vector of dimension strings.
 fn shape_to_dims(shape: &TyList) -> Vec<String> {
     match shape.to_vec() {
-        Some(tys) => tys.iter().map(|ty| {
-            match ty {
+        Some(tys) => tys
+            .iter()
+            .map(|ty| match ty {
                 bhc_types::Ty::Nat(n) => format_nat(n),
                 _ => "?".to_string(),
-            }
-        }).collect(),
+            })
+            .collect(),
         None => vec!["...".to_string()],
     }
 }
@@ -466,7 +522,7 @@ mod tests {
     fn test_broadcast_diagram_different_ranks() {
         let shape1 = TyList::shape_from_dims(&[3, 4]);
         let shape2 = TyList::shape_from_dims(&[2, 3, 4]);
-        let dim1 = TyNat::Lit(1);  // Implicit dimension for shape1
+        let dim1 = TyNat::Lit(1); // Implicit dimension for shape1
         let dim2 = TyNat::Lit(2);
 
         let diagram = format_broadcast_diagram(&shape1, &shape2, 0, &dim1, &dim2);

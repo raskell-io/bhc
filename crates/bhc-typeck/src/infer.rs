@@ -166,7 +166,9 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
                 // For complex patterns (Con, As, etc.), each var has its own type
                 for (name, def_id) in var_ids {
                     // Look up the current type for this variable (set by check_pattern)
-                    let var_ty = ctx.env.lookup_def_id(*def_id)
+                    let var_ty = ctx
+                        .env
+                        .lookup_def_id(*def_id)
                         .map(|s| ctx.apply_subst(&s.ty))
                         .unwrap_or_else(|| ctx.fresh_ty());
                     let scheme = ctx.generalize(&var_ty);

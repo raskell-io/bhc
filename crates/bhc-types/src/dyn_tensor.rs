@@ -152,7 +152,10 @@ pub fn from_dynamic_type(tensor_tycon: &TyCon, maybe_tycon: &TyCon) -> Ty {
     );
 
     // Maybe (Tensor shape a)
-    let maybe_tensor = Ty::App(Box::new(Ty::Con(maybe_tycon.clone())), Box::new(tensor_type));
+    let maybe_tensor = Ty::App(
+        Box::new(Ty::Con(maybe_tycon.clone())),
+        Box::new(tensor_type),
+    );
 
     // ShapeWitness shape -> DynTensor a -> Maybe (Tensor shape a)
     let fun_type = Ty::fun(witness_type, Ty::fun(dyn_tensor_type, maybe_tensor));
@@ -193,7 +196,10 @@ pub fn with_dyn_shape_type(tensor_tycon: &TyCon) -> Ty {
     );
 
     // DynTensor a -> (forall shape. Tensor shape a -> r) -> r
-    let fun_type = Ty::fun(dyn_tensor_type, Ty::fun(continuation, Ty::Var(r_var.clone())));
+    let fun_type = Ty::fun(
+        dyn_tensor_type,
+        Ty::fun(continuation, Ty::Var(r_var.clone())),
+    );
 
     // forall a r. ...
     Ty::Forall(vec![a_var, r_var], Box::new(fun_type))

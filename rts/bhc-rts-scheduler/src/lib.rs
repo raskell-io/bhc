@@ -370,7 +370,11 @@ impl<T> Task<T> {
         }
         drop(state);
 
-        self.inner.result.lock().take().expect("result should be set")
+        self.inner
+            .result
+            .lock()
+            .take()
+            .expect("result should be set")
     }
 
     /// Try to get the result without blocking.
@@ -410,7 +414,13 @@ impl<T> Task<T> {
         }
         drop(state);
 
-        Some(self.inner.result.lock().take().expect("result should be set"))
+        Some(
+            self.inner
+                .result
+                .lock()
+                .take()
+                .expect("result should be set"),
+        )
     }
 }
 
@@ -957,7 +967,9 @@ impl<'a> Scope<'a> {
         let task_cancelled = Arc::clone(&task.cancelled);
 
         // Add to shared flags list (for timer access)
-        self.task_cancelled_flags.lock().push(Arc::clone(&task_cancelled));
+        self.task_cancelled_flags
+            .lock()
+            .push(Arc::clone(&task_cancelled));
 
         self.task_handles.lock().push(ScopedTaskHandle {
             done,

@@ -4,14 +4,14 @@
 //! showing what percentage of functions, types, and other items
 //! are documented.
 
-use std::path::PathBuf;
-use std::fmt;
 use anyhow::Result;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 use crate::extract;
-use crate::model::{ModuleDoc, DocItem};
+use crate::model::{DocItem, ModuleDoc};
 
 /// Coverage configuration.
 pub struct CoverageConfig {
@@ -69,22 +69,28 @@ impl fmt::Display for CoverageReport {
         writeln!(f, "Documentation Coverage Report")?;
         writeln!(f, "==============================")?;
         writeln!(f)?;
-        writeln!(f, "Overall: {:.1}% ({}/{})",
+        writeln!(
+            f,
+            "Overall: {:.1}% ({}/{})",
             self.total_coverage * 100.0,
             self.documented_items,
-            self.total_items)?;
+            self.total_items
+        )?;
         writeln!(f)?;
 
         if !self.modules.is_empty() {
             writeln!(f, "By Module:")?;
             for module in &self.modules {
                 let bar = coverage_bar(module.coverage);
-                writeln!(f, "  {} {} {:.1}% ({}/{})",
+                writeln!(
+                    f,
+                    "  {} {} {:.1}% ({}/{})",
                     module.name,
                     bar,
                     module.coverage * 100.0,
                     module.documented,
-                    module.total)?;
+                    module.total
+                )?;
             }
             writeln!(f)?;
         }
@@ -152,7 +158,8 @@ pub fn run(config: CoverageConfig) -> Result<CoverageReport> {
                         DocItem::Newtype(_) => "newtype",
                         DocItem::Class(_) => "class",
                         DocItem::Instance(_) => "instance",
-                    }.to_string(),
+                    }
+                    .to_string(),
                     location: None,
                 });
             }
@@ -177,12 +184,17 @@ pub fn run(config: CoverageConfig) -> Result<CoverageReport> {
         1.0
     };
 
-    let passed = config.threshold
+    let passed = config
+        .threshold
         .map(|t| (total_coverage * 100.0) >= t as f64)
         .unwrap_or(true);
 
     // Sort modules by coverage (ascending)
-    modules.sort_by(|a, b| a.coverage.partial_cmp(&b.coverage).unwrap_or(std::cmp::Ordering::Equal));
+    modules.sort_by(|a, b| {
+        a.coverage
+            .partial_cmp(&b.coverage)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     Ok(CoverageReport {
         total_coverage,

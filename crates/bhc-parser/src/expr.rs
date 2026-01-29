@@ -1,13 +1,11 @@
 //! Expression parsing.
 
-use bhc_ast::{
-    Alt, ArithSeq, Expr, FieldBind, Guard, GuardedRhs, Lit, ModuleName, Pat, Rhs, Stmt,
-};
+use bhc_ast::{Alt, ArithSeq, Expr, FieldBind, Guard, GuardedRhs, Lit, ModuleName, Pat, Rhs, Stmt};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
 
-use crate::{ParseResult, Parser, ParseError};
+use crate::{ParseError, ParseResult, Parser};
 
 impl<'src> Parser<'src> {
     /// Parse an expression, including optional type annotation.
@@ -200,7 +198,7 @@ impl<'src> Parser<'src> {
                 | TokenKind::Case
                 | TokenKind::Do
                 | TokenKind::Lazy
-                | TokenKind::Underscore  // For holes/wildcards in patterns that are parsed as expressions first
+                | TokenKind::Underscore // For holes/wildcards in patterns that are parsed as expressions first
         )
     }
 
@@ -341,10 +339,11 @@ impl<'src> Parser<'src> {
     /// Parse a float literal.
     pub(crate) fn parse_float_literal(&self, s: &str, span: Span) -> ParseResult<f64> {
         let s = s.replace('_', "");
-        s.parse().map_err(|e: std::num::ParseFloatError| ParseError::InvalidLiteral {
-            message: e.to_string(),
-            span,
-        })
+        s.parse()
+            .map_err(|e: std::num::ParseFloatError| ParseError::InvalidLiteral {
+                message: e.to_string(),
+                span,
+            })
     }
 
     /// Get operator precedence and associativity.
@@ -380,14 +379,23 @@ impl<'src> Parser<'src> {
         // Note: `-` is NOT included here because `(-5)` should be negative 5, not a section.
         // Only `(-)` (minus followed immediately by rparen) should be a section.
         // We handle that case below.
-        if matches!(self.current_kind(), Some(TokenKind::Operator(_)) | Some(TokenKind::Star) | Some(TokenKind::Percent) | Some(TokenKind::Dot) | Some(TokenKind::ConOperator(_))) {
+        if matches!(
+            self.current_kind(),
+            Some(TokenKind::Operator(_))
+                | Some(TokenKind::Star)
+                | Some(TokenKind::Percent)
+                | Some(TokenKind::Dot)
+                | Some(TokenKind::ConOperator(_))
+        ) {
             return self.parse_operator_section(start);
         }
 
         // Special case for `-`: only `(-)` is a section, otherwise it's negation
         if matches!(self.current_kind(), Some(TokenKind::Minus)) {
             // Peek at the next token to see if it's immediately followed by `)`
-            if self.pos + 1 < self.tokens.len() && matches!(self.tokens[self.pos + 1].node.kind, TokenKind::RParen) {
+            if self.pos + 1 < self.tokens.len()
+                && matches!(self.tokens[self.pos + 1].node.kind, TokenKind::RParen)
+            {
                 // `(-)` is the subtraction operator as a function
                 return self.parse_operator_section(start);
             }
@@ -619,7 +627,10 @@ impl<'src> Parser<'src> {
             let to = self.parse_expr()?;
             let end = self.expect(&TokenKind::RBracket)?;
             let span = start.to(end.span);
-            return Ok(Expr::ArithSeq(ArithSeq::FromTo(Box::new(first), Box::new(to)), span));
+            return Ok(Expr::ArithSeq(
+                ArithSeq::FromTo(Box::new(first), Box::new(to)),
+                span,
+            ));
         }
 
         if self.eat(&TokenKind::Comma) {
@@ -715,11 +726,13 @@ impl<'src> Parser<'src> {
             Expr::Con(id, span) => Ok(Pat::Con(id, vec![], span)),
             Expr::Lit(lit, span) => Ok(Pat::Lit(lit, span)),
             Expr::Tuple(exprs, span) => {
-                let pats: ParseResult<Vec<_>> = exprs.into_iter().map(|e| self.expr_to_pat(e)).collect();
+                let pats: ParseResult<Vec<_>> =
+                    exprs.into_iter().map(|e| self.expr_to_pat(e)).collect();
                 Ok(Pat::Tuple(pats?, span))
             }
             Expr::List(exprs, span) => {
-                let pats: ParseResult<Vec<_>> = exprs.into_iter().map(|e| self.expr_to_pat(e)).collect();
+                let pats: ParseResult<Vec<_>> =
+                    exprs.into_iter().map(|e| self.expr_to_pat(e)).collect();
                 Ok(Pat::List(pats?, span))
             }
             Expr::Paren(e, span) => {
@@ -728,7 +741,16 @@ impl<'src> Parser<'src> {
             }
             Expr::QualCon(module, id, span) => {
                 // Qualified constructor - create qualified name for pattern
-                let qual_name = format!("{}.{}", module.parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("."), id.as_str());
+                let qual_name = format!(
+                    "{}.{}",
+                    module
+                        .parts
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join("."),
+                    id.as_str()
+                );
                 Ok(Pat::Con(Ident::from_str(&qual_name), vec![], span))
             }
             Expr::App(f, x, span) => {
@@ -745,7 +767,16 @@ impl<'src> Parser<'src> {
                 let con_id = match cur {
                     Expr::Con(id, _) => id,
                     Expr::QualCon(module, id, _) => {
-                        let qual_name = format!("{}.{}", module.parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("."), id.as_str());
+                        let qual_name = format!(
+                            "{}.{}",
+                            module
+                                .parts
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join("."),
+                            id.as_str()
+                        );
                         Ident::from_str(&qual_name)
                     }
                     _ => {
@@ -757,7 +788,8 @@ impl<'src> Parser<'src> {
                     }
                 };
 
-                let pats: ParseResult<Vec<_>> = args.into_iter().map(|e| self.expr_to_pat(e)).collect();
+                let pats: ParseResult<Vec<_>> =
+                    args.into_iter().map(|e| self.expr_to_pat(e)).collect();
                 Ok(Pat::Con(con_id, pats?, span))
             }
             Expr::Wildcard(span) => Ok(Pat::Wildcard(span)),
@@ -973,11 +1005,7 @@ impl<'src> Parser<'src> {
             self.expect(&TokenKind::Arrow)?;
             let body = self.parse_expr()?;
             let span = start.to(body.span());
-            guarded_rhss.push(GuardedRhs {
-                guards,
-                body,
-                span,
-            });
+            guarded_rhss.push(GuardedRhs { guards, body, span });
         }
         Ok(guarded_rhss)
     }

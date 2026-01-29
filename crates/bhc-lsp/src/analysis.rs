@@ -119,12 +119,24 @@ impl AnalysisEngine {
             name: module_name.to_string(),
             kind: SymbolKind::Module,
             range: Range {
-                start: Position { line: 0, character: 0 },
-                end: Position { line: 0, character: module_name.len() as u32 + 7 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: module_name.len() as u32 + 7,
+                },
             },
             selection_range: Range {
-                start: Position { line: 0, character: 7 },
-                end: Position { line: 0, character: module_name.len() as u32 + 7 },
+                start: Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: Position {
+                    line: 0,
+                    character: module_name.len() as u32 + 7,
+                },
             },
             children: Vec::new(),
             type_sig: None,
@@ -142,18 +154,31 @@ impl AnalysisEngine {
 
             // Function definitions: name arg1 arg2 = ...
             if let Some(name) = extract_function_name(trimmed) {
-                if !name.starts_with("module") && !name.starts_with("import") && !is_keyword(&name) {
+                if !name.starts_with("module") && !name.starts_with("import") && !is_keyword(&name)
+                {
                     let start_col = line.find(&name).unwrap_or(0);
                     symbols.push(Symbol {
                         name: name.clone(),
                         kind: SymbolKind::Function,
                         range: Range {
-                            start: Position { line: line_num as u32, character: 0 },
-                            end: Position { line: line_num as u32, character: line.len() as u32 },
+                            start: Position {
+                                line: line_num as u32,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: line_num as u32,
+                                character: line.len() as u32,
+                            },
                         },
                         selection_range: Range {
-                            start: Position { line: line_num as u32, character: start_col as u32 },
-                            end: Position { line: line_num as u32, character: (start_col + name.len()) as u32 },
+                            start: Position {
+                                line: line_num as u32,
+                                character: start_col as u32,
+                            },
+                            end: Position {
+                                line: line_num as u32,
+                                character: (start_col + name.len()) as u32,
+                            },
                         },
                         children: Vec::new(),
                         type_sig: None,
@@ -172,12 +197,24 @@ impl AnalysisEngine {
                             name: name.to_string(),
                             kind: SymbolKind::Function,
                             range: Range {
-                                start: Position { line: line_num as u32, character: 0 },
-                                end: Position { line: line_num as u32, character: line.len() as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: line.len() as u32,
+                                },
                             },
                             selection_range: Range {
-                                start: Position { line: line_num as u32, character: start_col as u32 },
-                                end: Position { line: line_num as u32, character: (start_col + name.len()) as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col as u32,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: (start_col + name.len()) as u32,
+                                },
                             },
                             children: Vec::new(),
                             type_sig: Some(type_sig.trim().to_string()),
@@ -197,12 +234,24 @@ impl AnalysisEngine {
                             name: name.to_string(),
                             kind: SymbolKind::Type,
                             range: Range {
-                                start: Position { line: line_num as u32, character: 0 },
-                                end: Position { line: line_num as u32, character: line.len() as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: line.len() as u32,
+                                },
                             },
                             selection_range: Range {
-                                start: Position { line: line_num as u32, character: start_col as u32 },
-                                end: Position { line: line_num as u32, character: (start_col + name.len()) as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col as u32,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: (start_col + name.len()) as u32,
+                                },
                             },
                             children: Vec::new(),
                             type_sig: None,
@@ -222,12 +271,24 @@ impl AnalysisEngine {
                             name: name.to_string(),
                             kind: SymbolKind::TypeAlias,
                             range: Range {
-                                start: Position { line: line_num as u32, character: 0 },
-                                end: Position { line: line_num as u32, character: line.len() as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: line.len() as u32,
+                                },
                             },
                             selection_range: Range {
-                                start: Position { line: line_num as u32, character: start_col as u32 },
-                                end: Position { line: line_num as u32, character: (start_col + name.len()) as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col as u32,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: (start_col + name.len()) as u32,
+                                },
                             },
                             children: Vec::new(),
                             type_sig: None,
@@ -247,12 +308,24 @@ impl AnalysisEngine {
                             name: name.to_string(),
                             kind: SymbolKind::Class,
                             range: Range {
-                                start: Position { line: line_num as u32, character: 0 },
-                                end: Position { line: line_num as u32, character: line.len() as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: line.len() as u32,
+                                },
                             },
                             selection_range: Range {
-                                start: Position { line: line_num as u32, character: start_col as u32 },
-                                end: Position { line: line_num as u32, character: (start_col + name.len()) as u32 },
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col as u32,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: (start_col + name.len()) as u32,
+                                },
                             },
                             children: Vec::new(),
                             type_sig: None,
@@ -263,7 +336,10 @@ impl AnalysisEngine {
             }
         }
 
-        AnalysisResult { diagnostics, symbols }
+        AnalysisResult {
+            diagnostics,
+            symbols,
+        }
     }
 }
 
@@ -322,7 +398,8 @@ fn is_valid_identifier(s: &str) -> bool {
         return false;
     }
 
-    s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+    s.chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
 }
 
 /// Check if a string is a valid type name.
@@ -336,17 +413,37 @@ fn is_valid_type_name(s: &str) -> bool {
         return false;
     }
 
-    s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+    s.chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
 }
 
 /// Check if a string is a Haskell keyword.
 fn is_keyword(s: &str) -> bool {
     matches!(
         s,
-        "case" | "class" | "data" | "default" | "deriving" | "do" | "else"
-            | "foreign" | "if" | "import" | "in" | "infix" | "infixl" | "infixr"
-            | "instance" | "let" | "module" | "newtype" | "of" | "then" | "type"
-            | "where" | "_"
+        "case"
+            | "class"
+            | "data"
+            | "default"
+            | "deriving"
+            | "do"
+            | "else"
+            | "foreign"
+            | "if"
+            | "import"
+            | "in"
+            | "infix"
+            | "infixl"
+            | "infixr"
+            | "instance"
+            | "let"
+            | "module"
+            | "newtype"
+            | "of"
+            | "then"
+            | "type"
+            | "where"
+            | "_"
     )
 }
 
@@ -388,8 +485,14 @@ mod tests {
     #[test]
     fn test_extract_module_name() {
         assert_eq!(extract_module_name("module Test where"), Some("Test"));
-        assert_eq!(extract_module_name("module Data.List where"), Some("Data.List"));
-        assert_eq!(extract_module_name("-- comment\nmodule Main where"), Some("Main"));
+        assert_eq!(
+            extract_module_name("module Data.List where"),
+            Some("Data.List")
+        );
+        assert_eq!(
+            extract_module_name("-- comment\nmodule Main where"),
+            Some("Main")
+        );
         assert_eq!(extract_module_name("no module here"), None);
     }
 }

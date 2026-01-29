@@ -4,7 +4,7 @@ use bhc_ast::{Constraint, ModuleName, TyVar, Type};
 use bhc_intern::Ident;
 use bhc_lexer::TokenKind;
 
-use crate::{ParseResult, Parser, ParseError};
+use crate::{ParseError, ParseResult, Parser};
 
 impl<'src> Parser<'src> {
     /// Parse a type.

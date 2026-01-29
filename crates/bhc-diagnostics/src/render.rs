@@ -309,14 +309,13 @@ impl<'a> CargoRenderer<'a> {
             };
 
             // Determine the span portion for this line
-            let (_start_col, end_col, show_start, show_end) =
-                if line_num == span_info.start_line {
-                    (span_info.start_col - 1, line_content.len(), true, false)
-                } else if line_num == span_info.end_line {
-                    (0, span_info.end_col - 1, false, true)
-                } else {
-                    (0, line_content.len(), false, false)
-                };
+            let (_start_col, end_col, show_start, show_end) = if line_num == span_info.start_line {
+                (span_info.start_col - 1, line_content.len(), true, false)
+            } else if line_num == span_info.end_line {
+                (0, span_info.end_col - 1, false, true)
+            } else {
+                (0, line_content.len(), false, false)
+            };
 
             // Source line
             if show_start {
@@ -390,7 +389,11 @@ impl<'a> CargoRenderer<'a> {
     }
 
     /// Render a suggestion.
-    fn render_suggestion(&self, suggestion: &Suggestion, w: &mut impl Write) -> std::io::Result<()> {
+    fn render_suggestion(
+        &self,
+        suggestion: &Suggestion,
+        w: &mut impl Write,
+    ) -> std::io::Result<()> {
         let green = if self.config.colors {
             colors::BOLD_GREEN
         } else {
@@ -399,7 +402,11 @@ impl<'a> CargoRenderer<'a> {
         let reset = self.reset();
         let blue = self.blue();
 
-        writeln!(w, " {blue}={reset} {green}help{reset}: {}", suggestion.message)?;
+        writeln!(
+            w,
+            " {blue}={reset} {green}help{reset}: {}",
+            suggestion.message
+        )?;
 
         if !suggestion.replacement.is_empty() {
             writeln!(w, "          {blue}|{reset}")?;

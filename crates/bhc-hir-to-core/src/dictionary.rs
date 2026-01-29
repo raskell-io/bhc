@@ -35,7 +35,7 @@ use bhc_hir::DefId;
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_span::Span;
-use bhc_types::{Constraint, Kind, Scheme, Subst, Ty, TyCon, TyVar};
+use bhc_types::{Constraint, Kind, Scheme, Subst, Ty, TyVar};
 use rustc_hash::FxHashMap;
 
 /// Information about an associated type in a class.
@@ -97,7 +97,11 @@ impl InstanceInfo {
     }
 
     /// Create a new multi-parameter instance.
-    pub fn new_multi(class: Symbol, instance_types: Vec<Ty>, methods: FxHashMap<Symbol, DefId>) -> Self {
+    pub fn new_multi(
+        class: Symbol,
+        instance_types: Vec<Ty>,
+        methods: FxHashMap<Symbol, DefId>,
+    ) -> Self {
         Self {
             class,
             instance_types,
@@ -285,124 +289,7 @@ impl ClassRegistry {
     }
 }
 
-/// Match a pattern type against a target type, returning a substitution.
-///
-/// This performs one-way pattern matching where type variables in the pattern
-/// are bound to concrete types in the target. This enables polymorphic instance
-/// matching like `instance Eq a => Eq [a]` to match `Eq [Int]` with `{a -> Int}`.
-///
-/// # Arguments
-/// * `pattern` - The instance type pattern (may contain type variables)
-/// * `target` - The concrete type to match against
-///
-/// # Returns
-/// `Some(subst)` if the match succeeds, where `subst` maps type variables to types.
-/// `None` if the types cannot be matched.
-fn types_match(pattern: &Ty, target: &Ty) -> Option<Subst> {
-    let mut subst = Subst::new();
-    if types_match_with_subst(pattern, target, &mut subst) {
-        Some(subst)
-    } else {
-        None
-    }
-}
-
-/// Helper function that accumulates substitutions during matching.
-fn types_match_with_subst(pattern: &Ty, target: &Ty, subst: &mut Subst) -> bool {
-    match (pattern, target) {
-        // Type variable in pattern: bind to target type
-        (Ty::Var(v), _) => {
-            // Check if this variable is already bound
-            if let Some(bound_ty) = subst.get(v) {
-                // Must match the existing binding
-                types_equal(bound_ty, target)
-            } else {
-                // Bind the variable to the target type
-                subst.insert(v, target.clone());
-                true
-            }
-        }
-
-        // Type constructors must match by name
-        (Ty::Con(c1), Ty::Con(c2)) => c1.name == c2.name,
-
-        // Primitive types must match exactly
-        (Ty::Prim(p1), Ty::Prim(p2)) => p1 == p2,
-
-        // Type applications: match both the function and argument
-        (Ty::App(f1, a1), Ty::App(f2, a2)) => {
-            types_match_with_subst(f1, f2, subst) && types_match_with_subst(a1, a2, subst)
-        }
-
-        // Function types: match argument and result types
-        (Ty::Fun(a1, r1), Ty::Fun(a2, r2)) => {
-            types_match_with_subst(a1, a2, subst) && types_match_with_subst(r1, r2, subst)
-        }
-
-        // Tuple types: must have same length and matching elements
-        (Ty::Tuple(ts1), Ty::Tuple(ts2)) if ts1.len() == ts2.len() => ts1
-            .iter()
-            .zip(ts2.iter())
-            .all(|(t1, t2)| types_match_with_subst(t1, t2, subst)),
-
-        // List types: match element types
-        (Ty::List(e1), Ty::List(e2)) => types_match_with_subst(e1, e2, subst),
-
-        // Forall types: complex case, simplified for now
-        (Ty::Forall(_, body1), Ty::Forall(_, body2)) => {
-            // For now, just match the bodies (full implementation would
-            // need alpha-renaming)
-            types_match_with_subst(body1, body2, subst)
-        }
-
-        // Type-level naturals
-        (Ty::Nat(n1), Ty::Nat(n2)) => n1 == n2,
-
-        // Type-level lists
-        (Ty::TyList(l1), Ty::TyList(l2)) => l1 == l2,
-
-        // Error types match anything (to avoid cascading errors)
-        (Ty::Error, _) | (_, Ty::Error) => true,
-
-        // All other combinations don't match
-        _ => false,
-    }
-}
-
-/// Check if two types are structurally equal (used for consistency checking).
-fn types_equal(t1: &Ty, t2: &Ty) -> bool {
-    match (t1, t2) {
-        (Ty::Var(v1), Ty::Var(v2)) => v1.id == v2.id,
-        (Ty::Con(c1), Ty::Con(c2)) => c1.name == c2.name,
-        (Ty::Prim(p1), Ty::Prim(p2)) => p1 == p2,
-        (Ty::App(f1, a1), Ty::App(f2, a2)) => types_equal(f1, f2) && types_equal(a1, a2),
-        (Ty::Fun(a1, r1), Ty::Fun(a2, r2)) => types_equal(a1, a2) && types_equal(r1, r2),
-        (Ty::Tuple(ts1), Ty::Tuple(ts2)) if ts1.len() == ts2.len() => {
-            ts1.iter().zip(ts2.iter()).all(|(t1, t2)| types_equal(t1, t2))
-        }
-        (Ty::List(e1), Ty::List(e2)) => types_equal(e1, e2),
-        (Ty::Error, Ty::Error) => true,
-        _ => false,
-    }
-}
-
-/// Match multiple pattern types against target types, returning combined substitution.
-///
-/// Both lists must have the same length. The resulting substitution combines
-/// all bindings from matching each pair.
-fn types_match_multi(patterns: &[Ty], targets: &[Ty]) -> Option<Subst> {
-    if patterns.len() != targets.len() {
-        return None;
-    }
-
-    let mut subst = Subst::new();
-    for (pattern, target) in patterns.iter().zip(targets.iter()) {
-        if !types_match_with_subst(pattern, target, &mut subst) {
-            return None;
-        }
-    }
-    Some(subst)
-}
+use bhc_types::types_match_multi;
 
 /// Context for dictionary construction during lowering.
 pub struct DictContext<'a> {
@@ -460,11 +347,7 @@ impl<'a> DictContext<'a> {
     /// 1. Find the instance with substitution `{a -> Int}`
     /// 2. Apply the substitution to get the superclass constraint `Eq Int`
     /// 3. Recursively construct the `Eq Int` dictionary
-    pub fn get_dictionary(
-        &mut self,
-        constraint: &Constraint,
-        span: Span,
-    ) -> Option<core::Expr> {
+    pub fn get_dictionary(&mut self, constraint: &Constraint, span: Span) -> Option<core::Expr> {
         // Need at least one type argument
         if constraint.args.is_empty() {
             return None;
@@ -479,8 +362,9 @@ impl<'a> DictContext<'a> {
         // Try to resolve the instance using all type arguments
         // This returns both the instance and a substitution mapping type variables
         // to concrete types (e.g., {a -> Int} when matching Eq [a] against Eq [Int])
-        let (instance, subst) =
-            self.registry.resolve_instance_multi(constraint.class, &constraint.args)?;
+        let (instance, subst) = self
+            .registry
+            .resolve_instance_multi(constraint.class, &constraint.args)?;
         let class = self.registry.lookup_class(constraint.class)?;
 
         // Construct the dictionary, applying the substitution to resolve
@@ -490,16 +374,18 @@ impl<'a> DictContext<'a> {
         // Create a variable for this dictionary and cache it
         let type_names: Vec<String> = constraint.args.iter().map(type_name).collect();
         let dict_var = self.fresh_var(
-            &format!("$dict{}_{}", constraint.class.as_str(), type_names.join("_")),
+            &format!(
+                "$dict{}_{}",
+                constraint.class.as_str(),
+                type_names.join("_")
+            ),
             Ty::Error, // Dictionary type
             span,
         );
 
         // Add binding for the dictionary
-        self.dict_bindings.push(Bind::NonRec(
-            dict_var.clone(),
-            Box::new(dict_expr),
-        ));
+        self.dict_bindings
+            .push(Bind::NonRec(dict_var.clone(), Box::new(dict_expr)));
 
         self.dict_cache.insert(cache_key, dict_var.clone());
         Some(core::Expr::Var(dict_var, span))
@@ -608,8 +494,7 @@ pub fn select_method(
     // Calculate the field index
     // First come superclass dictionaries, then methods
     let superclass_count = class_info.superclasses.len();
-    let method_index = class_info.methods.iter()
-        .position(|m| *m == method_name)?;
+    let method_index = class_info.methods.iter().position(|m| *m == method_name)?;
 
     let field_index = superclass_count + method_index;
 
@@ -637,7 +522,9 @@ pub fn select_superclass(
     let class_info = registry.lookup_class(class)?;
 
     // Find the superclass index
-    let superclass_index = class_info.superclasses.iter()
+    let superclass_index = class_info
+        .superclasses
+        .iter()
         .position(|s| *s == superclass)?;
 
     // Generate a selector expression
@@ -687,11 +574,7 @@ fn make_error_expr(msg: &str, span: Span) -> core::Expr {
         id: VarId::new(0),
         ty: Ty::Error,
     };
-    let msg_lit = core::Expr::Lit(
-        core::Literal::String(Symbol::intern(msg)),
-        Ty::Error,
-        span,
-    );
+    let msg_lit = core::Expr::Lit(core::Literal::String(Symbol::intern(msg)), Ty::Error, span);
     core::Expr::App(
         Box::new(core::Expr::Var(error_var, span)),
         Box::new(msg_lit),
@@ -735,6 +618,7 @@ fn type_name(ty: &Ty) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bhc_types::{types_match, TyCon};
 
     #[test]
     fn test_types_match_simple() {
@@ -856,7 +740,7 @@ mod tests {
         // Test that wrong number of args fails
         let wrong_arity = registry.resolve_instance_multi(
             Symbol::intern("Convert"),
-            &[int_ty.clone()],  // Only one arg instead of two
+            &[int_ty.clone()], // Only one arg instead of two
         );
         assert!(wrong_arity.is_none());
     }
@@ -883,7 +767,9 @@ mod tests {
         .is_none());
 
         // Different lengths don't match
-        assert!(types_match_multi(&[int_ty.clone(), string_ty.clone()], &[int_ty.clone()]).is_none());
+        assert!(
+            types_match_multi(&[int_ty.clone(), string_ty.clone()], &[int_ty.clone()]).is_none()
+        );
 
         // Empty matches empty
         assert!(types_match_multi(&[], &[]).is_some());
@@ -896,11 +782,8 @@ mod tests {
         let methods = FxHashMap::default();
 
         // Test single constructor
-        let single = InstanceInfo::new_single(
-            Symbol::intern("Eq"),
-            int_ty.clone(),
-            methods.clone(),
-        );
+        let single =
+            InstanceInfo::new_single(Symbol::intern("Eq"), int_ty.clone(), methods.clone());
         assert_eq!(single.instance_types.len(), 1);
         assert!(single.first_type().is_some());
 
@@ -1096,7 +979,10 @@ mod tests {
             Symbol::intern("Convert"),
             &[int_ty.clone(), list_int.clone()],
         );
-        assert!(result.is_some(), "Should find Convert Int [Int] via Convert a [a]");
+        assert!(
+            result.is_some(),
+            "Should find Convert Int [Int] via Convert a [a]"
+        );
 
         let (instance, subst) = result.unwrap();
         assert_eq!(instance.class, Symbol::intern("Convert"));
@@ -1116,10 +1002,8 @@ mod tests {
             Box::new(bool_ty.clone()),
         );
 
-        let no_match = registry.resolve_instance_multi(
-            Symbol::intern("Convert"),
-            &[int_ty.clone(), list_bool],
-        );
+        let no_match = registry
+            .resolve_instance_multi(Symbol::intern("Convert"), &[int_ty.clone(), list_bool]);
         assert!(
             no_match.is_none(),
             "Convert Int [Bool] should NOT match Convert a [a]"

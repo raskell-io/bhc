@@ -94,7 +94,11 @@ pub fn find_similar_names(target: &str, candidates: &[Symbol]) -> Vec<Suggestion
         .collect();
 
     // Sort by distance (closest first), then alphabetically for ties
-    suggestions.sort_by(|a, b| a.distance.cmp(&b.distance).then_with(|| a.name.cmp(&b.name)));
+    suggestions.sort_by(|a, b| {
+        a.distance
+            .cmp(&b.distance)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     // Return top suggestions (limit to avoid overwhelming user)
     suggestions.truncate(3);
@@ -289,10 +293,7 @@ mod tests {
             },
         ];
         let formatted = format_suggestions(&suggestions);
-        assert_eq!(
-            formatted,
-            Some("did you mean `map` or `fmap`?".to_string())
-        );
+        assert_eq!(formatted, Some("did you mean `map` or `fmap`?".to_string()));
     }
 
     #[test]

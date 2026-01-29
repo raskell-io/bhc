@@ -260,7 +260,10 @@ impl Expr {
     /// Returns true if this expression is trivial (a variable or literal).
     #[must_use]
     pub fn is_trivial(&self) -> bool {
-        matches!(self, Self::Var(_, _) | Self::Lit(_, _, _) | Self::Type(_, _))
+        matches!(
+            self,
+            Self::Var(_, _) | Self::Lit(_, _, _) | Self::Type(_, _)
+        )
     }
 
     /// Returns the free variables in this expression.
@@ -291,28 +294,26 @@ impl Expr {
                 bound.pop();
             }
             Self::TyLam(_, body, _) => body.collect_free_vars(free, bound),
-            Self::Let(bind, body, _) => {
-                match bind.as_ref() {
-                    Bind::NonRec(x, rhs) => {
-                        rhs.collect_free_vars(free, bound);
+            Self::Let(bind, body, _) => match bind.as_ref() {
+                Bind::NonRec(x, rhs) => {
+                    rhs.collect_free_vars(free, bound);
+                    bound.push(x.id);
+                    body.collect_free_vars(free, bound);
+                    bound.pop();
+                }
+                Bind::Rec(bindings) => {
+                    for (x, _) in bindings {
                         bound.push(x.id);
-                        body.collect_free_vars(free, bound);
+                    }
+                    for (_, rhs) in bindings {
+                        rhs.collect_free_vars(free, bound);
+                    }
+                    body.collect_free_vars(free, bound);
+                    for _ in bindings {
                         bound.pop();
                     }
-                    Bind::Rec(bindings) => {
-                        for (x, _) in bindings {
-                            bound.push(x.id);
-                        }
-                        for (_, rhs) in bindings {
-                            rhs.collect_free_vars(free, bound);
-                        }
-                        body.collect_free_vars(free, bound);
-                        for _ in bindings {
-                            bound.pop();
-                        }
-                    }
                 }
-            }
+            },
             Self::Case(scrut, alts, _, _) => {
                 scrut.collect_free_vars(free, bound);
                 for alt in alts {

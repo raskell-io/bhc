@@ -91,12 +91,8 @@ fn substitute_nat(n: &TyNat, subst: &FxHashMap<u32, Ty>) -> TyNat {
                 _ => n.clone(),
             }
         }
-        TyNat::Add(a, b) => {
-            TyNat::add(substitute_nat(a, subst), substitute_nat(b, subst))
-        }
-        TyNat::Mul(a, b) => {
-            TyNat::mul(substitute_nat(a, subst), substitute_nat(b, subst))
-        }
+        TyNat::Add(a, b) => TyNat::add(substitute_nat(a, subst), substitute_nat(b, subst)),
+        TyNat::Mul(a, b) => TyNat::mul(substitute_nat(a, subst), substitute_nat(b, subst)),
     }
 }
 

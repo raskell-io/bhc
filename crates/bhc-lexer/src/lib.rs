@@ -31,9 +31,7 @@ use unicode_xid::UnicodeXID;
 
 mod token;
 
-pub use token::{
-    FloatLiteral, IntLiteral, LexError, NumBase, NumSuffix, Token, TokenKind,
-};
+pub use token::{FloatLiteral, IntLiteral, LexError, NumBase, NumSuffix, Token, TokenKind};
 
 /// Configuration for the lexer.
 #[derive(Clone, Debug)]
@@ -220,9 +218,8 @@ impl<'src> Lexer<'src> {
                 '\t' => {
                     self.advance();
                     // Tabs align to tab stops
-                    self.column = ((self.column - 1) / self.config.tab_width + 1)
-                        * self.config.tab_width
-                        + 1;
+                    self.column =
+                        ((self.column - 1) / self.config.tab_width + 1) * self.config.tab_width + 1;
                 }
                 _ => break,
             }
@@ -573,8 +570,25 @@ impl<'src> Lexer<'src> {
     fn is_operator_char(c: char) -> bool {
         matches!(
             c,
-            '!' | '#' | '$' | '%' | '&' | '*' | '+' | '.' | '/' | '<' | '=' | '>' | '?' | '@'
-                | '\\' | '^' | '|' | '-' | '~' | ':'
+            '!' | '#'
+                | '$'
+                | '%'
+                | '&'
+                | '*'
+                | '+'
+                | '.'
+                | '/'
+                | '<'
+                | '='
+                | '>'
+                | '?'
+                | '@'
+                | '\\'
+                | '^'
+                | '|'
+                | '-'
+                | '~'
+                | ':'
         ) || is_unicode_symbol(c)
     }
 
@@ -636,10 +650,14 @@ impl<'src> Lexer<'src> {
                                         full_qualifier.push('.');
                                         full_qualifier.push_str(current_part);
                                         let op_start = self.pos;
-                                        self.advance_while(|c| Self::is_operator_char(c) && c != ':');
+                                        self.advance_while(|c| {
+                                            Self::is_operator_char(c) && c != ':'
+                                        });
                                         let qualifier = Symbol::intern(&full_qualifier);
                                         let name = Symbol::intern(&self.src[op_start..self.pos]);
-                                        return Token::new(TokenKind::QualOperator(qualifier, name));
+                                        return Token::new(TokenKind::QualOperator(
+                                            qualifier, name,
+                                        ));
                                     } else {
                                         // Restore and return what we have
                                         self.pos = part_end;
@@ -1197,7 +1215,7 @@ impl<'src> Lexer<'src> {
             | TokenKind::Comma         // , in tuples, lists, records
             | TokenKind::DoubleColon   // :: can continue (rare but possible)
             | TokenKind::UnicodeDoubleColon // ∷
-            // Note: Don't include Eq (=) as continuation - it can start a new declaration
+                                            // Note: Don't include Eq (=) as continuation - it can start a new declaration
         )
     }
 
@@ -1253,12 +1271,18 @@ impl<'src> Lexer<'src> {
 
         // Handle explicit open brace/paren/bracket - push explicit context
         // Layout is suspended inside (), [], and {}
-        if matches!(token.kind, TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket) {
+        if matches!(
+            token.kind,
+            TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket
+        ) {
             self.layout_stack.push((0, true)); // Explicit context
         }
 
         // Handle explicit close brace/paren/bracket
-        if matches!(token.kind, TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket) {
+        if matches!(
+            token.kind,
+            TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket
+        ) {
             // Close any implicit contexts until we find explicit one
             while let Some(&(_, is_explicit)) = self.layout_stack.last() {
                 if is_explicit {
@@ -1498,7 +1522,22 @@ impl<'src> Iterator for Lexer<'src> {
 
 /// Check if a character is a Unicode symbol (for operators).
 fn is_unicode_symbol(c: char) -> bool {
-    matches!(c, '∘' | '∙' | '⊕' | '⊗' | '⊖' | '⊛' | '⊜' | '⊝' | '⊞' | '⊟' | '⟨' | '⟩' | '⟪' | '⟫')
+    matches!(
+        c,
+        '∘' | '∙'
+            | '⊕'
+            | '⊗'
+            | '⊖'
+            | '⊛'
+            | '⊜'
+            | '⊝'
+            | '⊞'
+            | '⊟'
+            | '⟨'
+            | '⟩'
+            | '⟪'
+            | '⟫'
+    )
 }
 
 /// Lex source code into a vector of tokens.
@@ -1774,8 +1813,14 @@ mod tests {
         let kinds = lex_kinds(src);
 
         // Should have two VirtualLBrace (one for each let)
-        let lbrace_count = kinds.iter().filter(|k| **k == TokenKind::VirtualLBrace).count();
-        assert_eq!(lbrace_count, 2, "Should have 2 VirtualLBrace for nested lets");
+        let lbrace_count = kinds
+            .iter()
+            .filter(|k| **k == TokenKind::VirtualLBrace)
+            .count();
+        assert_eq!(
+            lbrace_count, 2,
+            "Should have 2 VirtualLBrace for nested lets"
+        );
     }
 
     #[test]
@@ -1817,10 +1862,16 @@ mod tests {
         let kinds = lex_kinds(src);
 
         // Should have multiple VirtualRBrace when we dedent from the let back to module level
-        let rbrace_count = kinds.iter().filter(|k| **k == TokenKind::VirtualRBrace).count();
+        let rbrace_count = kinds
+            .iter()
+            .filter(|k| **k == TokenKind::VirtualRBrace)
+            .count();
         // module where -> VirtualLBrace, do -> VirtualLBrace, let -> VirtualLBrace
         // bar dedents closes do's let, do, but module continues
-        assert!(rbrace_count >= 2, "Should have at least 2 VirtualRBrace for multi-level dedent");
+        assert!(
+            rbrace_count >= 2,
+            "Should have at least 2 VirtualRBrace for multi-level dedent"
+        );
     }
 
     #[test]
@@ -1833,15 +1884,31 @@ mod tests {
 
         // Should NOT have VirtualSemi before :: or ->
         // Expected: Ident(tile), DoubleColon, ConId(Rational), Arrow, ConId(Rectangle), Arrow, ConId(Int), Eof
-        let semi_count = kinds.iter().filter(|k| **k == TokenKind::VirtualSemi).count();
+        let semi_count = kinds
+            .iter()
+            .filter(|k| **k == TokenKind::VirtualSemi)
+            .count();
 
         // Ideally 0 virtual semis, but we might have one at the end
-        assert!(semi_count <= 1, "Should not have VirtualSemi in middle of type signature, got {:?}", kinds);
+        assert!(
+            semi_count <= 1,
+            "Should not have VirtualSemi in middle of type signature, got {:?}",
+            kinds
+        );
 
         // Check the token sequence
-        assert!(matches!(kinds[0], TokenKind::Ident(_)), "First should be Ident, got {:?}", kinds[0]);
+        assert!(
+            matches!(kinds[0], TokenKind::Ident(_)),
+            "First should be Ident, got {:?}",
+            kinds[0]
+        );
         // After Ident, we should see DoubleColon (not VirtualSemi)
-        assert_eq!(kinds[1], TokenKind::DoubleColon, "Second should be DoubleColon, got {:?}", kinds[1]);
+        assert_eq!(
+            kinds[1],
+            TokenKind::DoubleColon,
+            "Second should be DoubleColon, got {:?}",
+            kinds[1]
+        );
     }
 
     #[test]
@@ -1853,12 +1920,23 @@ mod tests {
         println!("Module type sig tokens: {:?}", kinds);
 
         // Find the position of 'tile'
-        let tile_idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "tile")).unwrap();
-        println!("tile at index {}, next token: {:?}", tile_idx, kinds.get(tile_idx + 1));
+        let tile_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "tile"))
+            .unwrap();
+        println!(
+            "tile at index {}, next token: {:?}",
+            tile_idx,
+            kinds.get(tile_idx + 1)
+        );
 
         // After tile, we should see DoubleColon (not VirtualSemi)
-        assert_eq!(kinds[tile_idx + 1], TokenKind::DoubleColon,
-            "After 'tile' should be DoubleColon, got {:?}", kinds[tile_idx + 1]);
+        assert_eq!(
+            kinds[tile_idx + 1],
+            TokenKind::DoubleColon,
+            "After 'tile' should be DoubleColon, got {:?}",
+            kinds[tile_idx + 1]
+        );
     }
 
     #[test]
@@ -1870,13 +1948,20 @@ mod tests {
         println!("With doc comments: {:?}", kinds);
 
         // Check that no VirtualSemi appears between tile and ::
-        assert_eq!(kinds[0], TokenKind::Ident(bhc_intern::Symbol::intern("tile")));
+        assert_eq!(
+            kinds[0],
+            TokenKind::Ident(bhc_intern::Symbol::intern("tile"))
+        );
         // Note: doc comments are preserved, so :: might not be at index 1
         // Find :: and check it comes before any VirtualSemi
-        let has_semi_before_double_colon = kinds.iter()
+        let has_semi_before_double_colon = kinds
+            .iter()
             .take_while(|k| **k != TokenKind::DoubleColon)
             .any(|k| *k == TokenKind::VirtualSemi);
-        assert!(!has_semi_before_double_colon, "Should not have VirtualSemi before ::");
+        assert!(
+            !has_semi_before_double_colon,
+            "Should not have VirtualSemi before ::"
+        );
     }
 
     #[test]
@@ -1895,9 +1980,15 @@ tile
         println!("Layout with doc comment before type sig: {:?}", kinds);
 
         // Find tile's position
-        let tile_idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "tile")).unwrap();
+        let tile_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "tile"))
+            .unwrap();
         println!("tile at index {}", tile_idx);
-        println!("tokens around tile: {:?}", &kinds[tile_idx.saturating_sub(3)..=tile_idx.min(kinds.len()-1)+3]);
+        println!(
+            "tokens around tile: {:?}",
+            &kinds[tile_idx.saturating_sub(3)..=tile_idx.min(kinds.len() - 1) + 3]
+        );
     }
 
     #[test]
@@ -1915,8 +2006,15 @@ class Show a => Foo a b where
         println!("Class body tokens: {:?}", kinds);
 
         // Find runMethod's position
-        let idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "runMethod")).unwrap();
-        println!("runMethod at index {}, context: {:?}", idx, &kinds[idx..idx.min(kinds.len()-1)+10]);
+        let idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "runMethod"))
+            .unwrap();
+        println!(
+            "runMethod at index {}, context: {:?}",
+            idx,
+            &kinds[idx..idx.min(kinds.len() - 1) + 10]
+        );
     }
 
     #[test]
@@ -1936,12 +2034,24 @@ class ExtensionClass a where
         }
 
         // Check that we have the pragma
-        assert!(kinds.iter().any(|k| matches!(k, TokenKind::Pragma(_))), "Should have Pragma token");
+        assert!(
+            kinds.iter().any(|k| matches!(k, TokenKind::Pragma(_))),
+            "Should have Pragma token"
+        );
 
         // Check that initialValue appears AFTER the pragma
-        let pragma_idx = kinds.iter().position(|k| matches!(k, TokenKind::Pragma(_))).unwrap();
-        let initial_value_idx = kinds.iter().position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "initialValue")).unwrap();
-        assert!(initial_value_idx > pragma_idx, "initialValue should come after pragma");
+        let pragma_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Pragma(_)))
+            .unwrap();
+        let initial_value_idx = kinds
+            .iter()
+            .position(|k| matches!(k, TokenKind::Ident(s) if s.as_str() == "initialValue"))
+            .unwrap();
+        assert!(
+            initial_value_idx > pragma_idx,
+            "initialValue should come after pragma"
+        );
 
         // Check for VirtualSemi after pragma
         let tokens_after_pragma = &kinds[pragma_idx..];
@@ -1969,4 +2079,3 @@ class ExtensionClass a where
         // VirtualRBrace, In, Ident(x), Operator(+), Int(1)
     }
 }
-

@@ -463,8 +463,8 @@ pub unsafe extern "C" fn bhc_tqueue_try_read_i64(
             *out_value = v;
             1 // Got value
         }
-        Ok(None) => 0,  // Empty
-        Err(_) => -1,   // Retry
+        Ok(None) => 0, // Empty
+        Err(_) => -1,  // Retry
     }
 }
 

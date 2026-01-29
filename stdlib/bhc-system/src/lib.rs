@@ -53,7 +53,8 @@ pub mod process;
 // Re-export commonly used items
 pub use directory::{
     create_directory, create_directory_all, current_directory, exists, is_directory, is_file,
-    list_directory, remove_directory, remove_directory_all, remove_file, rename, set_current_directory,
+    list_directory, remove_directory, remove_directory_all, remove_file, rename,
+    set_current_directory,
 };
 pub use environment::{get_args, get_env, get_environment, lookup_env, set_env, unset_env};
 pub use exit::{exit, exit_failure, exit_success, ExitCode};
@@ -62,6 +63,6 @@ pub use filepath::{
     split_extension, stem,
 };
 pub use io::{
-    read_file, read_file_bytes, write_file, write_file_bytes, append_file, Handle, OpenMode,
+    append_file, read_file, read_file_bytes, write_file, write_file_bytes, Handle, OpenMode,
 };
 pub use process::{spawn, Command, Process, ProcessOutput};

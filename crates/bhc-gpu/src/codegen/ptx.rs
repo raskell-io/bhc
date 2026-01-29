@@ -259,10 +259,25 @@ fn generate_parallel_loop_header(
     .unwrap();
 
     // Calculate global index for this dimension
-    writeln!(code, "    .reg .u32 %ptid_{}, %pntid_{}, %pctaid_{};", loop_idx, loop_idx, loop_idx).unwrap();
+    writeln!(
+        code,
+        "    .reg .u32 %ptid_{}, %pntid_{}, %pctaid_{};",
+        loop_idx, loop_idx, loop_idx
+    )
+    .unwrap();
     writeln!(code, "    mov.u32 %ptid_{}, %tid.{};", loop_idx, dim_suffix).unwrap();
-    writeln!(code, "    mov.u32 %pntid_{}, %ntid.{};", loop_idx, dim_suffix).unwrap();
-    writeln!(code, "    mov.u32 %pctaid_{}, %ctaid.{};", loop_idx, dim_suffix).unwrap();
+    writeln!(
+        code,
+        "    mov.u32 %pntid_{}, %ntid.{};",
+        loop_idx, dim_suffix
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "    mov.u32 %pctaid_{}, %ctaid.{};",
+        loop_idx, dim_suffix
+    )
+    .unwrap();
     writeln!(
         code,
         "    mad.wide.u32 %loop_{}, %pctaid_{}, %pntid_{}, %ptid_{};",
@@ -305,12 +320,19 @@ fn generate_parallel_loop_header(
             writeln!(
                 code,
                 "    setp.ge.s64 %pbound_{}, %loop_{}, %{}; // dynamic bound",
-                loop_idx, loop_idx, sym.as_str()
+                loop_idx,
+                loop_idx,
+                sym.as_str()
             )
             .unwrap();
         }
     }
-    writeln!(code, "    @%pbound_{} bra loop_exit_{};", loop_idx, loop_idx).unwrap();
+    writeln!(
+        code,
+        "    @%pbound_{} bra loop_exit_{};",
+        loop_idx, loop_idx
+    )
+    .unwrap();
     writeln!(code).unwrap();
 
     Ok(())
@@ -352,12 +374,19 @@ fn generate_sequential_loop_header(
             writeln!(
                 code,
                 "    setp.ge.s64 %sbound_{}, %loop_{}, %{};",
-                loop_idx, loop_idx, sym.as_str()
+                loop_idx,
+                loop_idx,
+                sym.as_str()
             )
             .unwrap();
         }
     }
-    writeln!(code, "    @%sbound_{} bra loop_exit_{};", loop_idx, loop_idx).unwrap();
+    writeln!(
+        code,
+        "    @%sbound_{} bra loop_exit_{};",
+        loop_idx, loop_idx
+    )
+    .unwrap();
     writeln!(code).unwrap();
 
     Ok(())

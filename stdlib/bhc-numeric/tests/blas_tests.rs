@@ -296,7 +296,20 @@ mod level2_tests {
         let x = vec![1.0, 2.0];
         let mut y = vec![0.0, 0.0];
 
-        p.dgemv(Layout::RowMajor, Transpose::NoTrans, 2, 2, 1.0, &a, 2, &x, 1, 0.0, &mut y, 1);
+        p.dgemv(
+            Layout::RowMajor,
+            Transpose::NoTrans,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &x,
+            1,
+            0.0,
+            &mut y,
+            1,
+        );
 
         // y = A * x = [[1*1 + 2*2], [3*1 + 4*2]] = [5, 11]
         assert_eq!(y, vec![5.0, 11.0]);
@@ -310,7 +323,20 @@ mod level2_tests {
         let x = vec![1.0, 2.0];
         let mut y = vec![0.0, 0.0];
 
-        p.dgemv(Layout::RowMajor, Transpose::Trans, 2, 2, 1.0, &a, 2, &x, 1, 0.0, &mut y, 1);
+        p.dgemv(
+            Layout::RowMajor,
+            Transpose::Trans,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &x,
+            1,
+            0.0,
+            &mut y,
+            1,
+        );
 
         // y = A^T * x = [[1*1 + 3*2], [2*1 + 4*2]] = [7, 10]
         assert_eq!(y, vec![7.0, 10.0]);
@@ -323,7 +349,20 @@ mod level2_tests {
         let x = vec![1.0, 1.0];
         let mut y = vec![10.0, 10.0];
 
-        p.dgemv(Layout::RowMajor, Transpose::NoTrans, 2, 2, 1.0, &a, 2, &x, 1, 2.0, &mut y, 1);
+        p.dgemv(
+            Layout::RowMajor,
+            Transpose::NoTrans,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &x,
+            1,
+            2.0,
+            &mut y,
+            1,
+        );
 
         // y = 1.0 * A * x + 2.0 * y
         // A * x = [3, 7]
@@ -339,7 +378,20 @@ mod level2_tests {
         let x = vec![1.0, 2.0, 3.0];
         let mut y = vec![0.0, 0.0];
 
-        p.dgemv(Layout::RowMajor, Transpose::NoTrans, 2, 3, 1.0, &a, 3, &x, 1, 0.0, &mut y, 1);
+        p.dgemv(
+            Layout::RowMajor,
+            Transpose::NoTrans,
+            2,
+            3,
+            1.0,
+            &a,
+            3,
+            &x,
+            1,
+            0.0,
+            &mut y,
+            1,
+        );
 
         // y = A * x = [1*1+2*2+3*3, 4*1+5*2+6*3] = [14, 32]
         assert_eq!(y, vec![14.0, 32.0]);
@@ -352,7 +404,20 @@ mod level2_tests {
         let x = vec![1.0, 1.0];
         let mut y = vec![0.0, 0.0];
 
-        p.dgemv(Layout::RowMajor, Transpose::NoTrans, 2, 2, 3.0, &a, 2, &x, 1, 0.0, &mut y, 1);
+        p.dgemv(
+            Layout::RowMajor,
+            Transpose::NoTrans,
+            2,
+            2,
+            3.0,
+            &a,
+            2,
+            &x,
+            1,
+            0.0,
+            &mut y,
+            1,
+        );
 
         // y = 3 * [3, 7] = [9, 21]
         assert_eq!(y, vec![9.0, 21.0]);
@@ -387,7 +452,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // C = A * B = [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]]
@@ -408,7 +483,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &i, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &i,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // A * I = A
@@ -428,7 +513,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::Trans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // C = A^T * I = A^T
@@ -439,7 +534,7 @@ mod level3_tests {
     fn test_dgemm_b_trans() {
         let p = provider();
         let a = vec![1.0, 0.0, 0.0, 1.0]; // I
-        // B = [[1, 2], [3, 4]], B^T = [[1, 3], [2, 4]]
+                                          // B = [[1, 2], [3, 4]], B^T = [[1, 3], [2, 4]]
         let b = vec![1.0, 2.0, 3.0, 4.0];
         let mut c = vec![0.0; 4];
 
@@ -447,7 +542,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::Trans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // C = I * B^T = B^T
@@ -465,7 +570,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 2.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            2.0,
+            &mut c,
+            2,
         );
 
         // C = A*B + 2*C = [[19, 22], [43, 50]] + [[2, 2], [2, 2]]
@@ -483,7 +598,17 @@ mod level3_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 3.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            3.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // C = 3 * A * I = 3 * A
@@ -495,14 +620,26 @@ mod level3_tests {
         let p = provider();
         // A = 2x3, B = 3x4, C = 2x4
         let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        let b = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
+        let b = vec![
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ];
         let mut c = vec![0.0; 8];
 
         p.dgemm(
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 4, 3, 1.0, &a, 3, &b, 4, 0.0, &mut c, 4,
+            2,
+            4,
+            3,
+            1.0,
+            &a,
+            3,
+            &b,
+            4,
+            0.0,
+            &mut c,
+            4,
         );
 
         // C[0,0] = 1*1 + 2*5 + 3*9 = 1 + 10 + 27 = 38
@@ -596,7 +733,17 @@ mod single_precision_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         assert_eq!(c, vec![19.0, 22.0, 43.0, 50.0]);
@@ -642,14 +789,34 @@ mod accuracy_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &a, 3, &b, 3, 0.0, &mut ab, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &a,
+            3,
+            &b,
+            3,
+            0.0,
+            &mut ab,
+            3,
         );
         let mut ab_c = vec![0.0; 9];
         p.dgemm(
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &ab, 3, &c, 3, 0.0, &mut ab_c, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &ab,
+            3,
+            &c,
+            3,
+            0.0,
+            &mut ab_c,
+            3,
         );
 
         // Compute A*(B*C)
@@ -658,14 +825,34 @@ mod accuracy_tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &b, 3, &c, 3, 0.0, &mut bc, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &b,
+            3,
+            &c,
+            3,
+            0.0,
+            &mut bc,
+            3,
         );
         let mut a_bc = vec![0.0; 9];
         p.dgemm(
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &a, 3, &bc, 3, 0.0, &mut a_bc, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &a,
+            3,
+            &bc,
+            3,
+            0.0,
+            &mut a_bc,
+            3,
         );
 
         // Results should be equal
@@ -673,7 +860,9 @@ mod accuracy_tests {
             assert!(
                 (ab_c[i] - a_bc[i]).abs() < 1e-10,
                 "Associativity failed at index {}: {} vs {}",
-                i, ab_c[i], a_bc[i]
+                i,
+                ab_c[i],
+                a_bc[i]
             );
         }
     }
@@ -724,7 +913,17 @@ mod edge_cases {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            1, 1, 1, 1.0, &a, 1, &b, 1, 0.0, &mut c, 1,
+            1,
+            1,
+            1,
+            1.0,
+            &a,
+            1,
+            &b,
+            1,
+            0.0,
+            &mut c,
+            1,
         );
 
         assert_eq!(c[0], 12.0);
@@ -741,7 +940,17 @@ mod edge_cases {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 0.0, &a, 2, &b, 2, 1.0, &mut c, 2,
+            2,
+            2,
+            2,
+            0.0,
+            &a,
+            2,
+            &b,
+            2,
+            1.0,
+            &mut c,
+            2,
         );
 
         // With alpha=0 and beta=1, C should be unchanged
@@ -759,7 +968,17 @@ mod edge_cases {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2, 1.0, &a, 2, &b, 2, 0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         // With beta=0, old C values are ignored
@@ -790,21 +1009,43 @@ mod provider_comparison {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &a, 3, &b, 3, 0.0, &mut c_pure, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &a,
+            3,
+            &b,
+            3,
+            0.0,
+            &mut c_pure,
+            3,
         );
 
         openblas.dgemm(
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            3, 3, 3, 1.0, &a, 3, &b, 3, 0.0, &mut c_openblas, 3,
+            3,
+            3,
+            3,
+            1.0,
+            &a,
+            3,
+            &b,
+            3,
+            0.0,
+            &mut c_openblas,
+            3,
         );
 
         for i in 0..9 {
             assert!(
                 (c_pure[i] - c_openblas[i]).abs() < 1e-10,
                 "Results differ at index {}: pure={}, openblas={}",
-                i, c_pure[i], c_openblas[i]
+                i,
+                c_pure[i],
+                c_openblas[i]
             );
         }
     }

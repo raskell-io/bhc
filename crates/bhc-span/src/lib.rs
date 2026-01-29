@@ -240,7 +240,10 @@ impl SourceFile {
     #[must_use]
     pub fn new(id: FileId, name: String, src: String) -> Self {
         let line_starts = std::iter::once(BytePos::ZERO)
-            .chain(src.match_indices('\n').map(|(i, _)| BytePos::new(i as u32 + 1)))
+            .chain(
+                src.match_indices('\n')
+                    .map(|(i, _)| BytePos::new(i as u32 + 1)),
+            )
             .collect();
 
         Self {

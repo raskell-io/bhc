@@ -69,11 +69,11 @@ impl Severity {
     #[must_use]
     pub fn color(self) -> &'static str {
         match self {
-            Self::Bug => "\x1b[1;35m",      // Bold magenta
-            Self::Error => "\x1b[1;31m",    // Bold red
-            Self::Warning => "\x1b[1;33m",  // Bold yellow
-            Self::Note => "\x1b[1;36m",     // Bold cyan
-            Self::Help => "\x1b[1;32m",     // Bold green
+            Self::Bug => "\x1b[1;35m",     // Bold magenta
+            Self::Error => "\x1b[1;31m",   // Bold red
+            Self::Warning => "\x1b[1;33m", // Bold yellow
+            Self::Note => "\x1b[1;36m",    // Bold cyan
+            Self::Help => "\x1b[1;32m",    // Bold green
         }
     }
 

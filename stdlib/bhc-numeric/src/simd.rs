@@ -448,12 +448,7 @@ impl Vec4F32 {
         }
         #[cfg(not(target_arch = "aarch64"))]
         Self {
-            data: [
-                -self.data[0],
-                -self.data[1],
-                -self.data[2],
-                -self.data[3],
-            ],
+            data: [-self.data[0], -self.data[1], -self.data[2], -self.data[3]],
         }
     }
 
@@ -1454,13 +1449,27 @@ pub fn detect_simd_features() -> SimdFeatures {
 pub extern "C" fn bhc_simd_features() -> u32 {
     let f = SimdFeatures::detect();
     let mut bits = 0u32;
-    if f.sse { bits |= 1 << 0; }
-    if f.sse2 { bits |= 1 << 1; }
-    if f.avx { bits |= 1 << 2; }
-    if f.avx2 { bits |= 1 << 3; }
-    if f.fma { bits |= 1 << 4; }
-    if f.avx512f { bits |= 1 << 5; }
-    if f.neon { bits |= 1 << 6; }
+    if f.sse {
+        bits |= 1 << 0;
+    }
+    if f.sse2 {
+        bits |= 1 << 1;
+    }
+    if f.avx {
+        bits |= 1 << 2;
+    }
+    if f.avx2 {
+        bits |= 1 << 3;
+    }
+    if f.fma {
+        bits |= 1 << 4;
+    }
+    if f.avx512f {
+        bits |= 1 << 5;
+    }
+    if f.neon {
+        bits |= 1 << 6;
+    }
     bits
 }
 

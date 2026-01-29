@@ -7,31 +7,37 @@
 //! - Keyboard navigation (/, j/k)
 //! - BHC badges (fusion, SIMD, profiles)
 
-use std::path::Path;
-use std::collections::HashMap;
 use anyhow::Result;
-use tera::{Tera, Context};
+use std::collections::HashMap;
+use std::path::Path;
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
+use tera::{Context, Tera};
 
-use crate::model::{ModuleDoc, DocItem, FunctionDoc, TypeDoc, ClassDoc, FieldsDoc};
 use super::RenderConfig;
+use crate::model::{ClassDoc, DocItem, FieldsDoc, FunctionDoc, ModuleDoc, TypeDoc};
 
 /// Render documentation to HTML.
 pub fn render(docs: &[ModuleDoc], output: &Path, config: &RenderConfig) -> Result<()> {
     let tera = create_templates()?;
     let ss = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-    let theme = ts.themes.get(&config.theme).unwrap_or_else(|| ts.themes.values().next().unwrap());
+    let theme = ts
+        .themes
+        .get(&config.theme)
+        .unwrap_or_else(|| ts.themes.values().next().unwrap());
 
     // Build all_modules list for sidebar
-    let all_modules: Vec<HashMap<String, String>> = docs.iter().map(|m| {
-        let mut map = HashMap::new();
-        map.insert("name".to_string(), m.name.clone());
-        map.insert("path".to_string(), m.name.replace('.', "-"));
-        map
-    }).collect();
+    let all_modules: Vec<HashMap<String, String>> = docs
+        .iter()
+        .map(|m| {
+            let mut map = HashMap::new();
+            map.insert("name".to_string(), m.name.clone());
+            map.insert("path".to_string(), m.name.replace('.', "-"));
+            map
+        })
+        .collect();
 
     // Write CSS
     write_assets(output)?;
@@ -66,37 +72,68 @@ fn write_assets(output: &Path) -> Result<()> {
     let css_dir = output.join("css");
     std::fs::create_dir_all(&css_dir)?;
 
-    std::fs::write(css_dir.join("style.css"), include_str!("../../assets/css/style.css"))?;
+    std::fs::write(
+        css_dir.join("style.css"),
+        include_str!("../../assets/css/style.css"),
+    )?;
 
     let js_dir = output.join("js");
     std::fs::create_dir_all(&js_dir)?;
 
-    std::fs::write(js_dir.join("main.js"), include_str!("../../assets/js/main.js"))?;
+    std::fs::write(
+        js_dir.join("main.js"),
+        include_str!("../../assets/js/main.js"),
+    )?;
 
     Ok(())
 }
 
-fn write_index(docs: &[ModuleDoc], output: &Path, tera: &Tera, config: &RenderConfig) -> Result<()> {
+fn write_index(
+    docs: &[ModuleDoc],
+    output: &Path,
+    tera: &Tera,
+    config: &RenderConfig,
+) -> Result<()> {
     let mut context = Context::new();
 
     // Transform modules for template
-    let modules: Vec<HashMap<String, String>> = docs.iter().map(|m| {
-        let mut map = HashMap::new();
-        map.insert("name".to_string(), m.name.clone());
-        map.insert("path".to_string(), m.name.replace('.', "-"));
-        if let Some(doc) = &m.doc {
-            map.insert("brief".to_string(), doc.brief.clone());
-        }
-        map
-    }).collect();
+    let modules: Vec<HashMap<String, String>> = docs
+        .iter()
+        .map(|m| {
+            let mut map = HashMap::new();
+            map.insert("name".to_string(), m.name.clone());
+            map.insert("path".to_string(), m.name.replace('.', "-"));
+            if let Some(doc) = &m.doc {
+                map.insert("brief".to_string(), doc.brief.clone());
+            }
+            map
+        })
+        .collect();
 
     // Count totals
-    let total_functions: usize = docs.iter().map(|m| {
-        m.items.iter().filter(|i| matches!(i, DocItem::Function(_))).count()
-    }).sum();
-    let total_types: usize = docs.iter().map(|m| {
-        m.items.iter().filter(|i| matches!(i, DocItem::Type(_) | DocItem::TypeAlias(_) | DocItem::Newtype(_))).count()
-    }).sum();
+    let total_functions: usize = docs
+        .iter()
+        .map(|m| {
+            m.items
+                .iter()
+                .filter(|i| matches!(i, DocItem::Function(_)))
+                .count()
+        })
+        .sum();
+    let total_types: usize = docs
+        .iter()
+        .map(|m| {
+            m.items
+                .iter()
+                .filter(|i| {
+                    matches!(
+                        i,
+                        DocItem::Type(_) | DocItem::TypeAlias(_) | DocItem::Newtype(_)
+                    )
+                })
+                .count()
+        })
+        .sum();
 
     context.insert("title", "Documentation");
     context.insert("modules", &modules);
@@ -142,7 +179,9 @@ fn write_module(
     }
 
     // Get source file info from first item if available
-    let source_file = module.items.iter()
+    let source_file = module
+        .items
+        .iter()
         .find_map(|item| match item {
             DocItem::Function(f) => f.source.as_ref(),
             DocItem::Type(t) => t.source.as_ref(),
@@ -155,7 +194,10 @@ fn write_module(
 
     // Build source URL from config
     let source_url = source_file.as_ref().and_then(|file| {
-        config.source_base_url.as_ref().map(|base| format!("{}/{}", base, file))
+        config
+            .source_base_url
+            .as_ref()
+            .map(|base| format!("{}/{}", base, file))
     });
 
     // Build the module object the template expects
@@ -189,7 +231,10 @@ fn write_module(
 
     // Also write to flat name for convenience
     let flat_name = format!("{}.html", module.name.replace('.', "-"));
-    std::fs::write(output.join(&flat_name), &std::fs::read(module_dir.join("index.html"))?)?;
+    std::fs::write(
+        output.join(&flat_name),
+        &std::fs::read(module_dir.join("index.html"))?,
+    )?;
 
     Ok(())
 }
@@ -203,11 +248,25 @@ fn render_function(
     let mut badges = Vec::new();
 
     // Annotations badges
-    if func.annotations.fusion.as_ref().map(|f| f.fusible).unwrap_or(false) {
+    if func
+        .annotations
+        .fusion
+        .as_ref()
+        .map(|f| f.fusible)
+        .unwrap_or(false)
+    {
         badges.push(serde_json::json!({"kind": "fusion", "label": "Fusion", "title": "This function participates in fusion"}));
     }
-    if func.annotations.simd.as_ref().map(|s| s.accelerated).unwrap_or(false) {
-        badges.push(serde_json::json!({"kind": "simd", "label": "SIMD", "title": "SIMD accelerated"}));
+    if func
+        .annotations
+        .simd
+        .as_ref()
+        .map(|s| s.accelerated)
+        .unwrap_or(false)
+    {
+        badges.push(
+            serde_json::json!({"kind": "simd", "label": "SIMD", "title": "SIMD accelerated"}),
+        );
     }
     if let Some(complexity) = &func.annotations.complexity {
         badges.push(serde_json::json!({"kind": "complexity", "label": complexity, "title": "Time complexity"}));
@@ -232,22 +291,27 @@ fn render_type(
     let params = ty.params.join(" ");
 
     // Build constructors
-    let constructors: Vec<serde_json::Value> = ty.constructors.iter().map(|con| {
-        let fields_str = match &con.fields {
-            FieldsDoc::Positional { types } => types.join(" "),
-            FieldsDoc::Record { fields } => {
-                let parts: Vec<_> = fields.iter()
-                    .map(|f| format!("{} :: {}", f.name, f.ty))
-                    .collect();
-                format!("{{ {} }}", parts.join(", "))
-            }
-        };
-        serde_json::json!({
-            "name": con.name,
-            "fields": fields_str,
-            "doc": con.doc.as_ref().map(|d| &d.brief)
+    let constructors: Vec<serde_json::Value> = ty
+        .constructors
+        .iter()
+        .map(|con| {
+            let fields_str = match &con.fields {
+                FieldsDoc::Positional { types } => types.join(" "),
+                FieldsDoc::Record { fields } => {
+                    let parts: Vec<_> = fields
+                        .iter()
+                        .map(|f| format!("{} :: {}", f.name, f.ty))
+                        .collect();
+                    format!("{{ {} }}", parts.join(", "))
+                }
+            };
+            serde_json::json!({
+                "name": con.name,
+                "fields": fields_str,
+                "doc": con.doc.as_ref().map(|d| &d.brief)
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "name": ty.name,
@@ -281,7 +345,8 @@ fn render_newtype(ty: &crate::model::NewtypeDoc) -> Result<serde_json::Value> {
     let fields_str = match &con.fields {
         FieldsDoc::Positional { types } => types.join(" "),
         FieldsDoc::Record { fields } => {
-            let parts: Vec<_> = fields.iter()
+            let parts: Vec<_> = fields
+                .iter()
                 .map(|f| format!("{} :: {}", f.name, f.ty))
                 .collect();
             format!("{{ {} }}", parts.join(", "))
@@ -317,13 +382,17 @@ fn render_class(
     };
 
     // Methods
-    let methods: Vec<serde_json::Value> = class.methods.iter().map(|method| {
-        serde_json::json!({
-            "name": method.name,
-            "signature": method.signature,
-            "doc": method.doc.as_ref().map(|d| &d.brief)
+    let methods: Vec<serde_json::Value> = class
+        .methods
+        .iter()
+        .map(|method| {
+            serde_json::json!({
+                "name": method.name,
+                "signature": method.signature,
+                "doc": method.doc.as_ref().map(|d| &d.brief)
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::json!({
         "name": class.name,
@@ -377,7 +446,10 @@ fn write_search_index(docs: &[ModuleDoc], output: &Path) -> Result<()> {
         }
     }
 
-    std::fs::write(output.join("search-index.json"), serde_json::to_string(&index)?)?;
+    std::fs::write(
+        output.join("search-index.json"),
+        serde_json::to_string(&index)?,
+    )?;
 
     Ok(())
 }

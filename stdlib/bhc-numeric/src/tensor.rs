@@ -744,13 +744,7 @@ impl<T: Clone + PartialOrd> Tensor<T> {
             return None;
         }
         let first = self.get_flat(0).unwrap().clone();
-        Some(self.fold(first, |acc, x| {
-            if x < &acc {
-                x.clone()
-            } else {
-                acc
-            }
-        }))
+        Some(self.fold(first, |acc, x| if x < &acc { x.clone() } else { acc }))
     }
 
     /// Maximum element
@@ -759,13 +753,7 @@ impl<T: Clone + PartialOrd> Tensor<T> {
             return None;
         }
         let first = self.get_flat(0).unwrap().clone();
-        Some(self.fold(first, |acc, x| {
-            if x > &acc {
-                x.clone()
-            } else {
-                acc
-            }
-        }))
+        Some(self.fold(first, |acc, x| if x > &acc { x.clone() } else { acc }))
     }
 }
 
@@ -940,10 +928,7 @@ impl Tensor<f64> {
         let n = other.shape.dim(1);
 
         if k != k2 {
-            return Err(TensorError::DimensionMismatch {
-                dim1: k,
-                dim2: k2,
-            });
+            return Err(TensorError::DimensionMismatch { dim1: k, dim2: k2 });
         }
 
         let mut data = vec![0.0; m * n];
@@ -1121,7 +1106,10 @@ impl Tensor<f64> {
         let mut data = vec![0.0; n];
 
         let axis_size = self.shape.dim(axis);
-        let outer_size: usize = (0..axis).map(|i| self.shape.dim(i)).product::<usize>().max(1);
+        let outer_size: usize = (0..axis)
+            .map(|i| self.shape.dim(i))
+            .product::<usize>()
+            .max(1);
         let inner_size: usize = (axis + 1..self.rank())
             .map(|i| self.shape.dim(i))
             .product::<usize>()
@@ -1232,10 +1220,7 @@ impl Tensor<f32> {
         let n = other.shape.dim(1);
 
         if k != k2 {
-            return Err(TensorError::DimensionMismatch {
-                dim1: k,
-                dim2: k2,
-            });
+            return Err(TensorError::DimensionMismatch { dim1: k, dim2: k2 });
         }
 
         let mut data = vec![0.0f32; m * n];
@@ -1355,7 +1340,11 @@ impl fmt::Display for TensorError {
                 write!(f, "Dimension mismatch: {} vs {}", dim1, dim2)
             }
             TensorError::IndexOutOfBounds { index, size } => {
-                write!(f, "Index {} out of bounds for dimension of size {}", index, size)
+                write!(
+                    f,
+                    "Index {} out of bounds for dimension of size {}",
+                    index, size
+                )
             }
             TensorError::AxisOutOfBounds { axis, rank } => {
                 write!(f, "Axis {} out of bounds for tensor of rank {}", axis, rank)
@@ -1363,7 +1352,11 @@ impl fmt::Display for TensorError {
             TensorError::InvalidPermutation => write!(f, "Invalid permutation"),
             TensorError::EmptyConcat => write!(f, "Cannot concatenate empty tensor list"),
             TensorError::BroadcastIncompatible { shape1, shape2 } => {
-                write!(f, "Shapes {} and {} are not broadcast-compatible", shape1, shape2)
+                write!(
+                    f,
+                    "Shapes {} and {} are not broadcast-compatible",
+                    shape1, shape2
+                )
             }
         }
     }
@@ -1662,8 +1655,10 @@ mod tests {
     #[test]
     fn test_tensor_matmul() {
         // 2x3 * 3x2 = 2x2
-        let a: Tensor<f64> = Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
-        let b: Tensor<f64> = Tensor::from_data(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
+        let a: Tensor<f64> =
+            Tensor::from_data(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap();
+        let b: Tensor<f64> =
+            Tensor::from_data(vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0], &[3, 2]).unwrap();
         let c = a.matmul(&b).unwrap();
 
         assert_eq!(c.shape().dims(), &[2, 2]);
@@ -1773,7 +1768,8 @@ mod tests {
 
     #[test]
     fn test_tensor_var_std() {
-        let t: Tensor<f64> = Tensor::from_data(vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0], &[8]).unwrap();
+        let t: Tensor<f64> =
+            Tensor::from_data(vec![2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0], &[8]).unwrap();
         let mean = t.mean();
         assert_eq!(mean, 5.0);
 

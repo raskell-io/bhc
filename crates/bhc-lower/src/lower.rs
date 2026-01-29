@@ -63,16 +63,18 @@ pub fn lower_module(
     });
 
     let already_imports_prelude = module.imports.iter().any(|imp| {
-        let name = imp.module.parts.iter()
+        let name = imp
+            .module
+            .parts
+            .iter()
             .map(|s| s.as_str())
             .collect::<Vec<_>>()
             .join(".");
         name == "Prelude"
     });
 
-    let should_inject_prelude = !is_prelude_module
-        && !has_no_implicit_prelude
-        && !already_imports_prelude;
+    let should_inject_prelude =
+        !is_prelude_module && !has_no_implicit_prelude && !already_imports_prelude;
 
     // Build the effective imports list, possibly prepending an implicit Prelude import
     let mut effective_imports = Vec::new();
@@ -104,16 +106,13 @@ pub fn lower_module(
     }
 
     // Lower imports
-    let imports = module
-        .imports
-        .iter()
-        .map(|imp| lower_import(imp))
-        .collect();
+    let imports = module.imports.iter().map(|imp| lower_import(imp)).collect();
 
     // Lower exports
-    let exports = module.exports.as_ref().map(|exps| {
-        exps.iter().map(|exp| lower_export(exp)).collect()
-    });
+    let exports = module
+        .exports
+        .as_ref()
+        .map(|exps| exps.iter().map(|exp| lower_export(exp)).collect());
 
     // Check for errors
     if ctx.has_errors() {
@@ -126,7 +125,9 @@ pub fn lower_module(
             || Symbol::intern("Main"),
             |n| {
                 // Combine module name parts into a single symbol
-                let full_name = n.parts.iter()
+                let full_name = n
+                    .parts
+                    .iter()
                     .map(|s| s.as_str())
                     .collect::<Vec<_>>()
                     .join(".");
@@ -248,117 +249,395 @@ fn register_standard_module_exports(ctx: &mut LowerContext, module_name: &str) {
     let exports: &[&str] = match module_name {
         "Prelude" => &[
             // Numeric
-            "+", "-", "*", "negate", "abs", "signum", "fromInteger", "fromIntegral",
-            "div", "mod", "even", "odd", "sum", "product",
+            "+",
+            "-",
+            "*",
+            "negate",
+            "abs",
+            "signum",
+            "fromInteger",
+            "fromIntegral",
+            "div",
+            "mod",
+            "even",
+            "odd",
+            "sum",
+            "product",
             // Comparison
-            "==", "/=", "<", "<=", ">", ">=", "compare", "min", "max",
+            "==",
+            "/=",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "compare",
+            "min",
+            "max",
             // Boolean
-            "&&", "||", "not", "otherwise",
+            "&&",
+            "||",
+            "not",
+            "otherwise",
             // List operations
-            "map", "filter", "head", "tail", "last", "init", "null", "length",
-            "reverse", "foldl", "foldl'", "foldr", "concat", "concatMap",
-            "zip", "zipWith", "unzip", "take", "drop", "splitAt",
-            "takeWhile", "dropWhile", "span", "break", "elem", "notElem",
-            "lookup", "replicate", "iterate", "repeat", "cycle",
-            "any", "all", "and", "or", "lines", "unlines", "words", "unwords",
+            "map",
+            "filter",
+            "head",
+            "tail",
+            "last",
+            "init",
+            "null",
+            "length",
+            "reverse",
+            "foldl",
+            "foldl'",
+            "foldr",
+            "concat",
+            "concatMap",
+            "zip",
+            "zipWith",
+            "unzip",
+            "take",
+            "drop",
+            "splitAt",
+            "takeWhile",
+            "dropWhile",
+            "span",
+            "break",
+            "elem",
+            "notElem",
+            "lookup",
+            "replicate",
+            "iterate",
+            "repeat",
+            "cycle",
+            "any",
+            "all",
+            "and",
+            "or",
+            "lines",
+            "unlines",
+            "words",
+            "unwords",
             "++",
             // Tuple
-            "fst", "snd", "curry", "uncurry", "swap",
+            "fst",
+            "snd",
+            "curry",
+            "uncurry",
+            "swap",
             // Function
-            "id", "const", "flip", "$", ".", "seq", "error", "undefined",
+            "id",
+            "const",
+            "flip",
+            "$",
+            ".",
+            "seq",
+            "error",
+            "undefined",
             // Maybe
-            "maybe", "fromMaybe", "isJust", "isNothing",
+            "maybe",
+            "fromMaybe",
+            "isJust",
+            "isNothing",
             // Either
             "either",
             // IO
-            "putStrLn", "putStr", "print", "getLine",
-            ">>", ">>=", "return",
+            "putStrLn",
+            "putStr",
+            "print",
+            "getLine",
+            ">>",
+            ">>=",
+            "return",
             // Show
             "show",
             // Enum
             "enumFromTo",
         ],
         "Data.Map" | "Data.Map.Strict" => &[
-            "empty", "singleton", "insert", "insertWith", "delete", "lookup",
-            "member", "null", "size", "union", "intersection", "difference",
-            "map", "mapWithKey", "filter", "filterWithKey", "foldr", "foldl",
-            "foldrWithKey", "foldlWithKey", "keys", "elems", "toList", "fromList",
-            "toAscList", "toDescList", "findWithDefault", "adjust", "update",
-            "alter", "unionWith", "intersectionWith", "differenceWith",
+            "empty",
+            "singleton",
+            "insert",
+            "insertWith",
+            "delete",
+            "lookup",
+            "member",
+            "null",
+            "size",
+            "union",
+            "intersection",
+            "difference",
+            "map",
+            "mapWithKey",
+            "filter",
+            "filterWithKey",
+            "foldr",
+            "foldl",
+            "foldrWithKey",
+            "foldlWithKey",
+            "keys",
+            "elems",
+            "toList",
+            "fromList",
+            "toAscList",
+            "toDescList",
+            "findWithDefault",
+            "adjust",
+            "update",
+            "alter",
+            "unionWith",
+            "intersectionWith",
+            "differenceWith",
         ],
         "Data.Set" => &[
-            "empty", "singleton", "insert", "delete", "member", "null", "size",
-            "union", "intersection", "difference", "map", "filter", "foldr", "foldl",
-            "toList", "fromList", "toAscList", "toDescList", "isSubsetOf",
+            "empty",
+            "singleton",
+            "insert",
+            "delete",
+            "member",
+            "null",
+            "size",
+            "union",
+            "intersection",
+            "difference",
+            "map",
+            "filter",
+            "foldr",
+            "foldl",
+            "toList",
+            "fromList",
+            "toAscList",
+            "toDescList",
+            "isSubsetOf",
         ],
         "Data.List" => &[
-            "sort", "sortBy", "sortOn", "nub", "nubBy", "delete", "deleteBy",
-            "union", "unionBy", "intersect", "intersectBy", "group", "groupBy",
-            "intersperse", "intercalate", "transpose", "subsequences", "permutations",
-            "foldl'", "find", "partition", "span", "break", "stripPrefix",
+            "sort",
+            "sortBy",
+            "sortOn",
+            "nub",
+            "nubBy",
+            "delete",
+            "deleteBy",
+            "union",
+            "unionBy",
+            "intersect",
+            "intersectBy",
+            "group",
+            "groupBy",
+            "intersperse",
+            "intercalate",
+            "transpose",
+            "subsequences",
+            "permutations",
+            "foldl'",
+            "find",
+            "partition",
+            "span",
+            "break",
+            "stripPrefix",
         ],
         "Data.Maybe" => &[
-            "maybe", "isJust", "isNothing", "fromJust", "fromMaybe", "listToMaybe",
-            "maybeToList", "catMaybes", "mapMaybe",
+            "maybe",
+            "isJust",
+            "isNothing",
+            "fromJust",
+            "fromMaybe",
+            "listToMaybe",
+            "maybeToList",
+            "catMaybes",
+            "mapMaybe",
         ],
         "Data.Either" => &[
-            "either", "isLeft", "isRight", "fromLeft", "fromRight", "lefts",
-            "rights", "partitionEithers",
+            "either",
+            "isLeft",
+            "isRight",
+            "fromLeft",
+            "fromRight",
+            "lefts",
+            "rights",
+            "partitionEithers",
         ],
         "Data.List.NonEmpty" | "Data.Semigroup" => &[
-            "head", "tail", "last", "init", "toList", "nonEmpty", "fromList",
-            "(<>)", "sconcat", "stimes",
+            "head", "tail", "last", "init", "toList", "nonEmpty", "fromList", "(<>)", "sconcat",
+            "stimes",
         ],
         "Control.Monad" => &[
-            "when", "unless", "guard", "void", "join", "filterM", "mapM", "forM",
-            "sequence", "replicateM", "replicateM_", "forever", "liftM", "liftM2",
-            "ap", "mzero", "mplus", "msum", "mfilter",
+            "when",
+            "unless",
+            "guard",
+            "void",
+            "join",
+            "filterM",
+            "mapM",
+            "forM",
+            "sequence",
+            "replicateM",
+            "replicateM_",
+            "forever",
+            "liftM",
+            "liftM2",
+            "ap",
+            "mzero",
+            "mplus",
+            "msum",
+            "mfilter",
         ],
         "Control.Applicative" => &[
-            "pure", "(<*>)", "(<$>)", "(*>)", "(<*)", "empty", "(<|>)",
-            "some", "many", "optional", "liftA", "liftA2", "liftA3",
+            "pure", "(<*>)", "(<$>)", "(*>)", "(<*)", "empty", "(<|>)", "some", "many", "optional",
+            "liftA", "liftA2", "liftA3",
         ],
         "Control.Exception" => &[
-            "catch", "try", "throw", "throwIO", "bracket", "bracket_",
-            "bracketOnError", "finally", "onException", "handle", "evaluate",
-            "mask", "mask_", "uninterruptibleMask", "uninterruptibleMask_",
+            "catch",
+            "try",
+            "throw",
+            "throwIO",
+            "bracket",
+            "bracket_",
+            "bracketOnError",
+            "finally",
+            "onException",
+            "handle",
+            "evaluate",
+            "mask",
+            "mask_",
+            "uninterruptibleMask",
+            "uninterruptibleMask_",
         ],
         "Data.Foldable" => &[
-            "fold", "foldMap", "foldr", "foldl", "foldl'", "foldr1", "foldl1",
-            "toList", "null", "length", "elem", "maximum", "minimum", "sum", "product",
-            "any", "all", "and", "or", "find", "notElem", "concat", "concatMap",
-            "asum", "msum", "traverse_", "for_", "sequenceA_", "mapM_", "forM_",
+            "fold",
+            "foldMap",
+            "foldr",
+            "foldl",
+            "foldl'",
+            "foldr1",
+            "foldl1",
+            "toList",
+            "null",
+            "length",
+            "elem",
+            "maximum",
+            "minimum",
+            "sum",
+            "product",
+            "any",
+            "all",
+            "and",
+            "or",
+            "find",
+            "notElem",
+            "concat",
+            "concatMap",
+            "asum",
+            "msum",
+            "traverse_",
+            "for_",
+            "sequenceA_",
+            "mapM_",
+            "forM_",
         ],
         "Data.Traversable" => &[
-            "traverse", "sequenceA", "mapM", "sequence", "for", "forM",
-            "mapAccumL", "mapAccumR",
+            "traverse",
+            "sequenceA",
+            "mapM",
+            "sequence",
+            "for",
+            "forM",
+            "mapAccumL",
+            "mapAccumR",
         ],
         "Data.Monoid" => &[
-            "mempty", "mappend", "mconcat", "(<>)", "Sum", "Product", "Any", "All",
-            "First", "Last", "Endo", "Dual",
+            "mempty", "mappend", "mconcat", "(<>)", "Sum", "Product", "Any", "All", "First",
+            "Last", "Endo", "Dual",
         ],
         "Data.Bits" => &[
-            "(.&.)", "(.|.)", "xor", "complement", "shift", "rotate",
-            "bit", "setBit", "clearBit", "complementBit", "testBit",
-            "shiftL", "shiftR", "rotateL", "rotateR", "popCount",
+            "(.&.)",
+            "(.|.)",
+            "xor",
+            "complement",
+            "shift",
+            "rotate",
+            "bit",
+            "setBit",
+            "clearBit",
+            "complementBit",
+            "testBit",
+            "shiftL",
+            "shiftR",
+            "rotateL",
+            "rotateR",
+            "popCount",
         ],
         "Data.Char" => &[
-            "ord", "chr", "isAlpha", "isAlphaNum", "isAscii", "isControl",
-            "isDigit", "isHexDigit", "isLetter", "isLower", "isNumber",
-            "isPrint", "isPunctuation", "isSpace", "isSymbol", "isUpper",
-            "toLower", "toUpper", "digitToInt", "intToDigit",
+            "ord",
+            "chr",
+            "isAlpha",
+            "isAlphaNum",
+            "isAscii",
+            "isControl",
+            "isDigit",
+            "isHexDigit",
+            "isLetter",
+            "isLower",
+            "isNumber",
+            "isPrint",
+            "isPunctuation",
+            "isSpace",
+            "isSymbol",
+            "isUpper",
+            "toLower",
+            "toUpper",
+            "digitToInt",
+            "intToDigit",
         ],
         "Data.Function" => &["id", "const", "flip", "($)", "(&)", "on", "fix"],
         "Data.Tuple" => &["fst", "snd", "curry", "uncurry", "swap"],
-        "Data.Ord" => &["compare", "(<)", "(<=)", "(>)", "(>=)", "max", "min", "comparing", "Down"],
+        "Data.Ord" => &[
+            "compare",
+            "(<)",
+            "(<=)",
+            "(>)",
+            "(>=)",
+            "max",
+            "min",
+            "comparing",
+            "Down",
+        ],
         "Data.Eq" => &["(==)", "(/=)"],
-        "Text.Read" => &["read", "reads", "readMaybe", "readEither", "readPrec", "lex"],
+        "Text.Read" => &[
+            "read",
+            "reads",
+            "readMaybe",
+            "readEither",
+            "readPrec",
+            "lex",
+        ],
         "Text.Show" => &["show", "shows", "showString", "showChar", "showParen"],
         "System.IO" => &[
-            "IO", "FilePath", "Handle", "IOMode", "stdin", "stdout", "stderr",
-            "openFile", "hClose", "hGetLine", "hGetContents", "hPutStr", "hPutStrLn",
-            "hPrint", "hFlush", "hIsEOF", "withFile", "readFile", "writeFile",
-            "appendFile", "getLine", "getContents", "putStr", "putStrLn", "print",
+            "IO",
+            "FilePath",
+            "Handle",
+            "IOMode",
+            "stdin",
+            "stdout",
+            "stderr",
+            "openFile",
+            "hClose",
+            "hGetLine",
+            "hGetContents",
+            "hPutStr",
+            "hPutStrLn",
+            "hPrint",
+            "hFlush",
+            "hIsEOF",
+            "withFile",
+            "readFile",
+            "writeFile",
+            "appendFile",
+            "getLine",
+            "getContents",
+            "putStr",
+            "putStrLn",
+            "print",
         ],
         _ => &[],
     };
@@ -684,7 +963,8 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                         }
 
                         // Look up the DefId that was bound for this where binding
-                        let def_id = ctx.lookup_value(fb.name.name)
+                        let def_id = ctx
+                            .lookup_value(fb.name.name)
                             .expect("where binding should be bound");
 
                         // For simple bindings (no parameters)
@@ -696,21 +976,35 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                                 for nested_decl in &inner_clause.wheres {
                                     if let ast::Decl::FunBind(nested_fb) = nested_decl {
                                         let nested_def_id = ctx.fresh_def_id();
-                                        ctx.define(nested_def_id, nested_fb.name.name, DefKind::Value, nested_fb.span);
+                                        ctx.define(
+                                            nested_def_id,
+                                            nested_fb.name.name,
+                                            DefKind::Value,
+                                            nested_fb.span,
+                                        );
                                         ctx.bind_value(nested_fb.name.name, nested_def_id);
                                     }
                                 }
                                 let body = lower_rhs(ctx, &inner_clause.rhs);
-                                let nested_bindings: Vec<hir::Binding> = inner_clause.wheres
+                                let nested_bindings: Vec<hir::Binding> = inner_clause
+                                    .wheres
                                     .iter()
                                     .filter_map(|d| {
                                         if let ast::Decl::FunBind(nested_fb) = d {
-                                            let nested_def_id = ctx.lookup_value(nested_fb.name.name)
+                                            let nested_def_id = ctx
+                                                .lookup_value(nested_fb.name.name)
                                                 .expect("nested where binding should be bound");
-                                            if nested_fb.clauses.len() == 1 && nested_fb.clauses[0].pats.is_empty() {
-                                                let nested_rhs = lower_rhs(ctx, &nested_fb.clauses[0].rhs);
+                                            if nested_fb.clauses.len() == 1
+                                                && nested_fb.clauses[0].pats.is_empty()
+                                            {
+                                                let nested_rhs =
+                                                    lower_rhs(ctx, &nested_fb.clauses[0].rhs);
                                                 return Some(hir::Binding {
-                                                    pat: hir::Pat::Var(nested_fb.name.name, nested_def_id, nested_fb.span),
+                                                    pat: hir::Pat::Var(
+                                                        nested_fb.name.name,
+                                                        nested_def_id,
+                                                        nested_fb.span,
+                                                    ),
                                                     sig: None,
                                                     rhs: nested_rhs,
                                                     span: nested_fb.span,
@@ -754,22 +1048,36 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                                 for nested_decl in &clause.wheres {
                                     if let ast::Decl::FunBind(nested_fb) = nested_decl {
                                         let nested_def_id = ctx.fresh_def_id();
-                                        ctx.define(nested_def_id, nested_fb.name.name, DefKind::Value, nested_fb.span);
+                                        ctx.define(
+                                            nested_def_id,
+                                            nested_fb.name.name,
+                                            DefKind::Value,
+                                            nested_fb.span,
+                                        );
                                         ctx.bind_value(nested_fb.name.name, nested_def_id);
                                     }
                                 }
                                 let rhs_expr = lower_rhs(ctx, &clause.rhs);
                                 // Lower nested where bindings into a Let
-                                let nested_bindings: Vec<hir::Binding> = clause.wheres
+                                let nested_bindings: Vec<hir::Binding> = clause
+                                    .wheres
                                     .iter()
                                     .filter_map(|d| {
                                         if let ast::Decl::FunBind(nested_fb) = d {
-                                            let nested_def_id = ctx.lookup_value(nested_fb.name.name)
+                                            let nested_def_id = ctx
+                                                .lookup_value(nested_fb.name.name)
                                                 .expect("nested where binding should be bound");
-                                            if nested_fb.clauses.len() == 1 && nested_fb.clauses[0].pats.is_empty() {
-                                                let nested_rhs = lower_rhs(ctx, &nested_fb.clauses[0].rhs);
+                                            if nested_fb.clauses.len() == 1
+                                                && nested_fb.clauses[0].pats.is_empty()
+                                            {
+                                                let nested_rhs =
+                                                    lower_rhs(ctx, &nested_fb.clauses[0].rhs);
                                                 return Some(hir::Binding {
-                                                    pat: hir::Pat::Var(nested_fb.name.name, nested_def_id, nested_fb.span),
+                                                    pat: hir::Pat::Var(
+                                                        nested_fb.name.name,
+                                                        nested_def_id,
+                                                        nested_fb.span,
+                                                    ),
                                                     sig: None,
                                                     rhs: nested_rhs,
                                                     span: nested_fb.span,
@@ -829,8 +1137,12 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                                 } else {
                                     // Create a tuple pattern for multi-argument case
                                     // Look up the existing tuple constructor from builtins
-                                    let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
-                                    let tuple_def_id = ctx.lookup_constructor(tuple_sym)
+                                    let tuple_sym = Symbol::intern(&format!(
+                                        "({})",
+                                        ",".repeat(clause.pats.len().saturating_sub(1))
+                                    ));
+                                    let tuple_def_id = ctx
+                                        .lookup_constructor(tuple_sym)
                                         .expect("tuple constructor should be in builtins");
                                     let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
                                     hir::Pat::Con(
@@ -857,21 +1169,20 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
                                 })
                             } else {
                                 hir::Expr::Tuple(
-                                    param_names.iter().map(|(_, def_id)| {
-                                        hir::Expr::Var(hir::DefRef {
-                                            def_id: *def_id,
-                                            span: fb.span,
+                                    param_names
+                                        .iter()
+                                        .map(|(_, def_id)| {
+                                            hir::Expr::Var(hir::DefRef {
+                                                def_id: *def_id,
+                                                span: fb.span,
+                                            })
                                         })
-                                    }).collect(),
+                                        .collect(),
                                     fb.span,
                                 )
                             };
 
-                            let case_expr = hir::Expr::Case(
-                                Box::new(scrutinee),
-                                alts,
-                                fb.span,
-                            );
+                            let case_expr = hir::Expr::Case(Box::new(scrutinee), alts, fb.span);
 
                             let lam = hir::Expr::Lam(param_pats, Box::new(case_expr), fb.span);
                             return Some(hir::Binding {
@@ -910,15 +1221,13 @@ fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir
 fn lower_rhs(ctx: &mut LowerContext, rhs: &ast::Rhs) -> hir::Expr {
     match rhs {
         ast::Rhs::Simple(expr, _) => lower_expr(ctx, expr),
-        ast::Rhs::Guarded(guards, span) => {
-            desugar::desugar_guarded_rhs(
-                ctx,
-                guards,
-                *span,
-                &|ctx, e| lower_expr(ctx, e),
-                &|ctx, p| lower_pat(ctx, p),
-            )
-        }
+        ast::Rhs::Guarded(guards, span) => desugar::desugar_guarded_rhs(
+            ctx,
+            guards,
+            *span,
+            &|ctx, e| lower_expr(ctx, e),
+            &|ctx, p| lower_pat(ctx, p),
+        ),
     }
 }
 
@@ -1015,10 +1324,16 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
             let op_name_str = op.name.as_str();
             let is_con = if let Some(dot_pos) = op_name_str.rfind('.') {
                 // Qualified name - check the part after the last dot
-                op_name_str[dot_pos + 1..].chars().next().map_or(false, |c| c.is_uppercase())
+                op_name_str[dot_pos + 1..]
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_uppercase())
             } else {
                 // Unqualified name - check the first character
-                op_name_str.chars().next().map_or(false, |c| c.is_uppercase())
+                op_name_str
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_uppercase())
             };
             let op_expr = if is_con {
                 // Constructor
@@ -1071,7 +1386,10 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
             for decl in decls {
                 if let ast::Decl::FunBind(fb) = decl {
                     // Check for pattern binding (special name $patbind)
-                    if fb.name.name.as_str() == "$patbind" && fb.clauses.len() == 1 && fb.clauses[0].pats.len() == 1 {
+                    if fb.name.name.as_str() == "$patbind"
+                        && fb.clauses.len() == 1
+                        && fb.clauses[0].pats.len() == 1
+                    {
                         // Pattern binding: (x, y) = expr
                         // Bind variables from the pattern
                         bind_pattern(ctx, &fb.clauses[0].pats[0]);
@@ -1090,7 +1408,10 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                 .filter_map(|d| {
                     if let ast::Decl::FunBind(fb) = d {
                         // Check for pattern binding (special name $patbind)
-                        if fb.name.name.as_str() == "$patbind" && fb.clauses.len() == 1 && fb.clauses[0].pats.len() == 1 {
+                        if fb.name.name.as_str() == "$patbind"
+                            && fb.clauses.len() == 1
+                            && fb.clauses[0].pats.len() == 1
+                        {
                             // Pattern binding: (x, y) = expr
                             let pat = lower_pat(ctx, &fb.clauses[0].pats[0]);
                             let rhs_expr = lower_rhs(ctx, &fb.clauses[0].rhs);
@@ -1102,7 +1423,8 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                             });
                         }
 
-                        let def_id = ctx.lookup_value(fb.name.name)
+                        let def_id = ctx
+                            .lookup_value(fb.name.name)
                             .expect("let binding should be bound");
 
                         // Simple binding (no parameters): let x = expr
@@ -1164,8 +1486,12 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                                     lower_pat(ctx, &clause.pats[0])
                                 } else {
                                     // Look up the existing tuple constructor from builtins
-                                    let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(clause.pats.len().saturating_sub(1))));
-                                    let tuple_def_id = ctx.lookup_constructor(tuple_sym)
+                                    let tuple_sym = Symbol::intern(&format!(
+                                        "({})",
+                                        ",".repeat(clause.pats.len().saturating_sub(1))
+                                    ));
+                                    let tuple_def_id = ctx
+                                        .lookup_constructor(tuple_sym)
                                         .expect("tuple constructor should be in builtins");
                                     let tuple_ref = ctx.def_ref(tuple_def_id, fb.span);
                                     hir::Pat::Con(
@@ -1230,33 +1556,26 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
 
         ast::Expr::Case(scrutinee, alts, span) => {
             let s = lower_expr(ctx, scrutinee);
-            let hir_alts: Vec<hir::CaseAlt> = alts
-                .iter()
-                .map(|alt| lower_alt(ctx, alt))
-                .collect();
+            let hir_alts: Vec<hir::CaseAlt> = alts.iter().map(|alt| lower_alt(ctx, alt)).collect();
             hir::Expr::Case(Box::new(s), hir_alts, *span)
         }
 
-        ast::Expr::Do(stmts, span) => {
-            desugar::desugar_do(
-                ctx,
-                stmts,
-                *span,
-                |ctx, e| lower_expr(ctx, e),
-                |ctx, p| lower_pat(ctx, p),
-            )
-        }
+        ast::Expr::Do(stmts, span) => desugar::desugar_do(
+            ctx,
+            stmts,
+            *span,
+            |ctx, e| lower_expr(ctx, e),
+            |ctx, p| lower_pat(ctx, p),
+        ),
 
-        ast::Expr::ListComp(expr, stmts, span) => {
-            desugar::desugar_list_comp(
-                ctx,
-                expr,
-                stmts,
-                *span,
-                |ctx, e| lower_expr(ctx, e),
-                |ctx, p| lower_pat(ctx, p),
-            )
-        }
+        ast::Expr::ListComp(expr, stmts, span) => desugar::desugar_list_comp(
+            ctx,
+            expr,
+            stmts,
+            *span,
+            |ctx, e| lower_expr(ctx, e),
+            |ctx, p| lower_pat(ctx, p),
+        ),
 
         ast::Expr::Tuple(exprs, span) => {
             let es: Vec<hir::Expr> = exprs.iter().map(|e| lower_expr(ctx, e)).collect();
@@ -1335,9 +1654,7 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
         }
 
         // Wildcard in expression context is a typed hole
-        ast::Expr::Wildcard(span) => {
-            hir::Expr::Error(*span)
-        }
+        ast::Expr::Wildcard(span) => hir::Expr::Error(*span),
     }
 }
 
@@ -1463,7 +1780,9 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
     match pat {
         ast::Pat::Var(ident, span) => {
             // Look up the DefId that was bound by bind_pattern
-            let def_id = ctx.lookup_value(ident.name).expect("pattern variable should be bound");
+            let def_id = ctx
+                .lookup_value(ident.name)
+                .expect("pattern variable should be bound");
             hir::Pat::Var(ident.name, def_id, *span)
         }
 
@@ -1500,7 +1819,8 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
 
         ast::Pat::Tuple(pats, span) => {
             // Tuple pattern is sugar for tuple constructor
-            let tuple_sym = Symbol::intern(&format!("({})", ",".repeat(pats.len().saturating_sub(1))));
+            let tuple_sym =
+                Symbol::intern(&format!("({})", ",".repeat(pats.len().saturating_sub(1))));
             // Use existing constructor if available, otherwise create one
             let def_id = ctx.lookup_constructor(tuple_sym).unwrap_or_else(|| {
                 let id = ctx.fresh_def_id();
@@ -1520,7 +1840,9 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
 
         ast::Pat::As(ident, inner, span) => {
             // Look up the DefId that was bound by bind_pattern
-            let def_id = ctx.lookup_value(ident.name).expect("as-pattern should be bound");
+            let def_id = ctx
+                .lookup_value(ident.name)
+                .expect("as-pattern should be bound");
             let p = lower_pat(ctx, inner);
             hir::Pat::As(ident.name, def_id, Box::new(p), *span)
         }
@@ -1545,7 +1867,8 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                         Some(p) => lower_pat(ctx, p),
                         None => {
                             // Punned field: Foo { x } binds x
-                            let field_def_id = ctx.lookup_value(f.name.name)
+                            let field_def_id = ctx
+                                .lookup_value(f.name.name)
                                 .expect("punned field should be bound");
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
@@ -1598,7 +1921,8 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                         Some(p) => lower_pat(ctx, p),
                         None => {
                             // Punned field: Foo { x } binds x
-                            let field_def_id = ctx.lookup_value(f.name.name)
+                            let field_def_id = ctx
+                                .lookup_value(f.name.name)
                                 .expect("punned field should be bound");
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
@@ -1626,7 +1950,8 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
                     let pat = match &f.pat {
                         Some(p) => lower_pat(ctx, p),
                         None => {
-                            let field_def_id = ctx.lookup_value(f.name.name)
+                            let field_def_id = ctx
+                                .lookup_value(f.name.name)
                                 .expect("punned field should be bound");
                             hir::Pat::Var(f.name.name, field_def_id, f.span)
                         }
@@ -1652,9 +1977,7 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
         // View patterns: (expr -> pat)
         // For now, just treat the result pattern as the pattern
         // TODO: Proper view pattern desugaring
-        ast::Pat::View(_view_expr, result_pat, _span) => {
-            lower_pat(ctx, result_pat)
-        }
+        ast::Pat::View(_view_expr, result_pat, _span) => lower_pat(ctx, result_pat),
     }
 }
 
@@ -1671,9 +1994,9 @@ fn desugar_list_pat(ctx: &mut LowerContext, pats: &[ast::Pat], span: Span) -> hi
     });
     let nil_ref = ctx.def_ref(nil_def, span);
 
-    pats.iter().rev().fold(
-        hir::Pat::Con(nil_ref.clone(), vec![], span),
-        |acc, p| {
+    pats.iter()
+        .rev()
+        .fold(hir::Pat::Con(nil_ref.clone(), vec![], span), |acc, p| {
             let cons_def = ctx.lookup_constructor(cons_sym).unwrap_or_else(|| {
                 let id = ctx.fresh_def_id();
                 ctx.define(id, cons_sym, DefKind::Constructor, span);
@@ -1682,8 +2005,7 @@ fn desugar_list_pat(ctx: &mut LowerContext, pats: &[ast::Pat], span: Span) -> hi
             let cons_ref = ctx.def_ref(cons_def, span);
             let hir_p = lower_pat(ctx, p);
             hir::Pat::Con(cons_ref, vec![hir_p, acc], span)
-        },
-    )
+        })
 }
 
 /// Lower a literal.
@@ -1767,12 +2089,14 @@ fn lower_arith_seq(ctx: &mut LowerContext, seq: &ast::ArithSeq, span: Span) -> h
     // Desugar arithmetic sequences to enumFrom* calls
     let (func_name, args) = match seq {
         ast::ArithSeq::From(start) => ("enumFrom", vec![lower_expr(ctx, start)]),
-        ast::ArithSeq::FromThen(start, next) => {
-            ("enumFromThen", vec![lower_expr(ctx, start), lower_expr(ctx, next)])
-        }
-        ast::ArithSeq::FromTo(start, end) => {
-            ("enumFromTo", vec![lower_expr(ctx, start), lower_expr(ctx, end)])
-        }
+        ast::ArithSeq::FromThen(start, next) => (
+            "enumFromThen",
+            vec![lower_expr(ctx, start), lower_expr(ctx, next)],
+        ),
+        ast::ArithSeq::FromTo(start, end) => (
+            "enumFromTo",
+            vec![lower_expr(ctx, start), lower_expr(ctx, end)],
+        ),
         ast::ArithSeq::FromThenTo(start, next, end) => (
             "enumFromThenTo",
             vec![
@@ -1798,7 +2122,10 @@ fn lower_arith_seq(ctx: &mut LowerContext, seq: &ast::ArithSeq, span: Span) -> h
 
 /// Lower an import declaration.
 fn lower_import(imp: &ast::ImportDecl) -> hir::Import {
-    let module_name = imp.module.parts.iter()
+    let module_name = imp
+        .module
+        .parts
+        .iter()
         .map(|s| s.as_str())
         .collect::<Vec<_>>()
         .join(".");
@@ -1807,32 +2134,32 @@ fn lower_import(imp: &ast::ImportDecl) -> hir::Import {
         module: Symbol::intern(&module_name),
         qualified: imp.qualified,
         alias: imp.alias.as_ref().map(|a| {
-            let alias_name = a.parts.iter()
+            let alias_name = a
+                .parts
+                .iter()
                 .map(|s| s.as_str())
                 .collect::<Vec<_>>()
                 .join(".");
             Symbol::intern(&alias_name)
         }),
-        items: imp.spec.as_ref().map(|spec| {
-            match spec {
-                ast::ImportSpec::Only(items) | ast::ImportSpec::Hiding(items) => {
-                    items.iter().map(|item| match item {
-                        ast::Import::Var(ident, span) => hir::ImportItem {
-                            name: ident.name,
-                            children: hir::ExportChildren::None,
-                            span: *span,
-                        },
-                        ast::Import::Type(ident, children, span) => hir::ImportItem {
-                            name: ident.name,
-                            children: children.as_ref().map_or(
-                                hir::ExportChildren::None,
-                                |cs| hir::ExportChildren::Some(cs.iter().map(|c| c.name).collect()),
-                            ),
-                            span: *span,
-                        },
-                    }).collect()
-                }
-            }
+        items: imp.spec.as_ref().map(|spec| match spec {
+            ast::ImportSpec::Only(items) | ast::ImportSpec::Hiding(items) => items
+                .iter()
+                .map(|item| match item {
+                    ast::Import::Var(ident, span) => hir::ImportItem {
+                        name: ident.name,
+                        children: hir::ExportChildren::None,
+                        span: *span,
+                    },
+                    ast::Import::Type(ident, children, span) => hir::ImportItem {
+                        name: ident.name,
+                        children: children.as_ref().map_or(hir::ExportChildren::None, |cs| {
+                            hir::ExportChildren::Some(cs.iter().map(|c| c.name).collect())
+                        }),
+                        span: *span,
+                    },
+                })
+                .collect(),
         }),
         hiding: matches!(imp.spec, Some(ast::ImportSpec::Hiding(_))),
         span: imp.span,
@@ -1849,14 +2176,15 @@ fn lower_export(exp: &ast::Export) -> hir::Export {
         },
         ast::Export::Type(ident, children, span) => hir::Export {
             name: ident.name,
-            children: children.as_ref().map_or(
-                hir::ExportChildren::None,
-                |cs| hir::ExportChildren::Some(cs.iter().map(|c| c.name).collect()),
-            ),
+            children: children.as_ref().map_or(hir::ExportChildren::None, |cs| {
+                hir::ExportChildren::Some(cs.iter().map(|c| c.name).collect())
+            }),
             span: *span,
         },
         ast::Export::Module(module_name, span) => {
-            let name = module_name.parts.iter()
+            let name = module_name
+                .parts
+                .iter()
                 .map(|s| s.as_str())
                 .collect::<Vec<_>>()
                 .join(".");
@@ -1924,11 +2252,7 @@ fn generate_field_accessor(
     let result_var_def_id = result_var_def_id.expect("field_idx should be valid");
 
     // Build the constructor pattern
-    let con_pat = hir::Pat::Con(
-        ctx.def_ref(con.id, con.span),
-        sub_pats,
-        field.span,
-    );
+    let con_pat = hir::Pat::Con(ctx.def_ref(con.id, con.span), sub_pats, field.span);
 
     // The RHS is just the variable we bound
     let rhs = hir::Expr::Var(ctx.def_ref(result_var_def_id, field.span));
@@ -1980,16 +2304,13 @@ fn infer_param_arity_in_type(param_name: Symbol, ty: &ast::Type) -> usize {
             let a_recursive = infer_param_arity_in_type(param_name, a);
             chain_arity.max(f_recursive).max(a_recursive)
         }
-        ast::Type::Fun(from, to, _) => {
-            infer_param_arity_in_type(param_name, from)
-                .max(infer_param_arity_in_type(param_name, to))
-        }
-        ast::Type::Tuple(tys, _) => {
-            tys.iter()
-                .map(|t| infer_param_arity_in_type(param_name, t))
-                .max()
-                .unwrap_or(0)
-        }
+        ast::Type::Fun(from, to, _) => infer_param_arity_in_type(param_name, from)
+            .max(infer_param_arity_in_type(param_name, to)),
+        ast::Type::Tuple(tys, _) => tys
+            .iter()
+            .map(|t| infer_param_arity_in_type(param_name, t))
+            .max()
+            .unwrap_or(0),
         ast::Type::List(elem, _) => infer_param_arity_in_type(param_name, elem),
         ast::Type::Paren(inner, _) => infer_param_arity_in_type(param_name, inner),
         ast::Type::Forall(_, inner, _) => infer_param_arity_in_type(param_name, inner),
@@ -2051,7 +2372,9 @@ fn collect_field_types(constrs: &[ast::ConDecl]) -> Vec<&ast::Type> {
 
 /// Lower a data declaration.
 fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<hir::DataDef> {
-    let type_def_id = ctx.lookup_type(data.name.name).expect("type should be pre-bound");
+    let type_def_id = ctx
+        .lookup_type(data.name.name)
+        .expect("type should be pre-bound");
 
     // Collect all field types from constructors to infer parameter kinds
     let field_types = collect_field_types(&data.constrs);
@@ -2067,17 +2390,9 @@ fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<
         })
         .collect();
 
-    let cons: Vec<hir::ConDef> = data
-        .constrs
-        .iter()
-        .map(|c| lower_con_def(ctx, c))
-        .collect();
+    let cons: Vec<hir::ConDef> = data.constrs.iter().map(|c| lower_con_def(ctx, c)).collect();
 
-    let deriving: Vec<Symbol> = data
-        .deriving
-        .iter()
-        .map(|c| c.name)
-        .collect();
+    let deriving: Vec<Symbol> = data.deriving.iter().map(|c| c.name).collect();
 
     Ok(hir::DataDef {
         id: type_def_id,
@@ -2147,11 +2462,7 @@ fn lower_newtype_decl_with_accessors(
 
     let con = lower_con_def(ctx, &newtype.constr);
 
-    let deriving: Vec<Symbol> = newtype
-        .deriving
-        .iter()
-        .map(|c| c.name)
-        .collect();
+    let deriving: Vec<Symbol> = newtype.deriving.iter().map(|c| c.name).collect();
 
     // Generate field accessor functions for record constructors
     let mut accessors = Vec::new();
@@ -2175,7 +2486,10 @@ fn lower_newtype_decl_with_accessors(
 }
 
 /// Lower a type alias declaration.
-fn lower_type_alias(ctx: &mut LowerContext, type_alias: &ast::TypeAlias) -> LowerResult<hir::TypeAlias> {
+fn lower_type_alias(
+    ctx: &mut LowerContext,
+    type_alias: &ast::TypeAlias,
+) -> LowerResult<hir::TypeAlias> {
     let def_id = ctx
         .lookup_type(type_alias.name.name)
         .expect("type should be pre-bound");
@@ -2201,10 +2515,9 @@ fn lower_type_alias(ctx: &mut LowerContext, type_alias: &ast::TypeAlias) -> Lowe
 fn lower_kind(kind: &ast::Kind) -> bhc_types::Kind {
     match kind {
         ast::Kind::Star => bhc_types::Kind::Star,
-        ast::Kind::Arrow(left, right) => bhc_types::Kind::Arrow(
-            Box::new(lower_kind(left)),
-            Box::new(lower_kind(right)),
-        ),
+        ast::Kind::Arrow(left, right) => {
+            bhc_types::Kind::Arrow(Box::new(lower_kind(left)), Box::new(lower_kind(right)))
+        }
         ast::Kind::Var(_ident) => {
             // For now, treat kind variables as Star
             // A more sophisticated implementation would do kind inference
@@ -2218,18 +2531,21 @@ fn lower_assoc_type(ctx: &mut LowerContext, assoc: &ast::AssocType) -> hir::Asso
     let id = ctx.fresh_def_id();
 
     // Convert type parameters
-    let params: Vec<bhc_types::TyVar> = assoc.params.iter()
+    let params: Vec<bhc_types::TyVar> = assoc
+        .params
+        .iter()
         .map(|p| bhc_types::TyVar::new_star(p.name.name.as_u32()))
         .collect();
 
     // Convert kind, defaulting to Star
-    let kind = assoc.kind.as_ref()
+    let kind = assoc
+        .kind
+        .as_ref()
         .map(lower_kind)
         .unwrap_or(bhc_types::Kind::Star);
 
     // Convert optional default type
-    let default = assoc.default.as_ref()
-        .map(|ty| lower_type(ctx, ty));
+    let default = assoc.default.as_ref().map(|ty| lower_type(ctx, ty));
 
     hir::AssocTypeSig {
         id,
@@ -2243,9 +2559,7 @@ fn lower_assoc_type(ctx: &mut LowerContext, assoc: &ast::AssocType) -> hir::Asso
 
 /// Lower an AST associated type definition to HIR.
 fn lower_assoc_type_def(ctx: &mut LowerContext, def: &ast::AssocTypeDef) -> hir::AssocTypeImpl {
-    let args: Vec<bhc_types::Ty> = def.args.iter()
-        .map(|ty| lower_type(ctx, ty))
-        .collect();
+    let args: Vec<bhc_types::Ty> = def.args.iter().map(|ty| lower_type(ctx, ty)).collect();
 
     let rhs = lower_type(ctx, &def.rhs);
 
@@ -2263,7 +2577,9 @@ fn lower_class_decl(ctx: &mut LowerContext, class: &ast::ClassDecl) -> LowerResu
         .lookup_type(class.name.name)
         .expect("class should be pre-bound");
 
-    let params: Vec<bhc_types::TyVar> = class.params.iter()
+    let params: Vec<bhc_types::TyVar> = class
+        .params
+        .iter()
         .map(|p| bhc_types::TyVar::new_star(p.name.name.as_u32()))
         .collect();
 
@@ -2298,11 +2614,7 @@ fn lower_class_decl(ctx: &mut LowerContext, class: &ast::ClassDecl) -> LowerResu
         })
         .collect();
 
-    let supers: Vec<Symbol> = class
-        .context
-        .iter()
-        .map(|c| c.class.name)
-        .collect();
+    let supers: Vec<Symbol> = class.context.iter().map(|c| c.class.name).collect();
 
     // Extract method signatures
     let methods: Vec<hir::MethodSig> = class
@@ -2381,11 +2693,7 @@ fn lower_instance_decl(
 ) -> LowerResult<hir::InstanceDef> {
     let types: Vec<bhc_types::Ty> = vec![lower_type(ctx, &instance.ty)];
 
-    let constraints: Vec<Symbol> = instance
-        .context
-        .iter()
-        .map(|c| c.class.name)
-        .collect();
+    let constraints: Vec<Symbol> = instance.context.iter().map(|c| c.class.name).collect();
 
     // Pre-bind all instance methods before lowering them
     for method in &instance.methods {
@@ -2467,10 +2775,10 @@ fn lower_foreign_decl(
     Ok(hir::ForeignDecl {
         id: def_id,
         name: foreign.name.name,
-        foreign_name: foreign.external_name.as_ref().map_or_else(
-            || foreign.name.name,
-            |s| Symbol::intern(s),
-        ),
+        foreign_name: foreign
+            .external_name
+            .as_ref()
+            .map_or_else(|| foreign.name.name, |s| Symbol::intern(s)),
         convention,
         ty,
         span: foreign.span,
@@ -2499,10 +2807,7 @@ mod tests {
     fn test_lower_literal() {
         let mut ctx = LowerContext::with_builtins();
 
-        let expr = ast::Expr::Lit(
-            ast::Lit::Int(42),
-            Span::default(),
-        );
+        let expr = ast::Expr::Lit(ast::Lit::Int(42), Span::default());
 
         let result = lower_expr(&mut ctx, &expr);
 

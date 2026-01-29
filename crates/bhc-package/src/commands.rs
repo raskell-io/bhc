@@ -28,7 +28,9 @@
 //! ```
 
 use crate::lockfile::{Lockfile, LOCKFILE_NAME};
-use crate::registry::{PackageRegistry, PublishDep, PublishMetadata, Registry, RegistryConfig, SearchResult};
+use crate::registry::{
+    PackageRegistry, PublishDep, PublishMetadata, Registry, RegistryConfig, SearchResult,
+};
 use crate::resolve::{Resolution, Resolver, ResolverConfig};
 use crate::{
     Dependency, DetailedDependency, Edition, ExecutableConfig, LibraryConfig, Manifest,
@@ -625,7 +627,11 @@ impl PublishCommand {
         let metadata = self.create_metadata(&manifest)?;
 
         if self.dry_run {
-            info!("Would publish {} v{} (dry run)", manifest.name(), manifest.version());
+            info!(
+                "Would publish {} v{} (dry run)",
+                manifest.name(),
+                manifest.version()
+            );
             return Ok(());
         }
 
@@ -649,7 +655,11 @@ impl PublishCommand {
         Ok(())
     }
 
-    fn build_tarball(&self, dir: impl AsRef<Utf8Path>, manifest: &Manifest) -> CommandResult<Vec<u8>> {
+    fn build_tarball(
+        &self,
+        dir: impl AsRef<Utf8Path>,
+        manifest: &Manifest,
+    ) -> CommandResult<Vec<u8>> {
         let dir = dir.as_ref();
         let encoder = GzEncoder::new(Vec::new(), Compression::default());
         let mut archive = Builder::new(encoder);
@@ -829,9 +839,9 @@ impl InfoCommand {
                 .get_version(v)
                 .ok_or_else(|| CommandError::ResolutionFailed(format!("version {} not found", v)))?
         } else {
-            index
-                .latest()
-                .ok_or_else(|| CommandError::ResolutionFailed("no versions available".to_string()))?
+            index.latest().ok_or_else(|| {
+                CommandError::ResolutionFailed("no versions available".to_string())
+            })?
         };
 
         Ok(PackageInfo {

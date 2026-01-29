@@ -299,17 +299,37 @@ impl TypeEnv {
 
     /// Resolve an instance for a class and type.
     ///
-    /// Returns the instance info if a matching instance is found.
-    /// This is a simple implementation that does exact matching;
-    /// a full implementation would need to handle type unification.
+    /// Returns the instance info and a substitution mapping type variables
+    /// in the instance head to concrete types. For example, matching
+    /// `instance Eq a => Eq [a]` against `Eq [Int]` returns `{a -> Int}`.
     #[must_use]
-    pub fn resolve_instance(&self, class: Symbol, ty: &Ty) -> Option<&InstanceInfo> {
+    pub fn resolve_instance(
+        &self,
+        class: Symbol,
+        ty: &Ty,
+    ) -> Option<(&InstanceInfo, bhc_types::Subst)> {
         let instances = self.instances.get(&class)?;
         for inst in instances {
-            // Simple exact match for now
-            // TODO: implement proper instance matching with unification
-            if !inst.types.is_empty() && &inst.types[0] == ty {
-                return Some(inst);
+            if !inst.types.is_empty() {
+                if let Some(subst) = bhc_types::types_match(&inst.types[0], ty) {
+                    return Some((inst, subst));
+                }
+            }
+        }
+        None
+    }
+
+    /// Resolve an instance for a class with multiple type arguments.
+    #[must_use]
+    pub fn resolve_instance_multi(
+        &self,
+        class: Symbol,
+        types: &[Ty],
+    ) -> Option<(&InstanceInfo, bhc_types::Subst)> {
+        let instances = self.instances.get(&class)?;
+        for inst in instances {
+            if let Some(subst) = bhc_types::types_match_multi(&inst.types, types) {
+                return Some((inst, subst));
             }
         }
         None
@@ -381,7 +401,9 @@ impl TypeEnv {
         // Try to find a matching instance
         for instance in instances {
             // Try to match the instance types against our arguments
-            if let Some(subst) = self.match_instance_types(&instance.types, args, &class_info.params) {
+            if let Some(subst) =
+                self.match_instance_types(&instance.types, args, &class_info.params)
+            {
                 // Find the associated type implementation in this instance
                 for impl_ in &instance.assoc_type_impls {
                     if impl_.name == family_name {
@@ -467,7 +489,12 @@ impl TypeEnv {
     /// Match a single type pattern against a concrete type.
     ///
     /// This is a simple one-way pattern match (instance type is a pattern).
-    fn match_types(&self, pattern: &Ty, concrete: &Ty, bound_vars: &[TyVar]) -> Option<bhc_types::Subst> {
+    fn match_types(
+        &self,
+        pattern: &Ty,
+        concrete: &Ty,
+        bound_vars: &[TyVar],
+    ) -> Option<bhc_types::Subst> {
         use bhc_types::Subst;
 
         match (pattern, concrete) {
@@ -484,9 +511,7 @@ impl TypeEnv {
                 }
             }
             // Same constructors: match recursively
-            (Ty::Con(c1), Ty::Con(c2)) if c1.name == c2.name => {
-                Some(Subst::new())
-            }
+            (Ty::Con(c1), Ty::Con(c2)) if c1.name == c2.name => Some(Subst::new()),
             // Application: match both parts
             (Ty::App(f1, a1), Ty::App(f2, a2)) => {
                 let s1 = self.match_types(f1, f2, bound_vars)?;

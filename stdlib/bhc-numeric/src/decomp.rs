@@ -49,14 +49,21 @@ pub enum DecompError {
     /// Matrix is not symmetric positive definite (for Cholesky).
     NotPositiveDefinite { index: usize },
     /// Dimensions are incompatible.
-    DimensionMismatch { expected: (usize, usize), got: (usize, usize) },
+    DimensionMismatch {
+        expected: (usize, usize),
+        got: (usize, usize),
+    },
 }
 
 impl fmt::Display for DecompError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DecompError::Singular { pivot_index, value } => {
-                write!(f, "Matrix is singular at pivot {}: value = {:.2e}", pivot_index, value)
+                write!(
+                    f,
+                    "Matrix is singular at pivot {}: value = {:.2e}",
+                    pivot_index, value
+                )
             }
             DecompError::NotSquare { rows, cols } => {
                 write!(f, "Matrix must be square, got {}x{}", rows, cols)
@@ -65,7 +72,11 @@ impl fmt::Display for DecompError {
                 write!(f, "Matrix is not positive definite at index {}", index)
             }
             DecompError::DimensionMismatch { expected, got } => {
-                write!(f, "Dimension mismatch: expected {:?}, got {:?}", expected, got)
+                write!(
+                    f,
+                    "Dimension mismatch: expected {:?}, got {:?}",
+                    expected, got
+                )
             }
         }
     }
@@ -652,7 +663,8 @@ impl SvdResult {
 
         // Compute Σ^+ (inverse of non-zero singular values)
         let tol = 1e-10 * self.singular_values.get(0).copied().unwrap_or(0.0);
-        let sigma_inv: Vec<f64> = self.singular_values
+        let sigma_inv: Vec<f64> = self
+            .singular_values
             .iter()
             .map(|&s| if s > tol { 1.0 / s } else { 0.0 })
             .collect();
@@ -1186,11 +1198,7 @@ mod tests {
 
     #[test]
     fn test_lu_basic() {
-        let a = Matrix::from_data(3, 3, vec![
-            2.0, -1.0, 0.0,
-            -1.0, 2.0, -1.0,
-            0.0, -1.0, 2.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![2.0, -1.0, 0.0, -1.0, 2.0, -1.0, 0.0, -1.0, 2.0]);
         let lu = lu_decompose(&a).unwrap();
 
         // Verify P*L*U = A
@@ -1201,9 +1209,16 @@ mod tests {
 
         for i in 0..3 {
             for j in 0..3 {
-                assert!(approx_eq(plu[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(plu[(i, j)], a[(i, j)], 1e-10),
                     "PLU[{},{}] = {} != A[{},{}] = {}",
-                    i, j, plu[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    plu[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
@@ -1247,11 +1262,11 @@ mod tests {
 
     #[test]
     fn test_qr_basic() {
-        let a = Matrix::from_data(3, 3, vec![
-            12.0, -51.0, 4.0,
-            6.0, 167.0, -68.0,
-            -4.0, 24.0, -41.0,
-        ]);
+        let a = Matrix::from_data(
+            3,
+            3,
+            vec![12.0, -51.0, 4.0, 6.0, 167.0, -68.0, -4.0, 24.0, -41.0],
+        );
         let qr = qr_decompose(&a);
 
         // Verify Q*R = A
@@ -1259,20 +1274,23 @@ mod tests {
 
         for i in 0..3 {
             for j in 0..3 {
-                assert!(approx_eq(qra[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(qra[(i, j)], a[(i, j)], 1e-10),
                     "QR[{},{}] = {} != A[{},{}] = {}",
-                    i, j, qra[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    qra[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
 
     #[test]
     fn test_qr_orthogonal() {
-        let a = Matrix::from_data(3, 3, vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            7.0, 8.0, 10.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]);
         let qr = qr_decompose(&a);
 
         // Verify Q^T * Q = I
@@ -1282,28 +1300,33 @@ mod tests {
         for i in 0..3 {
             for j in 0..3 {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!(approx_eq(qtq[(i, j)], expected, 1e-10),
+                assert!(
+                    approx_eq(qtq[(i, j)], expected, 1e-10),
                     "Q^T*Q[{},{}] = {} != {}",
-                    i, j, qtq[(i, j)], expected);
+                    i,
+                    j,
+                    qtq[(i, j)],
+                    expected
+                );
             }
         }
     }
 
     #[test]
     fn test_qr_upper_triangular() {
-        let a = Matrix::from_data(3, 3, vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-            7.0, 8.0, 10.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]);
         let qr = qr_decompose(&a);
 
         // Verify R is upper triangular
         for i in 0..3 {
             for j in 0..i {
-                assert!(approx_eq(qr.r[(i, j)], 0.0, 1e-10),
+                assert!(
+                    approx_eq(qr.r[(i, j)], 0.0, 1e-10),
                     "R[{},{}] = {} should be 0",
-                    i, j, qr.r[(i, j)]);
+                    i,
+                    j,
+                    qr.r[(i, j)]
+                );
             }
         }
     }
@@ -1330,11 +1353,7 @@ mod tests {
 
     #[test]
     fn test_cholesky_basic() {
-        let a = Matrix::from_data(3, 3, vec![
-            4.0, 2.0, 2.0,
-            2.0, 10.0, 7.0,
-            2.0, 7.0, 21.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![4.0, 2.0, 2.0, 2.0, 10.0, 7.0, 2.0, 7.0, 21.0]);
         let chol = cholesky_decompose(&a).unwrap();
 
         // Verify L * L^T = A
@@ -1343,9 +1362,16 @@ mod tests {
 
         for i in 0..3 {
             for j in 0..3 {
-                assert!(approx_eq(llt[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(llt[(i, j)], a[(i, j)], 1e-10),
                     "L*L^T[{},{}] = {} != A[{},{}] = {}",
-                    i, j, llt[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    llt[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
@@ -1373,7 +1399,10 @@ mod tests {
         // This matrix is not positive definite
         let a = Matrix::from_data(2, 2, vec![1.0, 2.0, 2.0, 1.0]);
         let result = cholesky_decompose(&a);
-        assert!(matches!(result, Err(DecompError::NotPositiveDefinite { .. })));
+        assert!(matches!(
+            result,
+            Err(DecompError::NotPositiveDefinite { .. })
+        ));
     }
 
     #[test]
@@ -1390,11 +1419,7 @@ mod tests {
 
     #[test]
     fn test_svd_basic() {
-        let a = Matrix::from_data(3, 2, vec![
-            1.0, 2.0,
-            3.0, 4.0,
-            5.0, 6.0,
-        ]);
+        let a = Matrix::from_data(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let svd_result = svd(&a);
 
         // Verify reconstruction: U * Σ * V^T ≈ A
@@ -1402,9 +1427,16 @@ mod tests {
 
         for i in 0..3 {
             for j in 0..2 {
-                assert!(approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
                     "Reconstructed[{},{}] = {} != A[{},{}] = {}",
-                    i, j, reconstructed[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    reconstructed[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
@@ -1412,11 +1444,7 @@ mod tests {
     #[test]
     fn test_svd_square() {
         // Diagonal matrix - SVD is trivial
-        let a = Matrix::from_data(3, 3, vec![
-            5.0, 0.0, 0.0,
-            0.0, 3.0, 0.0,
-            0.0, 0.0, 1.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![5.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
         let svd_result = svd(&a);
 
         // Singular values should be [5, 3, 1] in descending order
@@ -1428,9 +1456,16 @@ mod tests {
         let reconstructed = svd_result.reconstruct();
         for i in 0..3 {
             for j in 0..3 {
-                assert!(approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
                     "Reconstructed[{},{}] = {} != A[{},{}] = {}",
-                    i, j, reconstructed[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    reconstructed[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
@@ -1438,11 +1473,7 @@ mod tests {
     #[test]
     fn test_svd_orthogonality() {
         // Well-conditioned matrix
-        let a = Matrix::from_data(3, 3, vec![
-            4.0, 1.0, 1.0,
-            1.0, 3.0, 1.0,
-            1.0, 1.0, 2.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![4.0, 1.0, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0, 2.0]);
         let svd_result = svd(&a);
 
         // Verify U^T * U = I
@@ -1452,9 +1483,14 @@ mod tests {
         for i in 0..3 {
             for j in 0..3 {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!(approx_eq(utu[(i, j)], expected, 1e-10),
+                assert!(
+                    approx_eq(utu[(i, j)], expected, 1e-10),
                     "U^T*U[{},{}] = {} != {}",
-                    i, j, utu[(i, j)], expected);
+                    i,
+                    j,
+                    utu[(i, j)],
+                    expected
+                );
             }
         }
 
@@ -1465,9 +1501,14 @@ mod tests {
         for i in 0..3 {
             for j in 0..3 {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!(approx_eq(vtv[(i, j)], expected, 1e-10),
+                assert!(
+                    approx_eq(vtv[(i, j)], expected, 1e-10),
                     "V^T*V[{},{}] = {} != {}",
-                    i, j, vtv[(i, j)], expected);
+                    i,
+                    j,
+                    vtv[(i, j)],
+                    expected
+                );
             }
         }
     }
@@ -1475,29 +1516,25 @@ mod tests {
     #[test]
     fn test_svd_singular_values_sorted() {
         // Well-conditioned matrix
-        let a = Matrix::from_data(3, 3, vec![
-            4.0, 1.0, 1.0,
-            1.0, 3.0, 1.0,
-            1.0, 1.0, 2.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![4.0, 1.0, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0, 2.0]);
         let svd_result = svd(&a);
 
         // Verify singular values are in descending order
         for i in 1..svd_result.singular_values.len() {
-            assert!(svd_result.singular_values[i - 1] >= svd_result.singular_values[i],
+            assert!(
+                svd_result.singular_values[i - 1] >= svd_result.singular_values[i],
                 "Singular values not sorted: σ[{}] = {} < σ[{}] = {}",
-                i - 1, svd_result.singular_values[i - 1],
-                i, svd_result.singular_values[i]);
+                i - 1,
+                svd_result.singular_values[i - 1],
+                i,
+                svd_result.singular_values[i]
+            );
         }
     }
 
     #[test]
     fn test_svd_solve() {
-        let a = Matrix::from_data(3, 2, vec![
-            1.0, 0.0,
-            0.0, 1.0,
-            1.0, 1.0,
-        ]);
+        let a = Matrix::from_data(3, 2, vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
         let svd_result = svd(&a);
 
         // Solve least squares problem
@@ -1513,18 +1550,29 @@ mod tests {
 
         // For overdetermined system, we check that x minimizes ||Ax - b||
         // The solution should be approximately x = [1, 2]
-        assert!(approx_eq(x[0], 1.0, 0.5), "x[0] = {} should be close to 1.0", x[0]);
-        assert!(approx_eq(x[1], 2.0, 0.5), "x[1] = {} should be close to 2.0", x[1]);
+        assert!(
+            approx_eq(x[0], 1.0, 0.5),
+            "x[0] = {} should be close to 1.0",
+            x[0]
+        );
+        assert!(
+            approx_eq(x[1], 2.0, 0.5),
+            "x[1] = {} should be close to 2.0",
+            x[1]
+        );
     }
 
     #[test]
     fn test_svd_rank() {
         // Rank 2 matrix (columns are linearly dependent)
-        let a = Matrix::from_data(3, 3, vec![
-            1.0, 2.0, 3.0,
-            2.0, 4.0, 6.0,  // 2 * row 1
-            1.0, 1.0, 1.0,
-        ]);
+        let a = Matrix::from_data(
+            3,
+            3,
+            vec![
+                1.0, 2.0, 3.0, 2.0, 4.0, 6.0, // 2 * row 1
+                1.0, 1.0, 1.0,
+            ],
+        );
         let svd_result = svd(&a);
 
         // Should have rank 2 (one singular value near zero)
@@ -1534,10 +1582,7 @@ mod tests {
     #[test]
     fn test_svd_condition_number() {
         // Well-conditioned matrix
-        let a = Matrix::from_data(2, 2, vec![
-            2.0, 0.0,
-            0.0, 1.0,
-        ]);
+        let a = Matrix::from_data(2, 2, vec![2.0, 0.0, 0.0, 1.0]);
         let svd_result = svd(&a);
 
         // Condition number = σ_max / σ_min = 2 / 1 = 2
@@ -1547,10 +1592,7 @@ mod tests {
     #[test]
     fn test_svd_wide_matrix() {
         // More columns than rows
-        let a = Matrix::from_data(2, 3, vec![
-            1.0, 2.0, 3.0,
-            4.0, 5.0, 6.0,
-        ]);
+        let a = Matrix::from_data(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let svd_result = svd(&a);
 
         // Verify reconstruction
@@ -1558,9 +1600,16 @@ mod tests {
 
         for i in 0..2 {
             for j in 0..3 {
-                assert!(approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
+                assert!(
+                    approx_eq(reconstructed[(i, j)], a[(i, j)], 1e-10),
                     "Reconstructed[{},{}] = {} != A[{},{}] = {}",
-                    i, j, reconstructed[(i, j)], i, j, a[(i, j)]);
+                    i,
+                    j,
+                    reconstructed[(i, j)],
+                    i,
+                    j,
+                    a[(i, j)]
+                );
             }
         }
     }
@@ -1568,11 +1617,7 @@ mod tests {
     #[test]
     fn test_svd_low_rank_approx() {
         // Well-conditioned matrix
-        let a = Matrix::from_data(3, 3, vec![
-            4.0, 1.0, 1.0,
-            1.0, 3.0, 1.0,
-            1.0, 1.0, 2.0,
-        ]);
+        let a = Matrix::from_data(3, 3, vec![4.0, 1.0, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0, 2.0]);
         let svd_result = svd(&a);
 
         // Rank-1 approximation
@@ -1584,8 +1629,10 @@ mod tests {
         assert!(svd_approx.singular_values.len() >= 1);
         // Second singular value should be much smaller
         if svd_approx.singular_values.len() > 1 {
-            assert!(svd_approx.singular_values[1] < 1e-10,
-                "Rank-1 approx should have negligible second singular value");
+            assert!(
+                svd_approx.singular_values[1] < 1e-10,
+                "Rank-1 approx should have negligible second singular value"
+            );
         }
     }
 }

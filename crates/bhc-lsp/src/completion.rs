@@ -6,8 +6,8 @@ use crate::analysis::{AnalysisEngine, SymbolKind};
 use crate::config::CompletionConfig;
 use crate::document::Document;
 use lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation,
-    InsertTextFormat, MarkupContent, MarkupKind, Position,
+    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
+    Position,
 };
 use std::sync::Arc;
 
@@ -154,10 +154,26 @@ fn keyword_completions(prefix: &str) -> Vec<CompletionItem> {
 /// Builtin function completions.
 fn builtin_completions(prefix: &str) -> Vec<CompletionItem> {
     let builtins = [
-        ("map", "(a -> b) -> [a] -> [b]", "Apply a function to each element"),
-        ("filter", "(a -> Bool) -> [a] -> [a]", "Filter elements by predicate"),
-        ("foldl", "(b -> a -> b) -> b -> [a] -> b", "Left-associative fold"),
-        ("foldr", "(a -> b -> b) -> b -> [a] -> b", "Right-associative fold"),
+        (
+            "map",
+            "(a -> b) -> [a] -> [b]",
+            "Apply a function to each element",
+        ),
+        (
+            "filter",
+            "(a -> Bool) -> [a] -> [a]",
+            "Filter elements by predicate",
+        ),
+        (
+            "foldl",
+            "(b -> a -> b) -> b -> [a] -> b",
+            "Left-associative fold",
+        ),
+        (
+            "foldr",
+            "(a -> b -> b) -> b -> [a] -> b",
+            "Right-associative fold",
+        ),
         ("sum", "Num a => [a] -> a", "Sum of a list"),
         ("product", "Num a => [a] -> a", "Product of a list"),
         ("length", "[a] -> Int", "Length of a list"),
@@ -169,18 +185,42 @@ fn builtin_completions(prefix: &str) -> Vec<CompletionItem> {
         ("drop", "Int -> [a] -> [a]", "Drop first n elements"),
         ("reverse", "[a] -> [a]", "Reverse a list"),
         ("concat", "[[a]] -> [a]", "Concatenate lists"),
-        ("concatMap", "(a -> [b]) -> [a] -> [b]", "Map and concatenate"),
+        (
+            "concatMap",
+            "(a -> [b]) -> [a] -> [b]",
+            "Map and concatenate",
+        ),
         ("zip", "[a] -> [b] -> [(a, b)]", "Zip two lists"),
-        ("zipWith", "(a -> b -> c) -> [a] -> [b] -> [c]", "Zip with a function"),
+        (
+            "zipWith",
+            "(a -> b -> c) -> [a] -> [b] -> [c]",
+            "Zip with a function",
+        ),
         ("unzip", "[(a, b)] -> ([a], [b])", "Unzip a list of pairs"),
         ("elem", "Eq a => a -> [a] -> Bool", "Check membership"),
-        ("notElem", "Eq a => a -> [a] -> Bool", "Check non-membership"),
-        ("lookup", "Eq a => a -> [(a, b)] -> Maybe b", "Lookup in association list"),
+        (
+            "notElem",
+            "Eq a => a -> [a] -> Bool",
+            "Check non-membership",
+        ),
+        (
+            "lookup",
+            "Eq a => a -> [(a, b)] -> Maybe b",
+            "Lookup in association list",
+        ),
         ("null", "[a] -> Bool", "Check if empty"),
         ("and", "[Bool] -> Bool", "Conjunction of list"),
         ("or", "[Bool] -> Bool", "Disjunction of list"),
-        ("any", "(a -> Bool) -> [a] -> Bool", "Any element satisfies predicate"),
-        ("all", "(a -> Bool) -> [a] -> Bool", "All elements satisfy predicate"),
+        (
+            "any",
+            "(a -> Bool) -> [a] -> Bool",
+            "Any element satisfies predicate",
+        ),
+        (
+            "all",
+            "(a -> Bool) -> [a] -> Bool",
+            "All elements satisfy predicate",
+        ),
         ("maximum", "Ord a => [a] -> a", "Maximum element"),
         ("minimum", "Ord a => [a] -> a", "Minimum element"),
         ("putStrLn", "String -> IO ()", "Print with newline"),
@@ -188,10 +228,18 @@ fn builtin_completions(prefix: &str) -> Vec<CompletionItem> {
         ("print", "Show a => a -> IO ()", "Print a value"),
         ("getLine", "IO String", "Read a line"),
         ("readFile", "FilePath -> IO String", "Read file contents"),
-        ("writeFile", "FilePath -> String -> IO ()", "Write file contents"),
+        (
+            "writeFile",
+            "FilePath -> String -> IO ()",
+            "Write file contents",
+        ),
         ("pure", "Applicative f => a -> f a", "Lift a value"),
         ("return", "Monad m => a -> m a", "Return a value"),
-        ("fmap", "Functor f => (a -> b) -> f a -> f b", "Map over functor"),
+        (
+            "fmap",
+            "Functor f => (a -> b) -> f a -> f b",
+            "Map over functor",
+        ),
         ("id", "a -> a", "Identity function"),
         ("const", "a -> b -> a", "Constant function"),
         ("flip", "(a -> b -> c) -> b -> a -> c", "Flip arguments"),
@@ -225,21 +273,13 @@ fn snippet_completions(prefix: &str) -> Vec<CompletionItem> {
             "module ${1:Module} where\n\n$0",
             "Module declaration",
         ),
-        (
-            "import",
-            "import ${1:Module}",
-            "Import declaration",
-        ),
+        ("import", "import ${1:Module}", "Import declaration"),
         (
             "importq",
             "import qualified ${1:Module} as ${2:M}",
             "Qualified import",
         ),
-        (
-            "data",
-            "data ${1:Type} = ${2:Constructor}",
-            "Data type",
-        ),
+        ("data", "data ${1:Type} = ${2:Constructor}", "Data type"),
         (
             "newtype",
             "newtype ${1:Type} = ${2:Constructor} ${3:WrappedType}",
@@ -265,26 +305,10 @@ fn snippet_completions(prefix: &str) -> Vec<CompletionItem> {
             "if ${1:condition}\n  then ${2:thenBranch}\n  else ${0:elseBranch}",
             "If expression",
         ),
-        (
-            "let",
-            "let ${1:x} = ${2:expr}\nin ${0}",
-            "Let binding",
-        ),
-        (
-            "where",
-            "where\n  ${1:x} = ${0}",
-            "Where clause",
-        ),
-        (
-            "do",
-            "do\n  ${0}",
-            "Do notation",
-        ),
-        (
-            "lambda",
-            "\\${1:x} -> ${0}",
-            "Lambda expression",
-        ),
+        ("let", "let ${1:x} = ${2:expr}\nin ${0}", "Let binding"),
+        ("where", "where\n  ${1:x} = ${0}", "Where clause"),
+        ("do", "do\n  ${0}", "Do notation"),
+        ("lambda", "\\${1:x} -> ${0}", "Lambda expression"),
     ];
 
     snippets

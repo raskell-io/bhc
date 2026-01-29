@@ -145,81 +145,108 @@ impl LowerContext {
     fn register_builtin_constructors(&mut self) {
         // Bool: False = 0, True = 1
         let bool_sym = Symbol::intern("Bool");
-        self.constructor_map.insert(DefId::new(9), ConstructorInfo {
-            name: Symbol::intern("True"),
-            type_name: bool_sym,
-            tag: 1,
-            arity: 0,
-            field_names: vec![],
-        });
-        self.constructor_map.insert(DefId::new(10), ConstructorInfo {
-            name: Symbol::intern("False"),
-            type_name: bool_sym,
-            tag: 0,
-            arity: 0,
-            field_names: vec![],
-        });
+        self.constructor_map.insert(
+            DefId::new(9),
+            ConstructorInfo {
+                name: Symbol::intern("True"),
+                type_name: bool_sym,
+                tag: 1,
+                arity: 0,
+                field_names: vec![],
+            },
+        );
+        self.constructor_map.insert(
+            DefId::new(10),
+            ConstructorInfo {
+                name: Symbol::intern("False"),
+                type_name: bool_sym,
+                tag: 0,
+                arity: 0,
+                field_names: vec![],
+            },
+        );
 
         // Maybe: Nothing = 0, Just = 1
         let maybe_sym = Symbol::intern("Maybe");
-        self.constructor_map.insert(DefId::new(11), ConstructorInfo {
-            name: Symbol::intern("Nothing"),
-            type_name: maybe_sym,
-            tag: 0,
-            arity: 0,
-            field_names: vec![],
-        });
-        self.constructor_map.insert(DefId::new(12), ConstructorInfo {
-            name: Symbol::intern("Just"),
-            type_name: maybe_sym,
-            tag: 1,
-            arity: 1,
-            field_names: vec![],
-        });
+        self.constructor_map.insert(
+            DefId::new(11),
+            ConstructorInfo {
+                name: Symbol::intern("Nothing"),
+                type_name: maybe_sym,
+                tag: 0,
+                arity: 0,
+                field_names: vec![],
+            },
+        );
+        self.constructor_map.insert(
+            DefId::new(12),
+            ConstructorInfo {
+                name: Symbol::intern("Just"),
+                type_name: maybe_sym,
+                tag: 1,
+                arity: 1,
+                field_names: vec![],
+            },
+        );
 
         // Either: Left = 0, Right = 1
         let either_sym = Symbol::intern("Either");
-        self.constructor_map.insert(DefId::new(13), ConstructorInfo {
-            name: Symbol::intern("Left"),
-            type_name: either_sym,
-            tag: 0,
-            arity: 1,
-            field_names: vec![],
-        });
-        self.constructor_map.insert(DefId::new(14), ConstructorInfo {
-            name: Symbol::intern("Right"),
-            type_name: either_sym,
-            tag: 1,
-            arity: 1,
-            field_names: vec![],
-        });
+        self.constructor_map.insert(
+            DefId::new(13),
+            ConstructorInfo {
+                name: Symbol::intern("Left"),
+                type_name: either_sym,
+                tag: 0,
+                arity: 1,
+                field_names: vec![],
+            },
+        );
+        self.constructor_map.insert(
+            DefId::new(14),
+            ConstructorInfo {
+                name: Symbol::intern("Right"),
+                type_name: either_sym,
+                tag: 1,
+                arity: 1,
+                field_names: vec![],
+            },
+        );
 
         // List: [] = 0, : = 1
         let list_sym = Symbol::intern("List");
-        self.constructor_map.insert(DefId::new(15), ConstructorInfo {
-            name: Symbol::intern("[]"),
-            type_name: list_sym,
-            tag: 0,
-            arity: 0,
-            field_names: vec![],
-        });
-        self.constructor_map.insert(DefId::new(16), ConstructorInfo {
-            name: Symbol::intern(":"),
-            type_name: list_sym,
-            tag: 1,
-            arity: 2,
-            field_names: vec![],
-        });
+        self.constructor_map.insert(
+            DefId::new(15),
+            ConstructorInfo {
+                name: Symbol::intern("[]"),
+                type_name: list_sym,
+                tag: 0,
+                arity: 0,
+                field_names: vec![],
+            },
+        );
+        self.constructor_map.insert(
+            DefId::new(16),
+            ConstructorInfo {
+                name: Symbol::intern(":"),
+                type_name: list_sym,
+                tag: 1,
+                arity: 2,
+                field_names: vec![],
+            },
+        );
 
         // Unit: () = 0
         let unit_sym = Symbol::intern("Unit");
-        self.constructor_map.insert(DefId::new(17), ConstructorInfo {
-            name: Symbol::intern("()"),
-            type_name: unit_sym,
-            tag: 0,
-            arity: 0,
-            field_names: vec![],
-        });
+        self.constructor_map.insert(
+            DefId::new(17),
+            ConstructorInfo {
+                name: Symbol::intern("()"),
+                type_name: unit_sym,
+                tag: 0,
+                arity: 0,
+                field_names: vec![],
+            },
+        );
     }
 
     /// Register builtin operators and constructors.
@@ -254,41 +281,100 @@ impl LowerContext {
         // Order must match bhc-lower/src/context.rs define_builtins
         let operators = [
             // Arithmetic operators (18-26)
-            "+", "-", "*", "/", "div", "mod", "^", "^^", "**",
+            "+",
+            "-",
+            "*",
+            "/",
+            "div",
+            "mod",
+            "^",
+            "^^",
+            "**",
             // Comparison operators (27-32)
-            "==", "/=", "<", "<=", ">", ">=",
+            "==",
+            "/=",
+            "<",
+            "<=",
+            ">",
+            ">=",
             // Boolean operators (33-34)
-            "&&", "||",
+            "&&",
+            "||",
             // List operators (35-37)
-            ":", "++", "!!",
+            ":",
+            "++",
+            "!!",
             // Function composition (38-39)
-            ".", "$",
+            ".",
+            "$",
             // Monadic operators (40-41)
-            ">>=", ">>",
+            ">>=",
+            ">>",
             // Applicative operators (42-45)
-            "<*>", "<$>", "*>", "<*",
+            "<*>",
+            "<$>",
+            "*>",
+            "<*",
             // Alternative operator (46)
             "<|>",
             // Monadic operations (47-48)
-            "return", "pure",
+            "return",
+            "pure",
             // List operations (49-62)
-            "map", "filter", "foldr", "foldl", "foldl'", "concatMap",
-            "head", "tail", "length", "null", "reverse", "take", "drop", "elem",
+            "map",
+            "filter",
+            "foldr",
+            "foldl",
+            "foldl'",
+            "concatMap",
+            "head",
+            "tail",
+            "length",
+            "null",
+            "reverse",
+            "take",
+            "drop",
+            "elem",
             // More list operations (63-70)
-            "sum", "product", "and", "or", "any", "all", "maximum", "minimum",
+            "sum",
+            "product",
+            "and",
+            "or",
+            "any",
+            "all",
+            "maximum",
+            "minimum",
             // Zip operations (71-72)
-            "zip", "zipWith",
+            "zip",
+            "zipWith",
             // Prelude functions (73-79)
-            "id", "const", "flip", "error", "undefined", "seq",
+            "id",
+            "const",
+            "flip",
+            "error",
+            "undefined",
+            "seq",
             // Numeric operations (80-88)
-            "fromInteger", "fromRational", "negate", "abs", "signum",
-            "sqrt", "exp", "log", "sin", "cos", "tan",
+            "fromInteger",
+            "fromRational",
+            "negate",
+            "abs",
+            "signum",
+            "sqrt",
+            "exp",
+            "log",
+            "sin",
+            "cos",
+            "tan",
             // Comparison (89-90)
-            "compare", "min", "max",
+            "compare",
+            "min",
+            "max",
             // Show (91)
             "show",
             // Boolean (92-93)
-            "not", "otherwise",
+            "not",
+            "otherwise",
         ];
 
         let mut id = 18; // Start after constructors
@@ -312,9 +398,7 @@ impl LowerContext {
         use bhc_types::{Kind, TyCon};
 
         // Helper to create a type constructor
-        let make_ty = |name: &str| -> Ty {
-            Ty::Con(TyCon::new(Symbol::intern(name), Kind::Star))
-        };
+        let make_ty = |name: &str| -> Ty { Ty::Con(TyCon::new(Symbol::intern(name), Kind::Star)) };
 
         // === Register Eq class ===
         // Methods: == (/=)
@@ -404,48 +488,100 @@ impl LowerContext {
         // === Register instances for Int ===
         let int_ty = make_ty("Int");
         self.register_builtin_instance("Eq", &int_ty, &[(27, "=="), (28, "/=")]);
-        self.register_builtin_instance("Ord", &int_ty, &[
-            (89, "compare"), (29, "<"), (30, "<="), (31, ">"), (32, ">="),
-            (90, "min"), (91, "max"),
-        ]);
-        self.register_builtin_instance("Num", &int_ty, &[
-            (18, "+"), (19, "-"), (20, "*"),
-            (82, "negate"), (83, "abs"), (84, "signum"), (80, "fromInteger"),
-        ]);
+        self.register_builtin_instance(
+            "Ord",
+            &int_ty,
+            &[
+                (89, "compare"),
+                (29, "<"),
+                (30, "<="),
+                (31, ">"),
+                (32, ">="),
+                (90, "min"),
+                (91, "max"),
+            ],
+        );
+        self.register_builtin_instance(
+            "Num",
+            &int_ty,
+            &[
+                (18, "+"),
+                (19, "-"),
+                (20, "*"),
+                (82, "negate"),
+                (83, "abs"),
+                (84, "signum"),
+                (80, "fromInteger"),
+            ],
+        );
         self.register_builtin_instance("Show", &int_ty, &[(92, "show")]);
 
         // === Register instances for Float ===
         let float_ty = make_ty("Float");
         self.register_builtin_instance("Eq", &float_ty, &[(27, "=="), (28, "/=")]);
-        self.register_builtin_instance("Ord", &float_ty, &[
-            (89, "compare"), (29, "<"), (30, "<="), (31, ">"), (32, ">="),
-            (90, "min"), (91, "max"),
-        ]);
-        self.register_builtin_instance("Num", &float_ty, &[
-            (18, "+"), (19, "-"), (20, "*"),
-            (82, "negate"), (83, "abs"), (84, "signum"), (80, "fromInteger"),
-        ]);
-        self.register_builtin_instance("Fractional", &float_ty, &[
-            (21, "/"), (81, "fromRational"),
-        ]);
+        self.register_builtin_instance(
+            "Ord",
+            &float_ty,
+            &[
+                (89, "compare"),
+                (29, "<"),
+                (30, "<="),
+                (31, ">"),
+                (32, ">="),
+                (90, "min"),
+                (91, "max"),
+            ],
+        );
+        self.register_builtin_instance(
+            "Num",
+            &float_ty,
+            &[
+                (18, "+"),
+                (19, "-"),
+                (20, "*"),
+                (82, "negate"),
+                (83, "abs"),
+                (84, "signum"),
+                (80, "fromInteger"),
+            ],
+        );
+        self.register_builtin_instance("Fractional", &float_ty, &[(21, "/"), (81, "fromRational")]);
         self.register_builtin_instance("Show", &float_ty, &[(92, "show")]);
 
         // === Register instances for Bool ===
         let bool_ty = make_ty("Bool");
         self.register_builtin_instance("Eq", &bool_ty, &[(27, "=="), (28, "/=")]);
-        self.register_builtin_instance("Ord", &bool_ty, &[
-            (89, "compare"), (29, "<"), (30, "<="), (31, ">"), (32, ">="),
-            (90, "min"), (91, "max"),
-        ]);
+        self.register_builtin_instance(
+            "Ord",
+            &bool_ty,
+            &[
+                (89, "compare"),
+                (29, "<"),
+                (30, "<="),
+                (31, ">"),
+                (32, ">="),
+                (90, "min"),
+                (91, "max"),
+            ],
+        );
         self.register_builtin_instance("Show", &bool_ty, &[(92, "show")]);
 
         // === Register instances for Char ===
         let char_ty = make_ty("Char");
         self.register_builtin_instance("Eq", &char_ty, &[(27, "=="), (28, "/=")]);
-        self.register_builtin_instance("Ord", &char_ty, &[
-            (89, "compare"), (29, "<"), (30, "<="), (31, ">"), (32, ">="),
-            (90, "min"), (91, "max"),
-        ]);
+        self.register_builtin_instance(
+            "Ord",
+            &char_ty,
+            &[
+                (89, "compare"),
+                (29, "<"),
+                (30, "<="),
+                (31, ">"),
+                (32, ">="),
+                (90, "min"),
+                (91, "max"),
+            ],
+        );
         self.register_builtin_instance("Show", &char_ty, &[(92, "show")]);
     }
 
@@ -464,7 +600,12 @@ impl LowerContext {
         // For superclass instances, use the same instance type
         let class_info = self.class_registry.lookup_class(Symbol::intern(class_name));
         let superclass_instances = class_info
-            .map(|c| c.superclasses.iter().map(|_| instance_type.clone()).collect())
+            .map(|c| {
+                c.superclasses
+                    .iter()
+                    .map(|_| instance_type.clone())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let instance_info = InstanceInfo {
@@ -739,11 +880,7 @@ impl LowerContext {
         let bindings = dict_ctx.take_bindings();
 
         // Create a fresh variable to hold the dictionary
-        let dict_var = self.fresh_var(
-            &format!("$d{}", class_name.as_str()),
-            Ty::Error,
-            span,
-        );
+        let dict_var = self.fresh_var(&format!("$d{}", class_name.as_str()), Ty::Error, span);
 
         // Select the method from the dictionary
         let method_expr = crate::dictionary::select_method(
@@ -779,13 +916,7 @@ impl LowerContext {
         method_name: Symbol,
         span: Span,
     ) -> Option<core::Expr> {
-        crate::dictionary::select_method(
-            dict_var,
-            class,
-            method_name,
-            &self.class_registry,
-            span,
-        )
+        crate::dictionary::select_method(dict_var, class, method_name, &self.class_registry, span)
     }
 
     /// Check if a symbol is a class method.
@@ -863,11 +994,7 @@ impl LowerContext {
         }
 
         // Get the instance type (first type in the types list)
-        let instance_type = instance_def
-            .types
-            .first()
-            .cloned()
-            .unwrap_or(Ty::Error);
+        let instance_type = instance_def.types.first().cloned().unwrap_or(Ty::Error);
 
         // For superclass instances, we need to figure out what types satisfy
         // the superclass constraints. For now, we assume the same instance type.
@@ -908,6 +1035,15 @@ impl LowerContext {
                         self.register_var(default_def.id, var);
                     }
                 }
+                Item::Instance(instance_def) => {
+                    // Pre-register instance method variables so they can be
+                    // referenced during the lowering pass
+                    for method_def in &instance_def.methods {
+                        let ty = self.lookup_type(method_def.id);
+                        let var = self.named_var(method_def.name, ty);
+                        self.register_var(method_def.id, var);
+                    }
+                }
                 _ => {}
             }
         }
@@ -931,9 +1067,7 @@ impl LowerContext {
 
                         // Calculate arity and field names based on field type
                         let (arity, field_names) = match &con.fields {
-                            bhc_hir::ConFields::Positional(fields) => {
-                                (fields.len() as u32, vec![])
-                            }
+                            bhc_hir::ConFields::Positional(fields) => (fields.len() as u32, vec![]),
                             bhc_hir::ConFields::Named(fields) => {
                                 // Register field selector functions
                                 for field in fields {
@@ -947,7 +1081,10 @@ impl LowerContext {
                                             con_id: con.id,
                                             con_name: con.name,
                                             type_name: data_def.name,
-                                            field_index: fields.iter().position(|f| f.id == field.id).unwrap_or(0),
+                                            field_index: fields
+                                                .iter()
+                                                .position(|f| f.id == field.id)
+                                                .unwrap_or(0),
                                             total_fields: fields.len(),
                                         },
                                     );
@@ -958,13 +1095,16 @@ impl LowerContext {
                         };
 
                         // Register constructor metadata
-                        self.register_constructor(con.id, ConstructorInfo {
-                            name: con.name,
-                            type_name: data_def.name,
-                            tag: tag as u32,
-                            arity,
-                            field_names,
-                        });
+                        self.register_constructor(
+                            con.id,
+                            ConstructorInfo {
+                                name: con.name,
+                                type_name: data_def.name,
+                                tag: tag as u32,
+                                arity,
+                                field_names,
+                            },
+                        );
                     }
 
                     // Process deriving clauses
@@ -1022,6 +1162,15 @@ impl LowerContext {
                 Item::Instance(instance_def) => {
                     // Register the instance in the class registry for dictionary construction
                     self.register_instance_def(instance_def);
+
+                    // Lower instance method bodies to Core bindings.
+                    // Each method in the instance provides an implementation that
+                    // the evaluator needs to find.
+                    for method_def in &instance_def.methods {
+                        if let Some(bind) = self.lower_value_def(method_def)? {
+                            bindings.push(bind);
+                        }
+                    }
                 }
                 Item::Fixity(_) => {
                     // Fixity declarations are only used during parsing
@@ -1184,7 +1333,9 @@ impl LowerContext {
     /// This compiles to a lambda with a case expression.
     fn compile_equations(&mut self, value_def: &ValueDef) -> LowerResult<core::Expr> {
         if value_def.equations.is_empty() {
-            return Err(LowerError::Internal("value definition with no equations".into()));
+            return Err(LowerError::Internal(
+                "value definition with no equations".into(),
+            ));
         }
 
         // Simple case: single equation with no patterns
@@ -1288,11 +1439,18 @@ impl LowerContext {
         use bhc_hir::Pat;
 
         let mut positions = Vec::new();
-        let arity = value_def.equations.get(0).map(|eq| eq.pats.len()).unwrap_or(0);
+        let arity = value_def
+            .equations
+            .get(0)
+            .map(|eq| eq.pats.len())
+            .unwrap_or(0);
 
         for pos in 0..arity {
             let has_constructor = value_def.equations.iter().any(|eq| {
-                eq.pats.get(pos).map(|pat| matches!(pat, Pat::Con(_, _, _) | Pat::Lit(_, _))).unwrap_or(false)
+                eq.pats
+                    .get(pos)
+                    .map(|pat| matches!(pat, Pat::Con(_, _, _) | Pat::Lit(_, _)))
+                    .unwrap_or(false)
             });
             if has_constructor {
                 positions.push(pos);
@@ -1309,8 +1467,8 @@ impl LowerContext {
         args: &[Var],
         match_pos: usize,
     ) -> LowerResult<core::Expr> {
+        use crate::pattern::{bind_pattern_vars, lower_pat_to_alt};
         use bhc_hir::Pat;
-        use crate::pattern::{lower_pat_to_alt, bind_pattern_vars};
 
         let span = value_def.span;
         let mut alts = Vec::new();

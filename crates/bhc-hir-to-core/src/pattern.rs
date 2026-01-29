@@ -47,12 +47,10 @@ pub fn lower_pat_to_alt(
             // Variable pattern: bind the value to the variable
             // Use pre-registered variable if available (for guards),
             // otherwise create a fresh one
-            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| {
-                Var {
-                    name: *name,
-                    id: ctx.fresh_id(),
-                    ty: Ty::Error,
-                }
+            let var = ctx.lookup_var(*def_id).cloned().unwrap_or_else(|| Var {
+                name: *name,
+                id: ctx.fresh_id(),
+                ty: Ty::Error,
             });
             // Default pattern with a binder
             Ok(Alt {
@@ -133,17 +131,22 @@ pub fn lower_pat_to_alt(
 
             // Create the data constructor
             // Look up the constructor metadata from the context
-            let (con_name, type_name, tag) = if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
-                (info.name, info.type_name, info.tag)
-            } else if let Some(var) = ctx.lookup_var(def_ref.def_id) {
-                // Fallback for constructors not in the map - use name-based lookup
-                let tag = get_constructor_tag(var.name.as_str(), def_ref.def_id.index() as u32);
-                (var.name, Symbol::intern("DataType"), tag)
-            } else {
-                // Last resort fallback
-                let name = Symbol::intern("Con");
-                (name, Symbol::intern("DataType"), def_ref.def_id.index() as u32)
-            };
+            let (con_name, type_name, tag) =
+                if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
+                    (info.name, info.type_name, info.tag)
+                } else if let Some(var) = ctx.lookup_var(def_ref.def_id) {
+                    // Fallback for constructors not in the map - use name-based lookup
+                    let tag = get_constructor_tag(var.name.as_str(), def_ref.def_id.index() as u32);
+                    (var.name, Symbol::intern("DataType"), tag)
+                } else {
+                    // Last resort fallback
+                    let name = Symbol::intern("Con");
+                    (
+                        name,
+                        Symbol::intern("DataType"),
+                        def_ref.def_id.index() as u32,
+                    )
+                };
 
             let tycon = TyCon::new(type_name, Kind::Star);
             let con = DataCon {
@@ -167,13 +170,23 @@ pub fn lower_pat_to_alt(
             // Get constructor metadata
             let (con_name, type_name, tag, canonical_fields) =
                 if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
-                    (info.name, info.type_name, info.tag, info.field_names.clone())
+                    (
+                        info.name,
+                        info.type_name,
+                        info.tag,
+                        info.field_names.clone(),
+                    )
                 } else if let Some(var) = ctx.lookup_var(def_ref.def_id) {
                     let tag = get_constructor_tag(var.name.as_str(), def_ref.def_id.index() as u32);
                     (var.name, Symbol::intern("DataType"), tag, vec![])
                 } else {
                     let name = Symbol::intern("Con");
-                    (name, Symbol::intern("DataType"), def_ref.def_id.index() as u32, vec![])
+                    (
+                        name,
+                        Symbol::intern("DataType"),
+                        def_ref.def_id.index() as u32,
+                        vec![],
+                    )
                 };
 
             // Build a map from field name to its pattern
@@ -698,10 +711,8 @@ fn flatten_con_pattern(
     }
 
     // Flatten each sub-pattern
-    let flattened_subs: Vec<Vec<hir::Pat>> = sub_pats
-        .iter()
-        .map(flatten_nested_or_patterns)
-        .collect();
+    let flattened_subs: Vec<Vec<hir::Pat>> =
+        sub_pats.iter().map(flatten_nested_or_patterns).collect();
 
     // Compute cross-product of all combinations
     let combinations = cross_product(&flattened_subs);
@@ -918,13 +929,16 @@ mod tests {
         let person_sym = Symbol::intern("Person");
         let mk_person_sym = Symbol::intern("MkPerson");
 
-        ctx.register_constructor(con_id, ConstructorInfo {
-            name: mk_person_sym,
-            type_name: person_sym,
-            tag: 0,
-            arity: 2,
-            field_names: vec![name_sym, age_sym], // canonical order: name, age
-        });
+        ctx.register_constructor(
+            con_id,
+            ConstructorInfo {
+                name: mk_person_sym,
+                type_name: person_sym,
+                tag: 0,
+                arity: 2,
+                field_names: vec![name_sym, age_sym], // canonical order: name, age
+            },
+        );
 
         // Create a record pattern with fields in different order: { age = a, name = n }
         let n_def_id = DefId::new(201);
@@ -934,7 +948,7 @@ mod tests {
 
         let field_pats = vec![
             hir::FieldPat {
-                name: age_sym,  // Out of order
+                name: age_sym, // Out of order
                 pat: Pat::Var(a, a_def_id, span),
                 span,
             },
@@ -945,7 +959,10 @@ mod tests {
             },
         ];
 
-        let def_ref = DefRef { def_id: con_id, span };
+        let def_ref = DefRef {
+            def_id: con_id,
+            span,
+        };
         let pat = Pat::RecordCon(def_ref, field_pats, span);
         let rhs = core::Expr::Lit(Literal::Int(1), Ty::Error, span);
 

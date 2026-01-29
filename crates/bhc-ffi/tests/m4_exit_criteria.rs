@@ -8,10 +8,10 @@
 //! 3. No GC movement of pinned allocations (stress test)
 
 use bhc_ffi::{
-    blas::{should_use_blas, FallbackBlas, BlasProvider, BLAS_THRESHOLD},
-    default_provider,
-    matmul, smatmul,
+    blas::{should_use_blas, BlasProvider, FallbackBlas, BLAS_THRESHOLD},
+    default_provider, matmul,
     pinned::PinnedBuffer,
+    smatmul,
     tensor::Matrix,
 };
 
@@ -26,7 +26,8 @@ fn test_matmul_dispatches_to_blas_for_large_matrices() {
     assert!(
         should_use_blas(large, large, large),
         "should_use_blas should return true for {}x{} matrices",
-        large, large
+        large,
+        large
     );
 
     // Verify threshold behavior
@@ -34,7 +35,8 @@ fn test_matmul_dispatches_to_blas_for_large_matrices() {
     assert!(
         !should_use_blas(small, small, small),
         "should_use_blas should return false for {}x{} matrices",
-        small, small
+        small,
+        small
     );
 }
 
@@ -72,7 +74,10 @@ fn test_matmul_large_matrix_correctness() {
             assert!(
                 (actual - expected).abs() < 1e-10,
                 "Mismatch at ({}, {}): expected {}, got {}",
-                i, j, expected, actual
+                i,
+                j,
+                expected,
+                actual
             );
         }
     }
@@ -94,8 +99,8 @@ fn test_matmul_various_sizes() {
 
     for (m, k, n) in sizes {
         // Create test matrices
-        let a_data: Vec<f64> = (0..m*k).map(|i| (i % 10) as f64).collect();
-        let b_data: Vec<f64> = (0..k*n).map(|i| (i % 10) as f64).collect();
+        let a_data: Vec<f64> = (0..m * k).map(|i| (i % 10) as f64).collect();
+        let b_data: Vec<f64> = (0..k * n).map(|i| (i % 10) as f64).collect();
 
         let a = Matrix::from_slice(m, k, &a_data).unwrap();
         let b = Matrix::from_slice(k, n, &b_data).unwrap();
@@ -113,7 +118,9 @@ fn test_matmul_various_sizes() {
         assert!(
             (c.get(0, 0) - expected_00).abs() < 1e-6,
             "Mismatch for size {}x{}x{} at (0,0)",
-            m, k, n
+            m,
+            k,
+            n
         );
     }
 }
@@ -157,8 +164,16 @@ fn test_matrix_address_stability_across_operations() {
     }
 
     // Addresses should not have changed
-    assert_eq!(a.address(), addr_a, "Matrix A address changed during matmul operations");
-    assert_eq!(b.address(), addr_b, "Matrix B address changed during matmul operations");
+    assert_eq!(
+        a.address(),
+        addr_a,
+        "Matrix A address changed during matmul operations"
+    );
+    assert_eq!(
+        b.address(),
+        addr_b,
+        "Matrix B address changed during matmul operations"
+    );
 }
 
 #[test]
@@ -247,8 +262,16 @@ fn test_concurrent_matmul_address_stability() {
     }
 
     // Verify addresses unchanged
-    assert_eq!(a.address(), addr_a, "Matrix A address changed during concurrent access");
-    assert_eq!(b.address(), addr_b, "Matrix B address changed during concurrent access");
+    assert_eq!(
+        a.address(),
+        addr_a,
+        "Matrix A address changed during concurrent access"
+    );
+    assert_eq!(
+        b.address(),
+        addr_b,
+        "Matrix B address changed during concurrent access"
+    );
 }
 
 #[test]
@@ -295,7 +318,10 @@ fn test_mixed_allocation_stress() {
 #[test]
 fn test_blas_provider_available() {
     let provider = default_provider();
-    assert!(provider.is_available(), "Default BLAS provider should be available");
+    assert!(
+        provider.is_available(),
+        "Default BLAS provider should be available"
+    );
 }
 
 #[test]
@@ -319,18 +345,16 @@ fn test_matmul_non_square() {
     let provider = default_provider();
 
     // Test non-square matrices: (3x4) * (4x2) = (3x2)
-    let a = Matrix::from_slice(3, 4, &[
-        1.0, 2.0, 3.0, 4.0,
-        5.0, 6.0, 7.0, 8.0,
-        9.0, 10.0, 11.0, 12.0,
-    ]).unwrap();
+    let a = Matrix::from_slice(
+        3,
+        4,
+        &[
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+        ],
+    )
+    .unwrap();
 
-    let b = Matrix::from_slice(4, 2, &[
-        1.0, 2.0,
-        3.0, 4.0,
-        5.0, 6.0,
-        7.0, 8.0,
-    ]).unwrap();
+    let b = Matrix::from_slice(4, 2, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
 
     let c = matmul(provider.as_ref(), &a, &b).unwrap();
 

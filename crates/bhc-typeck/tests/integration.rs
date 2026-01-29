@@ -4,8 +4,8 @@
 //! produces the expected types or errors.
 
 use bhc_hir::{
-    Binding, CaseAlt, ConDef, ConFields, DataDef, DefId, DefRef, Equation, Expr, Item, Lit,
-    Module, Pat, ValueDef,
+    Binding, CaseAlt, ConDef, ConFields, DataDef, DefId, DefRef, Equation, Expr, Item, Lit, Module,
+    Pat, ValueDef,
 };
 use bhc_index::Idx;
 use bhc_intern::Symbol;
@@ -312,7 +312,10 @@ fn test_const_lambda() {
     let module = module_with_items(vec![Item::Value(func_def(
         0,
         "const",
-        vec![Pat::Var(x, DefId::new(100), Span::DUMMY), Pat::Var(y, DefId::new(101), Span::DUMMY)],
+        vec![
+            Pat::Var(x, DefId::new(100), Span::DUMMY),
+            Pat::Var(y, DefId::new(101), Span::DUMMY),
+        ],
         Expr::Lit(Lit::Int(1), Span::DUMMY),
     ))]);
 
@@ -389,7 +392,10 @@ fn test_let_with_tuple_pattern() {
             vec![Binding {
                 pat: Pat::Con(
                     tuple_con,
-                    vec![Pat::Var(a, DefId::new(102), Span::DUMMY), Pat::Var(b, DefId::new(103), Span::DUMMY)],
+                    vec![
+                        Pat::Var(a, DefId::new(102), Span::DUMMY),
+                        Pat::Var(b, DefId::new(103), Span::DUMMY),
+                    ],
                     Span::DUMMY,
                 ),
                 sig: None,
@@ -487,7 +493,10 @@ fn test_if_non_bool_condition() {
     ))]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_err(), "Expected type error for non-Bool condition");
+    assert!(
+        result.is_err(),
+        "Expected type error for non-Bool condition"
+    );
 
     let errors = result.unwrap_err();
     assert!(!errors.is_empty());
@@ -566,7 +575,10 @@ fn test_case_branch_type_mismatch() {
     ))]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_err(), "Expected type error for case branch mismatch");
+    assert!(
+        result.is_err(),
+        "Expected type error for case branch mismatch"
+    );
 }
 
 // =============================================================================
@@ -615,7 +627,11 @@ fn test_data_type_with_constructors() {
     ]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Expected successful type check: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Expected successful type check: {:?}",
+        result
+    );
 
     let typed = result.unwrap();
     let scheme = typed.def_schemes.get(&def_id(3)).unwrap();
@@ -678,7 +694,10 @@ fn test_constructor_pattern_match() {
                 vec![CaseAlt {
                     pat: Pat::Con(
                         def_ref(1),
-                        vec![Pat::Var(x, DefId::new(100), Span::DUMMY), Pat::Var(y, DefId::new(101), Span::DUMMY)],
+                        vec![
+                            Pat::Var(x, DefId::new(100), Span::DUMMY),
+                            Pat::Var(y, DefId::new(101), Span::DUMMY),
+                        ],
                         Span::DUMMY,
                     ),
                     guards: Vec::new(),
@@ -691,7 +710,11 @@ fn test_constructor_pattern_match() {
     ]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Expected successful type check: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Expected successful type check: {:?}",
+        result
+    );
 }
 
 // =============================================================================
@@ -764,7 +787,10 @@ fn test_value_with_mismatching_signature() {
     ))]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_err(), "Expected type error for signature mismatch");
+    assert!(
+        result.is_err(),
+        "Expected type error for signature mismatch"
+    );
 }
 
 // =============================================================================
@@ -790,7 +816,11 @@ fn test_error_recovery_continues_checking() {
                 Span::DUMMY,
             ),
         )),
-        Item::Value(value_def(2, "good2", Expr::Lit(Lit::Char('b'), Span::DUMMY))),
+        Item::Value(value_def(
+            2,
+            "good2",
+            Expr::Lit(Lit::Char('b'), Span::DUMMY),
+        )),
     ]);
 
     let result = type_check_module(&module, FileId::new(0));
@@ -936,7 +966,10 @@ fn test_class_declaration() {
 
     // Method type: a -> a -> Bool
     let bool_ty = Ty::Con(TyCon::new(Symbol::intern("Bool"), Kind::Star));
-    let method_ty = Ty::fun(Ty::Var(a_var.clone()), Ty::fun(Ty::Var(a_var.clone()), bool_ty));
+    let method_ty = Ty::fun(
+        Ty::Var(a_var.clone()),
+        Ty::fun(Ty::Var(a_var.clone()), bool_ty),
+    );
     let method_scheme = Scheme::poly(vec![a_var.clone()], method_ty);
 
     let eq_class = ClassDef {
@@ -958,7 +991,11 @@ fn test_class_declaration() {
     let module = module_with_items(vec![Item::Class(eq_class)]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Class declaration should type check: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Class declaration should type check: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -1011,7 +1048,11 @@ fn test_class_with_multiple_methods() {
     let module = module_with_items(vec![Item::Class(ord_class)]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Class with multiple methods should type check: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Class with multiple methods should type check: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -1024,7 +1065,10 @@ fn test_instance_declaration() {
     let int_ty = Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star));
 
     // myEq :: a -> a -> Bool
-    let myeq_ty = Ty::fun(Ty::Var(a_var.clone()), Ty::fun(Ty::Var(a_var.clone()), bool_ty.clone()));
+    let myeq_ty = Ty::fun(
+        Ty::Var(a_var.clone()),
+        Ty::fun(Ty::Var(a_var.clone()), bool_ty.clone()),
+    );
     let myeq_scheme = Scheme::poly(vec![a_var.clone()], myeq_ty);
 
     let myeq_class = ClassDef {
@@ -1048,7 +1092,10 @@ fn test_instance_declaration() {
     let myeq_impl = ValueDef {
         id: def_id(201),
         name: Symbol::intern("myEq"),
-        sig: Some(Scheme::mono(Ty::fun(int_ty.clone(), Ty::fun(int_ty.clone(), bool_ty.clone())))),
+        sig: Some(Scheme::mono(Ty::fun(
+            int_ty.clone(),
+            Ty::fun(int_ty.clone(), bool_ty.clone()),
+        ))),
         equations: vec![Equation {
             pats: vec![
                 Pat::Var(Symbol::intern("x"), def_id(202), Span::DUMMY),
@@ -1073,13 +1120,14 @@ fn test_instance_declaration() {
         span: Span::DUMMY,
     };
 
-    let module = module_with_items(vec![
-        Item::Class(myeq_class),
-        Item::Instance(myeq_instance),
-    ]);
+    let module = module_with_items(vec![Item::Class(myeq_class), Item::Instance(myeq_instance)]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Instance declaration should type check: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Instance declaration should type check: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -1170,9 +1218,12 @@ fn test_instance_with_multiple_methods() {
     ]);
 
     let result = type_check_module(&module, FileId::new(0));
-    assert!(result.is_ok(), "Instance with multiple methods should type check: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Instance with multiple methods should type check: {:?}",
+        result.err()
+    );
 }
-
 
 #[test]
 fn test_functional_dependency_type_inference() {
@@ -1192,8 +1243,8 @@ fn test_functional_dependency_type_inference() {
         name: Symbol::intern("Convert"),
         params: vec![a_var.clone(), b_var.clone()],
         fundeps: vec![FunDep {
-            from: vec![0],  // 'a' (first param)
-            to: vec![1],    // determines 'b' (second param)
+            from: vec![0], // 'a' (first param)
+            to: vec![1],   // determines 'b' (second param)
             span: Span::DUMMY,
         }],
         supers: vec![],
@@ -1269,12 +1320,12 @@ fn test_fundep_bidirectional() {
         params: vec![a_var.clone(), b_var.clone()],
         fundeps: vec![
             FunDep {
-                from: vec![0],  // a -> b
+                from: vec![0], // a -> b
                 to: vec![1],
                 span: Span::DUMMY,
             },
             FunDep {
-                from: vec![1],  // b -> a
+                from: vec![1], // b -> a
                 to: vec![0],
                 span: Span::DUMMY,
             },

@@ -200,7 +200,10 @@ impl Process {
 }
 
 fn exit_code_from_status(status: ExitStatus) -> ExitCode {
-    status.code().map(ExitCode::new).unwrap_or(ExitCode::FAILURE)
+    status
+        .code()
+        .map(ExitCode::new)
+        .unwrap_or(ExitCode::FAILURE)
 }
 
 /// Command builder for spawning processes
@@ -454,11 +457,7 @@ pub fn shell_status(command: &str) -> ProcessResult<ExitCode> {
 
 /// Spawn process (FFI)
 #[no_mangle]
-pub extern "C" fn bhc_spawn(
-    program: *const i8,
-    args: *const *const i8,
-    argc: i32,
-) -> *mut Process {
+pub extern "C" fn bhc_spawn(program: *const i8, args: *const *const i8, argc: i32) -> *mut Process {
     use std::ffi::CStr;
 
     if program.is_null() {

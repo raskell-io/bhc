@@ -3,11 +3,11 @@
 //! This module provides a local development server for previewing
 //! documentation with automatic rebuild and browser refresh.
 
-use std::path::PathBuf;
 use anyhow::Result;
-use axum::{Router, routing::get_service};
-use tower_http::services::ServeDir;
+use axum::{routing::get_service, Router};
+use std::path::PathBuf;
 use tower_http::compression::CompressionLayer;
+use tower_http::services::ServeDir;
 
 /// Server configuration.
 pub struct ServeConfig {
@@ -26,9 +26,7 @@ pub fn run(config: ServeConfig) -> Result<()> {
     // Build the runtime
     let rt = tokio::runtime::Runtime::new()?;
 
-    rt.block_on(async {
-        run_async(config).await
-    })
+    rt.block_on(async { run_async(config).await })
 }
 
 async fn run_async(config: ServeConfig) -> Result<()> {
@@ -66,7 +64,7 @@ async fn run_async(config: ServeConfig) -> Result<()> {
 }
 
 async fn watch_and_rebuild(source: Option<PathBuf>, output: PathBuf) -> Result<()> {
-    use notify::{Watcher, RecursiveMode, recommended_watcher};
+    use notify::{recommended_watcher, RecursiveMode, Watcher};
     use std::sync::mpsc::channel;
     use std::time::Duration;
 

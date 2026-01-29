@@ -245,19 +245,19 @@ impl LowerContext {
         // Order MUST match bhc-typeck/src/builtins.rs BUILTIN_*_ID constants
         // Format: (name, type, arity)
         let builtin_cons: &[(&str, &str, usize)] = &[
-            ("True", "Bool", 0),   // DefId 9
-            ("False", "Bool", 0),  // DefId 10
-            ("Nothing", "Maybe", 0),  // DefId 11
-            ("Just", "Maybe", 1),     // DefId 12
-            ("Left", "Either", 1),    // DefId 13
-            ("Right", "Either", 1),   // DefId 14
-            ("[]", "List", 0),        // DefId 15 - list nil
-            (":", "List", 2),         // DefId 16 - list cons
-            ("()", "Unit", 0),        // DefId 17 - unit
-            ("(,)", "Tuple2", 2),     // DefId 18 - pair constructor
-            ("(,,)", "Tuple3", 3),    // DefId 19 - triple constructor
+            ("True", "Bool", 0),     // DefId 9
+            ("False", "Bool", 0),    // DefId 10
+            ("Nothing", "Maybe", 0), // DefId 11
+            ("Just", "Maybe", 1),    // DefId 12
+            ("Left", "Either", 1),   // DefId 13
+            ("Right", "Either", 1),  // DefId 14
+            ("[]", "List", 0),       // DefId 15 - list nil
+            (":", "List", 2),        // DefId 16 - list cons
+            ("()", "Unit", 0),       // DefId 17 - unit
+            ("(,)", "Tuple2", 2),    // DefId 18 - pair constructor
+            ("(,,)", "Tuple3", 3),   // DefId 19 - triple constructor
             // NonEmpty constructor
-            (":|", "NonEmpty", 2),    // DefId 20 - NonEmpty cons (head :| tail)
+            (":|", "NonEmpty", 2), // DefId 20 - NonEmpty cons (head :| tail)
             // Control.Applicative.Backwards
             ("Backwards", "Backwards", 1),
             // Data.Monoid
@@ -274,7 +274,7 @@ impl LowerContext {
             ("ReadWriteMode", "IOMode", 0),
             ("NoBuffering", "BufferMode", 0),
             ("LineBuffering", "BufferMode", 0),
-            ("BlockBuffering", "BufferMode", 1),  // BlockBuffering (Maybe Int)
+            ("BlockBuffering", "BufferMode", 1), // BlockBuffering (Maybe Int)
             // System.Directory
             ("XdgData", "XdgDirectory", 0),
             ("XdgConfig", "XdgDirectory", 0),
@@ -818,7 +818,7 @@ impl LowerContext {
         // Format: (name, type, arity)
         let stub_cons: &[(&str, &str, usize)] = &[
             // Graphics.X11 - Event types (records with many fields, but pattern matched with {})
-            ("KeyEvent", "Event", 0),       // Actually has fields, but we use 0 for record-style
+            ("KeyEvent", "Event", 0), // Actually has fields, but we use 0 for record-style
             ("ButtonEvent", "Event", 0),
             ("MotionEvent", "Event", 0),
             ("CrossingEvent", "Event", 0),
@@ -831,7 +831,7 @@ impl LowerContext {
             ("ClientMessageEvent", "Event", 0),
             ("MappingNotifyEvent", "Event", 0),
             // Graphics.X11 - Types
-            ("Rectangle", "Rectangle", 4),      // Rectangle x y width height
+            ("Rectangle", "Rectangle", 4), // Rectangle x y width height
             ("WindowChanges", "WindowChanges", 0), // Record type
             // System.Posix
             ("ReadOnly", "OpenMode", 0),
@@ -839,7 +839,7 @@ impl LowerContext {
             ("ReadWrite", "OpenMode", 0),
             ("Default", "Handler", 0),
             ("Ignore", "Handler", 0),
-            ("Catch", "Handler", 1),            // Catch (Signal -> IO ())
+            ("Catch", "Handler", 1), // Catch (Signal -> IO ())
             // X11.Xlib.Extras (LayoutClass)
             ("Full", "Full", 0),
             // System.Locale
@@ -999,12 +999,42 @@ impl LowerContext {
             "xK_Up",
             "xK_Down",
             "xK_Num_Lock",
-            "xK_0", "xK_1", "xK_2", "xK_3", "xK_4",
-            "xK_5", "xK_6", "xK_7", "xK_8", "xK_9",
-            "xK_a", "xK_b", "xK_c", "xK_d", "xK_e", "xK_f", "xK_g",
-            "xK_h", "xK_i", "xK_j", "xK_k", "xK_l", "xK_m", "xK_n",
-            "xK_o", "xK_p", "xK_q", "xK_r", "xK_s", "xK_t", "xK_u",
-            "xK_v", "xK_w", "xK_x", "xK_y", "xK_z",
+            "xK_0",
+            "xK_1",
+            "xK_2",
+            "xK_3",
+            "xK_4",
+            "xK_5",
+            "xK_6",
+            "xK_7",
+            "xK_8",
+            "xK_9",
+            "xK_a",
+            "xK_b",
+            "xK_c",
+            "xK_d",
+            "xK_e",
+            "xK_f",
+            "xK_g",
+            "xK_h",
+            "xK_i",
+            "xK_j",
+            "xK_k",
+            "xK_l",
+            "xK_m",
+            "xK_n",
+            "xK_o",
+            "xK_p",
+            "xK_q",
+            "xK_r",
+            "xK_s",
+            "xK_t",
+            "xK_u",
+            "xK_v",
+            "xK_w",
+            "xK_x",
+            "xK_y",
+            "xK_z",
             "xK_comma",
             "xK_period",
             "xK_slash",
@@ -1106,8 +1136,8 @@ impl LowerContext {
             "compiledWithXinerama",
             "launch'",
             "Default.def",
-            "def",  // Data.Default
-            "f",    // generic variable
+            "def", // Data.Default
+            "f",   // generic variable
             "width",
             "height",
             "least",
@@ -1364,7 +1394,11 @@ impl LowerContext {
     /// Returns the DefId if found, or None if not resolvable.
     pub fn resolve_qualified_var(&self, qualifier: Symbol, name: Symbol) -> Option<DefId> {
         // First, check if the qualifier is an alias
-        let module = self.import_aliases.get(&qualifier).copied().unwrap_or(qualifier);
+        let module = self
+            .import_aliases
+            .get(&qualifier)
+            .copied()
+            .unwrap_or(qualifier);
 
         // Try to look up as "Module.name"
         let qualified_name = Symbol::intern(&format!("{}.{}", module.as_str(), name.as_str()));
@@ -1390,7 +1424,11 @@ impl LowerContext {
     /// Returns the DefId if found, or None if not resolvable.
     pub fn resolve_qualified_constructor(&self, qualifier: Symbol, name: Symbol) -> Option<DefId> {
         // First, check if the qualifier is an alias
-        let module = self.import_aliases.get(&qualifier).copied().unwrap_or(qualifier);
+        let module = self
+            .import_aliases
+            .get(&qualifier)
+            .copied()
+            .unwrap_or(qualifier);
 
         // Try to look up as "Module.Name"
         let qualified_name = Symbol::intern(&format!("{}.{}", module.as_str(), name.as_str()));

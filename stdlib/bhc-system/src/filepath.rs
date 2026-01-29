@@ -431,7 +431,10 @@ mod tests {
 
     #[test]
     fn test_parent() {
-        assert_eq!(parent("/home/user/file.txt"), Some("/home/user".to_string()));
+        assert_eq!(
+            parent("/home/user/file.txt"),
+            Some("/home/user".to_string())
+        );
         assert_eq!(parent("file.txt"), None);
     }
 

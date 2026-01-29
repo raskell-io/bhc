@@ -5,7 +5,7 @@ use bhc_intern::{Ident, Symbol};
 use bhc_lexer::TokenKind;
 use bhc_span::Span;
 
-use crate::{ParseResult, Parser, ParseError};
+use crate::{ParseError, ParseResult, Parser};
 
 impl<'src> Parser<'src> {
     /// Parse a complete module.
@@ -188,9 +188,7 @@ impl<'src> Parser<'src> {
                     .collect();
                 PragmaKind::Language(extensions)
             }
-            "OPTIONS_GHC" | "OPTIONS" => {
-                PragmaKind::OptionsGhc(args.to_string())
-            }
+            "OPTIONS_GHC" | "OPTIONS" => PragmaKind::OptionsGhc(args.to_string()),
             "INLINE" => {
                 if let Some(name) = args.split_whitespace().next() {
                     PragmaKind::Inline(Ident::new(Symbol::intern(name)))
@@ -230,9 +228,7 @@ impl<'src> Parser<'src> {
                 // More sophisticated parsing would extract specific names
                 PragmaKind::Deprecated(None, args.to_string())
             }
-            "WARNING" => {
-                PragmaKind::Warning(None, args.to_string())
-            }
+            "WARNING" => PragmaKind::Warning(None, args.to_string()),
             "SPECIALIZE" | "SPECIALISE" => {
                 // For now, store as Other since we'd need to parse the type signature
                 PragmaKind::Other(content.to_string())
@@ -669,7 +665,9 @@ impl<'src> Parser<'src> {
             if !self.eat(&TokenKind::VirtualRBrace) && !self.check(&TokenKind::In) {
                 // If neither, report error expecting VirtualRBrace
                 return Err(ParseError::Unexpected {
-                    found: self.current().map(|t| t.node.kind.description().to_string())
+                    found: self
+                        .current()
+                        .map(|t| t.node.kind.description().to_string())
                         .unwrap_or("end of file".to_string()),
                     expected: "layout `}`".to_string(),
                     span: self.current_span(),
@@ -760,7 +758,12 @@ impl<'src> Parser<'src> {
                 // Type signature
                 let ty = self.parse_type()?;
                 let span = start.to(ty.span());
-                return Ok(Decl::TypeSig(TypeSig { doc, names, ty, span }));
+                return Ok(Decl::TypeSig(TypeSig {
+                    doc,
+                    names,
+                    ty,
+                    span,
+                }));
             } else if names.len() > 1 {
                 // We parsed multiple names but no ::, this is an error
                 let tok = self.current().unwrap();
@@ -1249,7 +1252,8 @@ impl<'src> Parser<'src> {
                     self.advance();
                 }
                 self.expect(&TokenKind::FatArrow)?;
-            } else if self.check_ident() || matches!(self.current_kind(), Some(TokenKind::ConId(_))) {
+            } else if self.check_ident() || matches!(self.current_kind(), Some(TokenKind::ConId(_)))
+            {
                 // Single constraint without parens: C a =>
                 while !self.check(&TokenKind::FatArrow) && !self.at_eof() {
                     self.advance();
@@ -1270,7 +1274,12 @@ impl<'src> Parser<'src> {
         };
 
         let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
-        Ok(ConDecl { doc: None, name, fields, span })
+        Ok(ConDecl {
+            doc: None,
+            name,
+            fields,
+            span,
+        })
     }
 
     /// Parse constructor argument types.
@@ -1317,7 +1326,12 @@ impl<'src> Parser<'src> {
         self.expect(&TokenKind::DoubleColon)?;
         let ty = self.parse_type()?;
         let span = start.to(ty.span());
-        Ok(FieldDecl { doc: None, name, ty, span })
+        Ok(FieldDecl {
+            doc: None,
+            name,
+            ty,
+            span,
+        })
     }
 
     /// Parse all deriving clauses (there may be multiple in a row).
@@ -1487,7 +1501,10 @@ impl<'src> Parser<'src> {
                 let param_name = Ident::new(*sym);
                 let span = tok.span;
                 self.advance();
-                params.push(TyVar { name: param_name, span });
+                params.push(TyVar {
+                    name: param_name,
+                    span,
+                });
             }
         }
 
@@ -1764,7 +1781,10 @@ impl<'src> Parser<'src> {
                 let param_name = Ident::new(*sym);
                 let span = tok.span;
                 self.advance();
-                params.push(TyVar { name: param_name, span });
+                params.push(TyVar {
+                    name: param_name,
+                    span,
+                });
             }
         }
 
@@ -1834,7 +1854,9 @@ impl<'src> Parser<'src> {
         }
 
         Err(ParseError::Unexpected {
-            found: self.current().map(|t| t.node.kind.description().to_string())
+            found: self
+                .current()
+                .map(|t| t.node.kind.description().to_string())
                 .unwrap_or("end of file".to_string()),
             expected: "kind (*, Type, or kind variable)".to_string(),
             span: self.current_span(),
@@ -1954,7 +1976,13 @@ impl<'src> Parser<'src> {
         let mut args = Vec::new();
         while !self.check(&TokenKind::Eq) && !self.at_eof() {
             // Stop if we see operators or other delimiters
-            if let Some(TokenKind::Semi | TokenKind::VirtualSemi | TokenKind::RBrace | TokenKind::VirtualRBrace) = self.current_kind() {
+            if let Some(
+                TokenKind::Semi
+                | TokenKind::VirtualSemi
+                | TokenKind::RBrace
+                | TokenKind::VirtualRBrace,
+            ) = self.current_kind()
+            {
                 break;
             }
             let arg = self.parse_atype()?;

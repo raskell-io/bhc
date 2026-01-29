@@ -36,7 +36,10 @@ pub extern "C" fn bhc_memchr(ptr: *const u8, len: usize, byte: u8) -> i64 {
     }
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     // TODO: Use actual SIMD (memchr crate) for large inputs
-    bytes.iter().position(|&b| b == byte).map_or(-1, |i| i as i64)
+    bytes
+        .iter()
+        .position(|&b| b == byte)
+        .map_or(-1, |i| i as i64)
 }
 
 /// Find last occurrence of a byte.
@@ -48,7 +51,10 @@ pub extern "C" fn bhc_memrchr(ptr: *const u8, len: usize, byte: u8) -> i64 {
         return -1;
     }
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-    bytes.iter().rposition(|&b| b == byte).map_or(-1, |i| i as i64)
+    bytes
+        .iter()
+        .rposition(|&b| b == byte)
+        .map_or(-1, |i| i as i64)
 }
 
 /// Count occurrences of a byte.
@@ -150,12 +156,7 @@ pub extern "C" fn bhc_ascii_to_lower(ptr: *mut u8, len: usize) {
 ///
 /// Returns -1 (less), 0 (equal), or 1 (greater).
 #[no_mangle]
-pub extern "C" fn bhc_memcmp(
-    a: *const u8,
-    a_len: usize,
-    b: *const u8,
-    b_len: usize,
-) -> i32 {
+pub extern "C" fn bhc_memcmp(a: *const u8, a_len: usize, b: *const u8, b_len: usize) -> i32 {
     use std::cmp::Ordering;
     let a_slice = if a.is_null() || a_len == 0 {
         &[]

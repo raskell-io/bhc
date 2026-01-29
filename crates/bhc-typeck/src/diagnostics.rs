@@ -38,13 +38,12 @@ pub fn emit_type_mismatch(ctx: &mut TyCtxt, expected: &Ty, found: &Ty, span: Spa
     let expected_str = pretty_ty(expected);
     let found_str = pretty_ty(found);
 
-    let diag = Diagnostic::error(format!("type mismatch: expected `{expected_str}`, found `{found_str}`"))
-        .with_code("E0001")
-        .with_label(
-            ctx.full_span(span),
-            format!("expected `{expected_str}`"),
-        )
-        .with_note(format_type_comparison(expected, found));
+    let diag = Diagnostic::error(format!(
+        "type mismatch: expected `{expected_str}`, found `{found_str}`"
+    ))
+    .with_code("E0001")
+    .with_label(ctx.full_span(span), format!("expected `{expected_str}`"))
+    .with_note(format_type_comparison(expected, found));
 
     ctx.emit_error(diag);
 }
@@ -60,13 +59,15 @@ pub fn emit_type_mismatch_with_context(
     let expected_str = pretty_ty(expected);
     let found_str = pretty_ty(found);
 
-    let diag = Diagnostic::error(format!("type mismatch: expected `{expected_str}`, found `{found_str}`"))
-        .with_code("E0001")
-        .with_label(
-            ctx.full_span(span),
-            format!("expected `{expected_str}` because {context}"),
-        )
-        .with_note(format_type_comparison(expected, found));
+    let diag = Diagnostic::error(format!(
+        "type mismatch: expected `{expected_str}`, found `{found_str}`"
+    ))
+    .with_code("E0001")
+    .with_label(
+        ctx.full_span(span),
+        format!("expected `{expected_str}` because {context}"),
+    )
+    .with_note(format_type_comparison(expected, found));
 
     ctx.emit_error(diag);
 }
@@ -81,9 +82,7 @@ fn format_type_comparison(expected: &Ty, found: &Ty) -> String {
     let expected_padded = format!("{expected_str:>width$}", width = max_len);
     let found_padded = format!("{found_str:>width$}", width = max_len);
 
-    format!(
-        "expected: {expected_padded}\n   found: {found_padded}"
-    )
+    format!("expected: {expected_padded}\n   found: {found_padded}")
 }
 
 /// Emit an occurs check error (infinite type).
@@ -148,10 +147,12 @@ pub fn emit_unbound_var_named(
 
 /// Emit an unbound constructor error.
 pub fn emit_unbound_constructor(ctx: &mut TyCtxt, def_id: DefId, span: Span) {
-    let diag = Diagnostic::error(format!("cannot find data constructor `{def_id:?}` in this scope"))
-        .with_code("E0004")
-        .with_label(ctx.full_span(span), "constructor not found")
-        .with_note("data constructors must be imported or defined before use");
+    let diag = Diagnostic::error(format!(
+        "cannot find data constructor `{def_id:?}` in this scope"
+    ))
+    .with_code("E0004")
+    .with_label(ctx.full_span(span), "constructor not found")
+    .with_note("data constructors must be imported or defined before use");
 
     ctx.emit_error(diag);
 }
@@ -165,9 +166,11 @@ pub fn emit_unbound_constructor_named(
 ) {
     let name_str = name.as_str();
 
-    let mut diag = Diagnostic::error(format!("cannot find data constructor `{name_str}` in this scope"))
-        .with_code("E0004")
-        .with_label(ctx.full_span(span), "constructor not found");
+    let mut diag = Diagnostic::error(format!(
+        "cannot find data constructor `{name_str}` in this scope"
+    ))
+    .with_code("E0004")
+    .with_label(ctx.full_span(span), "constructor not found");
 
     // Find similar constructor names
     let suggestions = find_similar_names(name_str, constructors_in_scope);
@@ -244,12 +247,7 @@ pub fn emit_ambiguous_type(ctx: &mut TyCtxt, var: &TyVar, span: Span) {
 
 /// Emit a kind mismatch error.
 #[allow(dead_code)]
-pub fn emit_kind_mismatch(
-    ctx: &mut TyCtxt,
-    expected: &str,
-    found: &str,
-    span: Span,
-) {
+pub fn emit_kind_mismatch(ctx: &mut TyCtxt, expected: &str, found: &str, span: Span) {
     let diag = Diagnostic::error(format!(
         "kind mismatch: expected kind `{expected}`, found kind `{found}`"
     ))
@@ -265,15 +263,16 @@ pub fn emit_no_instance(ctx: &mut TyCtxt, class: Symbol, ty: &Ty, span: Span) {
     let class_name = class.as_str();
     let ty_str = pretty_ty(ty);
 
-    let diag = Diagnostic::error(format!(
-        "no instance for `{class_name} {ty_str}`"
-    ))
-    .with_code("E0040")
-    .with_label(ctx.full_span(span), format!("no `{class_name}` instance for `{ty_str}`"))
-    .with_note(format!(
-        "To use this operation, `{ty_str}` must be an instance of `{class_name}`.\n\
+    let diag = Diagnostic::error(format!("no instance for `{class_name} {ty_str}`"))
+        .with_code("E0040")
+        .with_label(
+            ctx.full_span(span),
+            format!("no `{class_name}` instance for `{ty_str}`"),
+        )
+        .with_note(format!(
+            "To use this operation, `{ty_str}` must be an instance of `{class_name}`.\n\
          Consider adding a type annotation or instance declaration."
-    ));
+        ));
 
     ctx.emit_error(diag);
 }
@@ -301,11 +300,9 @@ pub fn emit_type_family_reduction_failed(
         format!("{} {}", family_str, args_str.join(" "))
     };
 
-    let mut diag = Diagnostic::error(format!(
-        "cannot reduce type family `{applied_str}`"
-    ))
-    .with_code("E0041")
-    .with_label(ctx.full_span(span), "type family cannot be reduced");
+    let mut diag = Diagnostic::error(format!("cannot reduce type family `{applied_str}`"))
+        .with_code("E0041")
+        .with_label(ctx.full_span(span), "type family cannot be reduced");
 
     if let Some(class) = class_name {
         let class_str = class.as_str();
@@ -360,7 +357,10 @@ pub fn emit_missing_assoc_type_impl(
         "missing associated type `{assoc_str}` in instance `{instance_str}`"
     ))
     .with_code("E0043")
-    .with_label(ctx.full_span(span), format!("missing `type {assoc_str} = ...`"))
+    .with_label(
+        ctx.full_span(span),
+        format!("missing `type {assoc_str} = ...`"),
+    )
     .with_note(format!(
         "The class `{class_str}` requires an implementation for associated type `{assoc_str}`,\n\
          but this instance doesn't provide one and the class has no default.\n\n\
@@ -372,12 +372,7 @@ pub fn emit_missing_assoc_type_impl(
 
 /// Emit an error when a type family instance overlaps with another.
 #[allow(dead_code)]
-pub fn emit_type_family_overlap(
-    ctx: &mut TyCtxt,
-    family_name: Symbol,
-    args: &[Ty],
-    span: Span,
-) {
+pub fn emit_type_family_overlap(ctx: &mut TyCtxt, family_name: Symbol, args: &[Ty], span: Span) {
     let family_str = family_name.as_str();
     let args_str: Vec<_> = args.iter().map(pretty_ty).collect();
     let applied_str = if args_str.is_empty() {
@@ -393,7 +388,7 @@ pub fn emit_type_family_overlap(
     .with_label(ctx.full_span(span), "overlapping instance")
     .with_note(
         "Multiple type family instances match these arguments.\n\
-         Type family instances must not overlap."
+         Type family instances must not overlap.",
     );
 
     ctx.emit_error(diag);
@@ -420,9 +415,10 @@ pub fn emit_function_arity_mismatch(
         if found == 1 { "was" } else { "were" }
     ))
     .with_code("E0008")
-    .with_label(ctx.full_span(span), format!(
-        "expected {expected} {}", plural(expected)
-    ));
+    .with_label(
+        ctx.full_span(span),
+        format!("expected {expected} {}", plural(expected)),
+    );
 
     // Highlight extra arguments
     if found > expected {
@@ -440,25 +436,23 @@ pub fn emit_function_arity_mismatch(
 }
 
 /// Emit an error when a non-function is applied to arguments.
-pub fn emit_not_a_function(
-    ctx: &mut TyCtxt,
-    actual_type: &Ty,
-    num_args: usize,
-    span: Span,
-) {
+pub fn emit_not_a_function(ctx: &mut TyCtxt, actual_type: &Ty, num_args: usize, span: Span) {
     let ty_str = pretty_ty(actual_type);
-    let plural = if num_args == 1 { "argument" } else { "arguments" };
+    let plural = if num_args == 1 {
+        "argument"
+    } else {
+        "arguments"
+    };
 
-    let diag = Diagnostic::error(format!(
-        "expected function, found `{ty_str}`"
-    ))
-    .with_code("E0009")
-    .with_label(ctx.full_span(span), format!(
-        "cannot apply {num_args} {plural} to non-function"
-    ))
-    .with_note(format!(
-        "the expression has type `{ty_str}`, which is not a function type"
-    ));
+    let diag = Diagnostic::error(format!("expected function, found `{ty_str}`"))
+        .with_code("E0009")
+        .with_label(
+            ctx.full_span(span),
+            format!("cannot apply {num_args} {plural} to non-function"),
+        )
+        .with_note(format!(
+            "the expression has type `{ty_str}`, which is not a function type"
+        ));
 
     ctx.emit_error(diag);
 }
@@ -480,10 +474,13 @@ pub fn emit_partial_application_hint(
         "partial application: `{function_name}` expects {remaining} more {}",
         plural(remaining)
     ))
-    .with_label(ctx.full_span(span), format!(
-        "this returns `{}`, not a fully applied result",
-        pretty_ty(result_type)
-    ))
+    .with_label(
+        ctx.full_span(span),
+        format!(
+            "this returns `{}`, not a fully applied result",
+            pretty_ty(result_type)
+        ),
+    )
     .with_note("partial application is valid, but this may not be what you intended");
 
     ctx.emit_error(diag);
@@ -614,11 +611,7 @@ pub fn emit_ty_list_occurs_check_error(ctx: &mut TyCtxt, var: &TyVar, l: &TyList
 }
 
 /// Emit an error from the nat constraint solver.
-pub fn emit_nat_solver_error(
-    ctx: &mut TyCtxt,
-    err: &crate::nat_solver::SolverError,
-    span: Span,
-) {
+pub fn emit_nat_solver_error(ctx: &mut TyCtxt, err: &crate::nat_solver::SolverError, span: Span) {
     use crate::nat_solver::SolverError;
 
     let (message, note) = match err {
@@ -682,12 +675,8 @@ pub fn emit_matmul_dimension_mismatch(
     span: Span,
 ) {
     // Generate visual diagram
-    let diagram = shape_diagrams::format_matmul_diagram(
-        left_shape,
-        right_shape,
-        inner_left,
-        inner_right,
-    );
+    let diagram =
+        shape_diagrams::format_matmul_diagram(left_shape, right_shape, inner_left, inner_right);
 
     let diag = Diagnostic::error(format!(
         "matrix multiplication dimension mismatch: inner dimensions {} and {} are not equal",
@@ -698,7 +687,7 @@ pub fn emit_matmul_dimension_mismatch(
     .with_label(ctx.full_span(span), "matmul dimension error")
     .with_note(diagram)
     .with_note(
-        "Matrix multiplication requires: Tensor '[m, k] a -> Tensor '[k, n] a -> Tensor '[m, n] a"
+        "Matrix multiplication requires: Tensor '[m, k] a -> Tensor '[k, n] a -> Tensor '[m, n] a",
     );
 
     ctx.emit_error(diag);
@@ -720,13 +709,7 @@ pub fn emit_broadcast_incompatible(
     span: Span,
 ) {
     // Generate visual diagram with axis-by-axis breakdown
-    let diagram = shape_diagrams::format_broadcast_diagram(
-        shape1,
-        shape2,
-        axis,
-        dim1,
-        dim2,
-    );
+    let diagram = shape_diagrams::format_broadcast_diagram(shape1, shape2, axis, dim1, dim2);
 
     let diag = Diagnostic::error(format!(
         "shapes cannot be broadcast together: {} and {}",
@@ -734,19 +717,17 @@ pub fn emit_broadcast_incompatible(
         pretty_ty_list(shape2)
     ))
     .with_code("E0031")
-    .with_label(ctx.full_span(span), format!("broadcast error at axis {axis}"))
+    .with_label(
+        ctx.full_span(span),
+        format!("broadcast error at axis {axis}"),
+    )
     .with_note(diagram);
 
     ctx.emit_error(diag);
 }
 
 /// Emit a transpose axis out of bounds error.
-pub fn emit_transpose_axis_error(
-    ctx: &mut TyCtxt,
-    rank: usize,
-    invalid_axis: usize,
-    span: Span,
-) {
+pub fn emit_transpose_axis_error(ctx: &mut TyCtxt, rank: usize, invalid_axis: usize, span: Span) {
     let diag = Diagnostic::error(format!(
         "transpose axis {invalid_axis} is out of bounds for tensor of rank {rank}"
     ))
@@ -799,7 +780,10 @@ pub fn emit_dimension_must_be(
         pretty_nat(found)
     ))
     .with_code("E0034")
-    .with_label(ctx.full_span(span), format!("expected dimension {expected}"));
+    .with_label(
+        ctx.full_span(span),
+        format!("expected dimension {expected}"),
+    );
 
     ctx.emit_error(diag);
 }
@@ -840,12 +824,7 @@ pub fn emit_wrong_tensor_rank(
 
     // Add visual diagram if shapes are available
     if let (Some(exp), Some(fnd)) = (expected_shape, found_shape) {
-        let diagram = shape_diagrams::format_rank_mismatch(
-            expected_rank,
-            found_rank,
-            exp,
-            fnd,
-        );
+        let diagram = shape_diagrams::format_rank_mismatch(expected_rank, found_rank, exp, fnd);
         diag = diag.with_note(diagram);
     }
 
@@ -868,7 +847,10 @@ pub fn emit_shape_axis_mismatch(
         pretty_nat(dim2)
     ))
     .with_code("E0036")
-    .with_label(ctx.full_span(span), format!("dimension mismatch at axis {axis}"))
+    .with_label(
+        ctx.full_span(span),
+        format!("dimension mismatch at axis {axis}"),
+    )
     .with_note(format!(
         "Full shapes:\n\
          • Expected: {}\n\
@@ -887,7 +869,14 @@ pub fn emit_dyn_tensor_conversion_failed(
     actual_dims: &[u64],
     span: Span,
 ) {
-    let actual_str = format!("[{}]", actual_dims.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", "));
+    let actual_str = format!(
+        "[{}]",
+        actual_dims
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     let diag = Diagnostic::error(format!(
         "dynamic tensor shape {} does not match expected static shape {}",
@@ -896,10 +885,12 @@ pub fn emit_dyn_tensor_conversion_failed(
     ))
     .with_code("E0037")
     .with_label(ctx.full_span(span), "fromDynamic failed")
-    .with_note("Use pattern matching with `fromDynamic` to handle shape mismatches:\n\
+    .with_note(
+        "Use pattern matching with `fromDynamic` to handle shape mismatches:\n\
                 case fromDynamic witness dynTensor of\n\
                   Just tensor -> ...\n\
-                  Nothing -> handle mismatch");
+                  Nothing -> handle mismatch",
+    );
 
     ctx.emit_error(diag);
 }
@@ -992,7 +983,8 @@ pub fn emit_matmul_swap_suggestion(
                      • Try: matmul {} (transpose {}) -- inner dimensions would match",
                     pretty_ty_list(left_shape),
                     pretty_ty_list(right_shape),
-                    l[1], r[0],
+                    l[1],
+                    r[0],
                     pretty_ty_list(left_shape),
                     pretty_ty_list(right_shape)
                 ));
@@ -1151,20 +1143,14 @@ mod tests {
     fn test_pretty_ty_list_polymorphic() {
         let m = TyVar::new(0, Kind::Nat);
         let n = TyVar::new(1, Kind::Nat);
-        let shape = TyList::from_vec(vec![
-            Ty::Nat(TyNat::Var(m)),
-            Ty::Nat(TyNat::Var(n)),
-        ]);
+        let shape = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m)), Ty::Nat(TyNat::Var(n))]);
         assert_eq!(pretty_ty_list(&shape), "'[a, b]");
     }
 
     #[test]
     fn test_pretty_ty_list_mixed() {
         let m = TyVar::new(0, Kind::Nat);
-        let shape = TyList::from_vec(vec![
-            Ty::Nat(TyNat::Var(m)),
-            Ty::Nat(TyNat::Lit(784)),
-        ]);
+        let shape = TyList::from_vec(vec![Ty::Nat(TyNat::Var(m)), Ty::Nat(TyNat::Lit(784))]);
         assert_eq!(pretty_ty_list(&shape), "'[a, 784]");
     }
 

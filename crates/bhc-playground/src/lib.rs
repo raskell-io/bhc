@@ -159,20 +159,32 @@ pub struct PlaygroundResult {
 impl From<PlaygroundError> for PlaygroundErrorInfo {
     fn from(err: PlaygroundError) -> Self {
         let (message, category, line, column) = match err {
-            PlaygroundError::ParseError { message, line, column } => {
-                (message, "parse".to_string(), line, column)
-            }
-            PlaygroundError::TypeError { message, line, column } => {
-                (message, "type".to_string(), line, column)
-            }
+            PlaygroundError::ParseError {
+                message,
+                line,
+                column,
+            } => (message, "parse".to_string(), line, column),
+            PlaygroundError::TypeError {
+                message,
+                line,
+                column,
+            } => (message, "type".to_string(), line, column),
             PlaygroundError::LowerError(msg) => (msg, "lower".to_string(), None, None),
             PlaygroundError::CoreLowerError(msg) => (msg, "core_lower".to_string(), None, None),
             PlaygroundError::RuntimeError(msg) => (msg, "runtime".to_string(), None, None),
-            PlaygroundError::NoMainFunction => {
-                ("main function not found".to_string(), "no_main".to_string(), None, None)
-            }
+            PlaygroundError::NoMainFunction => (
+                "main function not found".to_string(),
+                "no_main".to_string(),
+                None,
+                None,
+            ),
         };
-        Self { message, category, line, column }
+        Self {
+            message,
+            category,
+            line,
+            column,
+        }
     }
 }
 
@@ -280,7 +292,11 @@ impl Interpreter {
                     ("parse error".to_string(), None, None)
                 };
 
-                Err(PlaygroundError::ParseError { message, line, column })
+                Err(PlaygroundError::ParseError {
+                    message,
+                    line,
+                    column,
+                })
             }
         }
     }
@@ -327,7 +343,11 @@ impl Interpreter {
                     ("type error".to_string(), None, None)
                 };
 
-                Err(PlaygroundError::TypeError { message, line, column })
+                Err(PlaygroundError::TypeError {
+                    message,
+                    line,
+                    column,
+                })
             }
         }
     }
@@ -386,7 +406,10 @@ impl Interpreter {
             .map_err(|e| PlaygroundError::RuntimeError(e.to_string()))?;
 
         // Check if it's a function
-        let is_function = matches!(forced, Value::Closure(_) | Value::PrimOp(_) | Value::PartialPrimOp(_, _));
+        let is_function = matches!(
+            forced,
+            Value::Closure(_) | Value::PrimOp(_) | Value::PartialPrimOp(_, _)
+        );
 
         Ok(PlaygroundOutput {
             display,
@@ -635,7 +658,11 @@ mod tests {
     fn test_foldr_with_inline_lambda() {
         // Test foldr with inline lambda: foldr (\x acc -> x + acc) 0 [1,2,3] = 6
         let result = compile_and_run(r"main = foldr (\x acc -> x + acc) 0 [1, 2, 3]");
-        assert!(result.is_ok(), "foldr with lambda should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "foldr with lambda should compile: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "6");
     }
 
@@ -643,7 +670,11 @@ mod tests {
     fn test_foldl_with_inline_lambda() {
         // Test foldl with inline lambda: foldl (\acc x -> acc + x) 0 [1,2,3] = 6
         let result = compile_and_run(r"main = foldl (\acc x -> acc + x) 0 [1, 2, 3]");
-        assert!(result.is_ok(), "foldl with lambda should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "foldl with lambda should compile: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "6");
     }
 
@@ -651,7 +682,11 @@ mod tests {
     fn test_foldr_with_operator_section() {
         // Test foldr with (+): foldr (+) 0 [1,2,3] = 6
         let result = compile_and_run("main = foldr (+) 0 [1, 2, 3]");
-        assert!(result.is_ok(), "foldr with (+) should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "foldr with (+) should compile: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "6");
     }
 
@@ -662,33 +697,53 @@ mod tests {
     #[test]
     fn test_print_int() {
         let result = compile_and_run("main = print 42");
-        assert!(result.is_ok(), "print Int should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "print Int should compile: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_print_list() {
         let result = compile_and_run("main = print [1, 2, 3]");
-        assert!(result.is_ok(), "print [Int] should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "print [Int] should compile: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_print_polymorphic_expression() {
         // Test printing the result of a polymorphic function
         let result = compile_and_run("main = print (length [1, 2, 3])");
-        assert!(result.is_ok(), "print (length ...) should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "print (length ...) should compile: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_print_sum() {
         let result = compile_and_run("main = print (sum [1, 2, 3])");
-        assert!(result.is_ok(), "print (sum ...) should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "print (sum ...) should compile: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn test_zipwith_with_lambda() {
         // zipWith with inline lambda for dot product (result: 1*4 + 2*5 + 3*6 = 32)
         let result = compile_and_run(r"main = sum (zipWith (\x y -> x * y) [1, 2, 3] [4, 5, 6])");
-        assert!(result.is_ok(), "zipWith with lambda should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "zipWith with lambda should compile: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "32");
     }
 
@@ -696,7 +751,11 @@ mod tests {
     fn test_zipwith_with_operator() {
         // zipWith with operator section (result: 1*4 + 2*5 + 3*6 = 32)
         let result = compile_and_run("main = sum (zipWith (*) [1, 2, 3] [4, 5, 6])");
-        assert!(result.is_ok(), "zipWith with (*) should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "zipWith with (*) should compile: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "32");
     }
 
@@ -722,7 +781,11 @@ mod tests {
     #[test]
     fn test_numeric_profile() {
         let result = compile_and_run_with_profile("main = 42", Profile::Numeric);
-        assert!(result.is_ok(), "Should compile with numeric: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should compile with numeric: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap().display, "42");
     }
 
@@ -756,56 +819,112 @@ mod tests {
     fn test_io_sequence_two_statements() {
         // Two IO actions chained with >>
         let result = compile_and_run("main = print 1 >> print 2");
-        assert!(result.is_ok(), "Two IO actions should type check: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Two IO actions should type check: {:?}",
+            result.err()
+        );
         // IO () returns "()" - the printed values go to stdout
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_three_statements() {
         // Three IO actions chained with >> (this was failing before with type error)
         let result = compile_and_run("main = print 1 >> print 2 >> print 3");
-        assert!(result.is_ok(), "Three IO actions should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "Three IO actions should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_four_statements() {
         // Four IO actions chained with >>
         let result = compile_and_run("main = print 1 >> print 2 >> print 3 >> print 4");
-        assert!(result.is_ok(), "Four IO actions should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "Four IO actions should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_five_statements() {
         // Five IO actions chained with >>
         let result = compile_and_run("main = print 1 >> print 2 >> print 3 >> print 4 >> print 5");
-        assert!(result.is_ok(), "Five IO actions should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "Five IO actions should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_with_putstrln() {
         // Mix of putStrLn calls chained
         let result = compile_and_run(r#"main = putStrLn "a" >> putStrLn "b" >> putStrLn "c""#);
-        assert!(result.is_ok(), "putStrLn chain should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "putStrLn chain should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_explicit_parens_right() {
         // Explicit right-associative parentheses
         let result = compile_and_run("main = print 1 >> (print 2 >> print 3)");
-        assert!(result.is_ok(), "Right-paren chain should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "Right-paren chain should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 
     #[test]
     fn test_io_sequence_explicit_parens_left() {
         // Explicit left-associative parentheses
         let result = compile_and_run("main = (print 1 >> print 2) >> print 3");
-        assert!(result.is_ok(), "Left-paren chain should type check: {:?}", result.err());
-        assert_eq!(result.unwrap().display, "()", "IO action should return unit");
+        assert!(
+            result.is_ok(),
+            "Left-paren chain should type check: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            result.unwrap().display,
+            "()",
+            "IO action should return unit"
+        );
     }
 }

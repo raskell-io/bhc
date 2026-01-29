@@ -60,7 +60,11 @@ pub struct JsonError {
 
 impl std::fmt::Display for JsonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "JSON error at position {}: {}", self.position, self.message)
+        write!(
+            f,
+            "JSON error at position {}: {}",
+            self.position, self.message
+        )
     }
 }
 
@@ -766,10 +770,7 @@ mod tests {
 
     #[test]
     fn test_parse_string() {
-        assert_eq!(
-            Json::parse(r#""hello""#).unwrap().as_str(),
-            Some("hello")
-        );
+        assert_eq!(Json::parse(r#""hello""#).unwrap().as_str(), Some("hello"));
         assert_eq!(
             Json::parse(r#""hello\nworld""#).unwrap().as_str(),
             Some("hello\nworld")

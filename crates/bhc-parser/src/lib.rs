@@ -11,8 +11,8 @@ use bhc_lexer::{Lexer, Token, TokenKind};
 use bhc_span::{FileId, Span, Spanned};
 use thiserror::Error;
 
-mod expr;
 mod decl;
+mod expr;
 mod pattern;
 mod types;
 
@@ -118,15 +118,12 @@ impl<'src> Parser<'src> {
 
     /// Get the current span.
     fn current_span(&self) -> Span {
-        self.current()
-            .map(|t| t.span)
-            .unwrap_or(Span::DUMMY)
+        self.current().map(|t| t.span).unwrap_or(Span::DUMMY)
     }
 
     /// Check if we're at the end of input.
     fn at_eof(&self) -> bool {
-        self.pos >= self.tokens.len()
-            || self.current_kind() == Some(&TokenKind::Eof)
+        self.pos >= self.tokens.len() || self.current_kind() == Some(&TokenKind::Eof)
     }
 
     /// Advance to the next token.
@@ -225,9 +222,23 @@ impl<'src> Parser<'src> {
                     // Check if it's a trailing comment (starts with ^)
                     let trimmed = text.trim_start();
                     let (actual_text, doc_kind) = if trimmed.starts_with('^') {
-                        (trimmed.strip_prefix('^').unwrap_or(trimmed).trim().to_string(), bhc_ast::DocKind::Trailing)
+                        (
+                            trimmed
+                                .strip_prefix('^')
+                                .unwrap_or(trimmed)
+                                .trim()
+                                .to_string(),
+                            bhc_ast::DocKind::Trailing,
+                        )
                     } else if trimmed.starts_with('|') {
-                        (trimmed.strip_prefix('|').unwrap_or(trimmed).trim().to_string(), bhc_ast::DocKind::Preceding)
+                        (
+                            trimmed
+                                .strip_prefix('|')
+                                .unwrap_or(trimmed)
+                                .trim()
+                                .to_string(),
+                            bhc_ast::DocKind::Preceding,
+                        )
                     } else {
                         (trimmed.to_string(), bhc_ast::DocKind::Preceding)
                     };
@@ -247,9 +258,23 @@ impl<'src> Parser<'src> {
                     // Check if it's a trailing comment (starts with ^)
                     let trimmed = text.trim();
                     let (actual_text, doc_kind) = if trimmed.starts_with('^') {
-                        (trimmed.strip_prefix('^').unwrap_or(trimmed).trim().to_string(), bhc_ast::DocKind::Trailing)
+                        (
+                            trimmed
+                                .strip_prefix('^')
+                                .unwrap_or(trimmed)
+                                .trim()
+                                .to_string(),
+                            bhc_ast::DocKind::Trailing,
+                        )
                     } else if trimmed.starts_with('|') {
-                        (trimmed.strip_prefix('|').unwrap_or(trimmed).trim().to_string(), bhc_ast::DocKind::Preceding)
+                        (
+                            trimmed
+                                .strip_prefix('|')
+                                .unwrap_or(trimmed)
+                                .trim()
+                                .to_string(),
+                            bhc_ast::DocKind::Preceding,
+                        )
                     } else {
                         (trimmed.to_string(), bhc_ast::DocKind::Preceding)
                     };
@@ -710,7 +735,9 @@ mod tests {
 
     #[test]
     fn test_multiple_pragmas() {
-        let module = parse_module_ok("{-# LANGUAGE GADTs #-}\n{-# LANGUAGE TypeFamilies, DataKinds #-}\nx = 1");
+        let module = parse_module_ok(
+            "{-# LANGUAGE GADTs #-}\n{-# LANGUAGE TypeFamilies, DataKinds #-}\nx = 1",
+        );
         assert_eq!(module.pragmas.len(), 2);
     }
 
@@ -847,7 +874,9 @@ mod tests {
     #[test]
     fn test_guards_with_where() {
         // Simplified: guards with a simple where clause
-        let module = parse_module_ok("signum x | x > 0 = positive | otherwise = zero where { positive = 1; zero = 0 }");
+        let module = parse_module_ok(
+            "signum x | x > 0 = positive | otherwise = zero where { positive = 1; zero = 0 }",
+        );
         if let bhc_ast::Decl::FunBind(fun) = &module.decls[0] {
             if let bhc_ast::Rhs::Guarded(guards, _) = &fun.clauses[0].rhs {
                 assert_eq!(guards.len(), 2);
@@ -931,9 +960,18 @@ f n = n
         }
         let module = module.expect("Should parse");
         // Should have TypeSig and FunBind
-        assert_eq!(module.decls.len(), 2, "Expected 2 decls (TypeSig + FunBind)");
+        assert_eq!(
+            module.decls.len(),
+            2,
+            "Expected 2 decls (TypeSig + FunBind)"
+        );
         if let bhc_ast::Decl::FunBind(fun) = &module.decls[1] {
-            assert_eq!(fun.clauses.len(), 2, "Expected 2 clauses, got: {}", fun.clauses.len());
+            assert_eq!(
+                fun.clauses.len(),
+                2,
+                "Expected 2 clauses, got: {}",
+                fun.clauses.len()
+            );
         } else {
             panic!("Expected FunBind, got: {:?}", module.decls[1]);
         }
@@ -1032,7 +1070,10 @@ test = do
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Do-notation let followed by statement should parse");
+        assert!(
+            diags.is_empty(),
+            "Do-notation let followed by statement should parse"
+        );
     }
 
     #[test]
@@ -1103,7 +1144,10 @@ test xs = case xs of
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Primed identifier case patterns should parse");
+        assert!(
+            diags.is_empty(),
+            "Primed identifier case patterns should parse"
+        );
         let module = module.expect("Should parse");
         assert_eq!(module.decls.len(), 1);
     }
@@ -1138,7 +1182,10 @@ newtype X a = X (ReaderT XConf (StateT XState IO) a)
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Deriving with type applications should parse");
+        assert!(
+            diags.is_empty(),
+            "Deriving with type applications should parse"
+        );
         let module = module.expect("Should parse");
         assert_eq!(module.decls.len(), 1);
     }
@@ -1220,7 +1267,10 @@ rescreen = getInfo >>= \case
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Lambda-case with multiple alternatives should parse");
+        assert!(
+            diags.is_empty(),
+            "Lambda-case with multiple alternatives should parse"
+        );
         let module = module.expect("Should parse");
         assert_eq!(module.decls.len(), 1);
     }
@@ -1258,7 +1308,12 @@ tile
         assert!(diags.is_empty(), "Multi-line type signature should parse");
         let module = module.expect("Should parse");
         // Should have one declaration: the type signature
-        assert_eq!(module.decls.len(), 1, "Should have 1 decl, got {:?}", module.decls);
+        assert_eq!(
+            module.decls.len(),
+            1,
+            "Should have 1 decl, got {:?}",
+            module.decls
+        );
     }
 
     #[test]
@@ -1274,10 +1329,18 @@ tile f r = r
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Multi-line type signature with function should parse");
+        assert!(
+            diags.is_empty(),
+            "Multi-line type signature with function should parse"
+        );
         let module = module.expect("Should parse");
         // Should have two declarations: type signature and function binding
-        assert_eq!(module.decls.len(), 2, "Should have 2 decls, got {:?}", module.decls);
+        assert_eq!(
+            module.decls.len(),
+            2,
+            "Should have 2 decls, got {:?}",
+            module.decls
+        );
     }
 
     #[test]
@@ -1296,10 +1359,18 @@ tile n = n > 0
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Type signature after instance should parse");
+        assert!(
+            diags.is_empty(),
+            "Type signature after instance should parse"
+        );
         let module = module.expect("Should parse");
         // Should have: instance, type signature, function binding
-        assert_eq!(module.decls.len(), 3, "Should have 3 decls, got {:?}", module.decls);
+        assert_eq!(
+            module.decls.len(),
+            3,
+            "Should have 3 decls, got {:?}",
+            module.decls
+        );
     }
 
     #[test]
@@ -1319,10 +1390,18 @@ tile n = n > 0
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Type signature with doc comments should parse");
+        assert!(
+            diags.is_empty(),
+            "Type signature with doc comments should parse"
+        );
         let module = module.expect("Should parse");
         // Should have: instance, type signature, function binding
-        assert_eq!(module.decls.len(), 3, "Should have 3 decls, got {:?}", module.decls);
+        assert_eq!(
+            module.decls.len(),
+            3,
+            "Should have 3 decls, got {:?}",
+            module.decls
+        );
     }
 
     #[test]
@@ -1340,10 +1419,18 @@ class Show a => Foo a b where
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Class with multi-line method signature should parse");
+        assert!(
+            diags.is_empty(),
+            "Class with multi-line method signature should parse"
+        );
         let module = module.expect("Should parse");
         // Should have one class declaration
-        assert_eq!(module.decls.len(), 1, "Should have 1 decl, got {:?}", module.decls);
+        assert_eq!(
+            module.decls.len(),
+            1,
+            "Should have 1 decl, got {:?}",
+            module.decls
+        );
     }
 
     #[test]
@@ -1456,7 +1543,10 @@ class Container c where
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Class with associated type default should parse");
+        assert!(
+            diags.is_empty(),
+            "Class with associated type default should parse"
+        );
         let module = module.expect("Should parse");
         if let bhc_ast::Decl::ClassDecl(class) = &module.decls[0] {
             assert_eq!(class.assoc_types.len(), 1);
@@ -1478,7 +1568,10 @@ instance Collection [a] where
         for d in &diags {
             eprintln!("Error: {:?}", d);
         }
-        assert!(diags.is_empty(), "Instance with associated type should parse");
+        assert!(
+            diags.is_empty(),
+            "Instance with associated type should parse"
+        );
         let module = module.expect("Should parse");
         if let bhc_ast::Decl::InstanceDecl(inst) = &module.decls[0] {
             assert_eq!(inst.assoc_type_defs.len(), 1);
@@ -1529,7 +1622,12 @@ instance Collection [a] where
                         error_count
                     );
                     // Print first 25 errors for debugging
-                    for (i, d) in diagnostics.iter().filter(|d| d.is_error()).take(25).enumerate() {
+                    for (i, d) in diagnostics
+                        .iter()
+                        .filter(|d| d.is_error())
+                        .take(25)
+                        .enumerate()
+                    {
                         println!("  {}: {:?}", i + 1, d);
                     }
                 }

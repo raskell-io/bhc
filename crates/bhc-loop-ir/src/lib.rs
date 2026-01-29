@@ -92,7 +92,9 @@ pub mod vectorize;
 
 // Re-export key types from submodules
 pub use lower::{lower_kernel, lower_kernels, LowerConfig, LowerError};
-pub use parallel::{ParFor, ParMap, ParReduce, ParallelConfig, ParallelPass, ParallelStrategy, Range};
+pub use parallel::{
+    ParFor, ParMap, ParReduce, ParallelConfig, ParallelPass, ParallelStrategy, Range,
+};
 pub use vectorize::{SimdIntrinsic, VectorizeConfig, VectorizePass, VectorizeReport};
 
 /// A unique identifier for values (SSA registers).
@@ -1050,7 +1052,7 @@ mod tests {
     /// work evenly across workers.
     #[test]
     fn test_m3_reductions_scale_linearly() {
-        use crate::parallel::{ParallelConfig, ParReduce, Range};
+        use crate::parallel::{ParReduce, ParallelConfig, Range};
         use crate::ReduceOp;
 
         let data_size = 1_000_000; // 1M elements
@@ -1132,7 +1134,7 @@ mod tests {
     /// This test verifies that parallel chunking is deterministic when configured.
     #[test]
     fn test_m3_deterministic_mode() {
-        use crate::parallel::{ParallelConfig, ParReduce, ParallelStrategy};
+        use crate::parallel::{ParReduce, ParallelConfig, ParallelStrategy};
         use crate::ReduceOp;
 
         let data_size = 100_000;
@@ -1321,7 +1323,9 @@ mod tests {
         let vec_analysis = vec_pass.analyze(&ir);
 
         // Verify inner loop is vectorizable
-        let inner_info = vec_analysis.get(&inner_loop_id).expect("inner loop analyzed");
+        let inner_info = vec_analysis
+            .get(&inner_loop_id)
+            .expect("inner loop analyzed");
         assert!(
             inner_info.vectorizable,
             "M3 FAIL: Inner reduction loop should be vectorizable"
@@ -1337,7 +1341,9 @@ mod tests {
         let par_analysis = par_pass.analyze(&ir);
 
         // Verify outer loop is parallelizable
-        let outer_info = par_analysis.get(&outer_loop_id).expect("outer loop analyzed");
+        let outer_info = par_analysis
+            .get(&outer_loop_id)
+            .expect("outer loop analyzed");
         assert!(
             outer_info.parallelizable,
             "M3 FAIL: Outer loop should be parallelizable"

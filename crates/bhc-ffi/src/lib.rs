@@ -70,9 +70,9 @@ pub mod blas;
 pub mod pinned;
 pub mod tensor;
 
-pub use blas::{BlasProvider, BlasError, BlasResult, Transpose, default_provider};
-pub use pinned::{PinnedBuffer, PinnedSlice, with_pinned, with_pinned_mut};
-pub use tensor::{Matrix, matmul, smatmul, dot, sdot};
+pub use blas::{default_provider, BlasError, BlasProvider, BlasResult, Transpose};
+pub use pinned::{with_pinned, with_pinned_mut, PinnedBuffer, PinnedSlice};
+pub use tensor::{dot, matmul, sdot, smatmul, Matrix};
 
 use thiserror::Error;
 

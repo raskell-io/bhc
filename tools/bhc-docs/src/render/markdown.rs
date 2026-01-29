@@ -1,10 +1,10 @@
 //! Markdown documentation renderer.
 
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
-use crate::model::{ModuleDoc, DocItem};
 use super::RenderConfig;
+use crate::model::{DocItem, ModuleDoc};
 
 /// Render documentation to Markdown.
 pub fn render(docs: &[ModuleDoc], output: &Path, _config: &RenderConfig) -> Result<()> {
@@ -29,15 +29,26 @@ fn render_module(module: &ModuleDoc) -> String {
     }
 
     // Functions
-    let functions: Vec<_> = module.items.iter()
-        .filter_map(|i| if let DocItem::Function(f) = i { Some(f) } else { None })
+    let functions: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|i| {
+            if let DocItem::Function(f) = i {
+                Some(f)
+            } else {
+                None
+            }
+        })
         .collect();
 
     if !functions.is_empty() {
         md.push_str("## Functions\n\n");
         for func in functions {
             md.push_str(&format!("### `{}`\n\n", func.name));
-            md.push_str(&format!("```haskell\n{} :: {}\n```\n\n", func.name, func.signature));
+            md.push_str(&format!(
+                "```haskell\n{} :: {}\n```\n\n",
+                func.name, func.signature
+            ));
             if let Some(doc) = &func.doc {
                 md.push_str(&doc.description);
                 md.push_str("\n\n");
@@ -46,8 +57,16 @@ fn render_module(module: &ModuleDoc) -> String {
     }
 
     // Types
-    let types: Vec<_> = module.items.iter()
-        .filter_map(|i| if let DocItem::Type(t) = i { Some(t) } else { None })
+    let types: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|i| {
+            if let DocItem::Type(t) = i {
+                Some(t)
+            } else {
+                None
+            }
+        })
         .collect();
 
     if !types.is_empty() {
@@ -62,8 +81,16 @@ fn render_module(module: &ModuleDoc) -> String {
     }
 
     // Classes
-    let classes: Vec<_> = module.items.iter()
-        .filter_map(|i| if let DocItem::Class(c) = i { Some(c) } else { None })
+    let classes: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|i| {
+            if let DocItem::Class(c) = i {
+                Some(c)
+            } else {
+                None
+            }
+        })
         .collect();
 
     if !classes.is_empty() {

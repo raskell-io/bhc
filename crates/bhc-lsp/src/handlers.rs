@@ -14,7 +14,8 @@ use crate::LspResult;
 use lsp_server::Request;
 use lsp_types::{
     CompletionParams, CompletionResponse, DocumentFormattingParams, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, HoverParams, ReferenceParams, TextEdit, WorkspaceSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, HoverParams,
+    ReferenceParams, TextEdit, WorkspaceSymbolParams,
 };
 use std::sync::Arc;
 use tracing::debug;
@@ -132,7 +133,9 @@ impl RequestHandler {
             return Ok(serde_json::to_value(response)?);
         }
 
-        Ok(serde_json::to_value(DocumentSymbolResponse::Nested(Vec::new()))?)
+        Ok(serde_json::to_value(DocumentSymbolResponse::Nested(
+            Vec::new(),
+        ))?)
     }
 
     /// Handle workspace/symbol.
@@ -165,7 +168,10 @@ impl RequestHandler {
                     // Create a single edit replacing the entire document
                     let edit = TextEdit {
                         range: lsp_types::Range {
-                            start: lsp_types::Position { line: 0, character: 0 },
+                            start: lsp_types::Position {
+                                line: 0,
+                                character: 0,
+                            },
                             end: lsp_types::Position {
                                 line: doc.line_count() as u32,
                                 character: 0,

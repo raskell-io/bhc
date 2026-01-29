@@ -16,7 +16,7 @@
 //! - Non-deterministic mode allowed for floats (document variance)
 
 use crate::{
-    BarrierKind, Loop, LoopAttrs, LoopId, LoopIR, LoopMetadata, ReduceOp, Stmt, TripCount,
+    BarrierKind, Loop, LoopAttrs, LoopIR, LoopId, LoopMetadata, ReduceOp, Stmt, TripCount,
 };
 use rustc_hash::FxHashMap;
 use thiserror::Error;
@@ -62,7 +62,7 @@ impl Default for ParallelConfig {
             worker_count: num_cpus(),
             min_iterations_per_worker: 64,
             deterministic: true, // Default to deterministic for reproducibility
-            chunk_size: 0, // Auto
+            chunk_size: 0,       // Auto
         }
     }
 }
@@ -283,7 +283,11 @@ impl ParallelPass {
     }
 
     /// Parallelize a reduction loop.
-    fn parallelize_reduction(&self, lp: &mut Loop, _info: &ParallelInfo) -> Result<(), ParallelError> {
+    fn parallelize_reduction(
+        &self,
+        lp: &mut Loop,
+        _info: &ParallelInfo,
+    ) -> Result<(), ParallelError> {
         // For deterministic reductions:
         // 1. Each worker computes partial result
         // 2. Partial results are combined in fixed order
@@ -381,7 +385,11 @@ pub struct Range {
 impl Range {
     /// Create a new range.
     pub fn new(start: i64, end: i64) -> Self {
-        Self { start, end, step: 1 }
+        Self {
+            start,
+            end,
+            step: 1,
+        }
     }
 
     /// Create a range with custom step.
@@ -661,7 +669,10 @@ mod tests {
         let analysis = pass.analyze(&ir);
 
         let info = analysis.get(&loop_id).expect("loop should be analyzed");
-        assert!(!info.parallelizable, "small loop should not be parallelizable");
+        assert!(
+            !info.parallelizable,
+            "small loop should not be parallelizable"
+        );
     }
 
     #[test]
@@ -692,11 +703,10 @@ mod tests {
 
     #[test]
     fn test_par_for_chunks() {
-        let par_for = ParFor::new(Range::new(0, 10000))
-            .with_config(ParallelConfig {
-                worker_count: 8,
-                ..Default::default()
-            });
+        let par_for = ParFor::new(Range::new(0, 10000)).with_config(ParallelConfig {
+            worker_count: 8,
+            ..Default::default()
+        });
 
         let chunks = par_for.chunk_assignments();
         assert_eq!(chunks.len(), 8);
@@ -711,8 +721,7 @@ mod tests {
 
     #[test]
     fn test_par_reduce_deterministic() {
-        let par_reduce = ParReduce::new(10000, ReduceOp::Add)
-            .deterministic(true);
+        let par_reduce = ParReduce::new(10000, ReduceOp::Add).deterministic(true);
 
         assert!(par_reduce.config.deterministic);
 
@@ -731,21 +740,22 @@ mod tests {
         assert_eq!(ParReduce::new(100, ReduceOp::Add).identity(), 0.0);
         assert_eq!(ParReduce::new(100, ReduceOp::Mul).identity(), 1.0);
         assert_eq!(ParReduce::new(100, ReduceOp::Min).identity(), f64::INFINITY);
-        assert_eq!(ParReduce::new(100, ReduceOp::Max).identity(), f64::NEG_INFINITY);
+        assert_eq!(
+            ParReduce::new(100, ReduceOp::Max).identity(),
+            f64::NEG_INFINITY
+        );
     }
 
     #[test]
     fn test_parallel_report_display() {
         let report = ParallelReport {
-            parallelized_loops: vec![
-                ParallelizedLoopInfo {
-                    loop_id: LoopId::new(0),
-                    chunk_size: 1250,
-                    num_chunks: 8,
-                    strategy: ParallelStrategy::Static,
-                    is_reduction: false,
-                },
-            ],
+            parallelized_loops: vec![ParallelizedLoopInfo {
+                loop_id: LoopId::new(0),
+                chunk_size: 1250,
+                num_chunks: 8,
+                strategy: ParallelStrategy::Static,
+                is_reduction: false,
+            }],
             failed_loops: vec![],
         };
 

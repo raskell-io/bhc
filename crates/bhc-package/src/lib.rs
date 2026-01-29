@@ -171,8 +171,7 @@ impl Dependency {
             Self::Simple(s) => s.as_str(),
             Self::Detailed(d) => d.version.as_str(),
         };
-        VersionReq::parse(version_str)
-            .map_err(|e| PackageError::InvalidVersion(e.to_string()))
+        VersionReq::parse(version_str).map_err(|e| PackageError::InvalidVersion(e.to_string()))
     }
 
     /// Get the features to enable.

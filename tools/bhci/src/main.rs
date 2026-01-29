@@ -20,7 +20,7 @@
 
 use anyhow::Result;
 use bhc_ast::Expr as AstExpr;
-use bhc_core::eval::{Evaluator, EvalMode, Value};
+use bhc_core::eval::{EvalMode, Evaluator, Value};
 use bhc_diagnostics::{DiagnosticRenderer, SourceMap};
 use bhc_intern::kw;
 use bhc_parser::parse_expr;
@@ -587,7 +587,9 @@ fn eval_input(state: &mut ReplState, input: &str) {
                 Ok(value) => {
                     // Store as binding
                     let name = state.next_binding_name();
-                    state.bindings.push((name.clone(), ty.clone(), value.clone()));
+                    state
+                        .bindings
+                        .push((name.clone(), ty.clone(), value.clone()));
 
                     // Print result
                     print_value(&value);
@@ -706,8 +708,8 @@ fn load_file(state: &mut ReplState, path: &PathBuf) -> Result<(), ReplError> {
     println!("[1 of 1] Compiling {}...", path.display());
 
     // Read and parse file
-    let content = std::fs::read_to_string(path)
-        .map_err(|_| ReplError::FileNotFound(path.clone()))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|_| ReplError::FileNotFound(path.clone()))?;
 
     let file_id = state
         .source_map

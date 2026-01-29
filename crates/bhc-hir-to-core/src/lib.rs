@@ -136,7 +136,7 @@ mod tests {
     use bhc_hir::{Equation, Expr, Item, Lit, Pat, ValueDef};
     use bhc_index::Idx;
     use bhc_intern::Symbol;
-    use bhc_types::{Constraint, Kind, TyCon, Ty, TyVar};
+    use bhc_types::{Constraint, Kind, Ty, TyCon, TyVar};
 
     #[test]
     fn test_lower_empty_module() {
@@ -172,10 +172,7 @@ mod tests {
                 Ty::Var(a_var.clone()),
                 Span::default(),
             )],
-            ty: Ty::Fun(
-                Box::new(Ty::Var(a_var.clone())),
-                Box::new(Ty::Var(a_var)),
-            ),
+            ty: Ty::Fun(Box::new(Ty::Var(a_var.clone())), Box::new(Ty::Var(a_var))),
         };
 
         // Create the HIR value definition
@@ -373,10 +370,7 @@ mod tests {
             name: Symbol::intern("Test"),
             exports: None,
             imports: vec![],
-            items: vec![
-                Item::Class(class_def),
-                Item::Instance(instance_def),
-            ],
+            items: vec![Item::Class(class_def), Item::Instance(instance_def)],
             span: Span::default(),
         };
 
@@ -438,10 +432,7 @@ mod tests {
                 Ty::Var(a_var.clone()),
                 Span::default(),
             )],
-            ty: Ty::Fun(
-                Box::new(Ty::Var(a_var.clone())),
-                Box::new(Ty::Var(a_var)),
-            ),
+            ty: Ty::Fun(Box::new(Ty::Var(a_var.clone())), Box::new(Ty::Var(a_var))),
         };
 
         // double x = x (simplified - just returns x)
@@ -769,7 +760,10 @@ mod tests {
 
         // Check Fractional class
         let frac_class = registry.lookup_class(Symbol::intern("Fractional"));
-        assert!(frac_class.is_some(), "Fractional class should be registered");
+        assert!(
+            frac_class.is_some(),
+            "Fractional class should be registered"
+        );
         let frac_class = frac_class.unwrap();
         assert!(frac_class.methods.contains(&Symbol::intern("/")));
         assert!(frac_class.methods.contains(&Symbol::intern("fromRational")));
@@ -811,7 +805,10 @@ mod tests {
 
         // Check Fractional Float instance
         let frac_float = registry.resolve_instance(Symbol::intern("Fractional"), &float_ty);
-        assert!(frac_float.is_some(), "Fractional Float instance should be registered");
+        assert!(
+            frac_float.is_some(),
+            "Fractional Float instance should be registered"
+        );
         let (frac_float, _) = frac_float.unwrap();
         assert!(frac_float.methods.contains_key(&Symbol::intern("/")));
 
@@ -828,7 +825,10 @@ mod tests {
         assert!(show_int.is_some(), "Show Int instance should be registered");
 
         let show_bool = registry.resolve_instance(Symbol::intern("Show"), &bool_ty);
-        assert!(show_bool.is_some(), "Show Bool instance should be registered");
+        assert!(
+            show_bool.is_some(),
+            "Show Bool instance should be registered"
+        );
     }
 
     #[test]
@@ -1045,14 +1045,13 @@ mod tests {
         ctx.register_dict(Symbol::intern("Ord"), ord_dict_var.clone());
 
         // Now try to resolve an Eq constraint - this should extract from Ord
-        let eq_constraint = Constraint::new(
-            Symbol::intern("Eq"),
-            a_ty.clone(),
-            Span::default(),
-        );
+        let eq_constraint = Constraint::new(Symbol::intern("Eq"), a_ty.clone(), Span::default());
 
         let result = ctx.resolve_dictionary(&eq_constraint, Span::default());
-        assert!(result.is_some(), "Should resolve Eq via superclass extraction from Ord");
+        assert!(
+            result.is_some(),
+            "Should resolve Eq via superclass extraction from Ord"
+        );
 
         // The result should be a selector expression that extracts Eq from Ord
         // It should be an App (selector applied to dictionary)
@@ -1069,16 +1068,25 @@ mod tests {
                         panic!("Expected Var as argument to selector, got {:?}", arg);
                     }
                 }
-                _ => panic!("Expected App expression for superclass extraction, got {:?}", expr),
+                _ => panic!(
+                    "Expected App expression for superclass extraction, got {:?}",
+                    expr
+                ),
             }
         }
 
         // Also verify that lookup_superclass_dict finds the Ord dictionary
         let found = ctx.lookup_superclass_dict(Symbol::intern("Eq"));
-        assert!(found.is_some(), "lookup_superclass_dict should find Ord for Eq");
+        assert!(
+            found.is_some(),
+            "lookup_superclass_dict should find Ord for Eq"
+        );
         let (class, dict) = found.unwrap();
         assert_eq!(class, Symbol::intern("Ord"), "Should find Ord class");
-        assert_eq!(dict.name, ord_dict_var.name, "Should return the Ord dictionary");
+        assert_eq!(
+            dict.name, ord_dict_var.name,
+            "Should return the Ord dictionary"
+        );
 
         ctx.pop_dict_scope();
     }
@@ -1101,18 +1109,17 @@ mod tests {
         ctx.register_dict(Symbol::intern("Num"), num_dict_var);
 
         // Try to resolve Eq - should fail since Num doesn't have Eq as superclass
-        let eq_constraint = Constraint::new(
-            Symbol::intern("Eq"),
-            a_ty,
-            Span::default(),
-        );
+        let eq_constraint = Constraint::new(Symbol::intern("Eq"), a_ty, Span::default());
 
         let result = ctx.resolve_dictionary(&eq_constraint, Span::default());
         // This should be None because:
         // - No direct Eq dictionary in scope
         // - Num doesn't have Eq as superclass
         // - Type variable means we can't construct from instance
-        assert!(result.is_none(), "Should not resolve Eq from Num (no superclass relation)");
+        assert!(
+            result.is_none(),
+            "Should not resolve Eq from Num (no superclass relation)"
+        );
 
         ctx.pop_dict_scope();
     }
@@ -1138,11 +1145,7 @@ mod tests {
         ctx.register_dict(Symbol::intern("Ord"), ord_dict_var);
 
         // Resolve Eq - should use the direct Eq dictionary, not extract from Ord
-        let eq_constraint = Constraint::new(
-            Symbol::intern("Eq"),
-            a_ty,
-            Span::default(),
-        );
+        let eq_constraint = Constraint::new(Symbol::intern("Eq"), a_ty, Span::default());
 
         let result = ctx.resolve_dictionary(&eq_constraint, Span::default());
         assert!(result.is_some(), "Should resolve Eq");

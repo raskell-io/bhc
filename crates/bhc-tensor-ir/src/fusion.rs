@@ -181,7 +181,6 @@ pub enum FusionPattern {
     // ========================================================================
     // ML-Specific Fusion Patterns (H26-SPEC Section 8.2)
     // ========================================================================
-
     /// Pattern 5: Softmax fusion - numerically stable single-kernel softmax.
     ///
     /// Fuses the pattern:
@@ -477,10 +476,8 @@ fn infer_output_meta(op: &TensorOp) -> TensorMeta {
             TensorMeta::new_contiguous(t.meta.dtype, Shape::scalar())
                 .unwrap_or_else(|| t.meta.clone())
         }
-        TensorOp::Reshape(shape, t) => {
-            TensorMeta::new_contiguous(t.meta.dtype, shape.clone())
-                .unwrap_or_else(|| t.meta.clone())
-        }
+        TensorOp::Reshape(shape, t) => TensorMeta::new_contiguous(t.meta.dtype, shape.clone())
+            .unwrap_or_else(|| t.meta.clone()),
         TensorOp::Slice(spec, t) => {
             // Compute sliced shape
             let mut new_dims: SmallVec<[crate::Dim; 4]> = SmallVec::new();
@@ -503,8 +500,11 @@ fn infer_output_meta(op: &TensorOp) -> TensorMeta {
         TensorOp::Transpose(perm, t) => {
             // Permute dimensions
             let old_dims = t.meta.shape.dims();
-            let new_dims: SmallVec<[crate::Dim; 4]> =
-                perm.as_slice().iter().map(|&i| old_dims[i].clone()).collect();
+            let new_dims: SmallVec<[crate::Dim; 4]> = perm
+                .as_slice()
+                .iter()
+                .map(|&i| old_dims[i].clone())
+                .collect();
             // Note: Transpose creates strided layout, not contiguous
             let shape = Shape::new(new_dims);
             TensorMeta {
@@ -516,10 +516,8 @@ fn infer_output_meta(op: &TensorOp) -> TensorMeta {
                 alias: t.meta.alias,
             }
         }
-        TensorOp::Broadcast(shape, t) => {
-            TensorMeta::new_contiguous(t.meta.dtype, shape.clone())
-                .unwrap_or_else(|| t.meta.clone())
-        }
+        TensorOp::Broadcast(shape, t) => TensorMeta::new_contiguous(t.meta.dtype, shape.clone())
+            .unwrap_or_else(|| t.meta.clone()),
         TensorOp::Concat(_, refs) => {
             if let Some(first) = refs.first() {
                 first.meta.clone()
@@ -541,14 +539,24 @@ fn infer_output_meta(op: &TensorOp) -> TensorMeta {
                 a.meta.clone()
             }
         }
-        TensorOp::Dot(_, t) => {
-            TensorMeta::new_contiguous(t.meta.dtype, Shape::scalar())
-                .unwrap_or_else(|| t.meta.clone())
-        }
+        TensorOp::Dot(_, t) => TensorMeta::new_contiguous(t.meta.dtype, Shape::scalar())
+            .unwrap_or_else(|| t.meta.clone()),
         TensorOp::Outer(a, b) => {
             // [M] outer [N] -> [M, N]
-            let m = a.meta.shape.dims().first().cloned().unwrap_or(crate::Dim::Static(1));
-            let n = b.meta.shape.dims().first().cloned().unwrap_or(crate::Dim::Static(1));
+            let m = a
+                .meta
+                .shape
+                .dims()
+                .first()
+                .cloned()
+                .unwrap_or(crate::Dim::Static(1));
+            let n = b
+                .meta
+                .shape
+                .dims()
+                .first()
+                .cloned()
+                .unwrap_or(crate::Dim::Static(1));
             TensorMeta::new_contiguous(a.meta.dtype, Shape::new([m, n]))
                 .unwrap_or_else(|| a.meta.clone())
         }
@@ -611,7 +619,8 @@ fn detect_and_fuse(ctx: &mut FusionContext, mut ops: Vec<FusibleOp>) -> Vec<Fuse
             let group = create_fused_group(ctx, &ops, &consumed_indices, pattern);
 
             // Record fusion decision
-            ctx.decisions.push(FusionDecision::Fused(group.op_names.clone()));
+            ctx.decisions
+                .push(FusionDecision::Fused(group.op_names.clone()));
 
             groups.push(group);
         } else {
@@ -890,12 +899,12 @@ fn try_detect_softmax(
 
                 // The original input is either from the shift operation or directly available
                 let input = match &ops[shifted_producer].op {
-                    TensorOp::ZipWith(sub_fn, input_ref, _max_ref) if is_subtraction_fn(&sub_fn.name) => {
+                    TensorOp::ZipWith(sub_fn, input_ref, _max_ref)
+                        if is_subtraction_fn(&sub_fn.name) =>
+                    {
                         input_ref.clone()
                     }
-                    TensorOp::Binary(BinaryOp::Sub, input_ref, _max_ref) => {
-                        input_ref.clone()
-                    }
+                    TensorOp::Binary(BinaryOp::Sub, input_ref, _max_ref) => input_ref.clone(),
                     _ => {
                         // Fall back to the shifted input itself
                         shifted_ref.clone()
@@ -918,13 +927,7 @@ fn try_detect_softmax(
                 });
 
                 if all_single_use {
-                    return Some((
-                        FusionPattern::Softmax {
-                            input,
-                            axis: None,
-                        },
-                        consumed,
-                    ));
+                    return Some((FusionPattern::Softmax { input, axis: None }, consumed));
                 }
             }
         }
@@ -988,9 +991,7 @@ fn try_detect_layernorm(
             TensorOp::ZipWith(sub_fn, input_ref, _mu_ref) if is_subtraction_fn(&sub_fn.name) => {
                 input_ref.clone()
             }
-            TensorOp::Binary(BinaryOp::Sub, input_ref, _mu_ref) => {
-                input_ref.clone()
-            }
+            TensorOp::Binary(BinaryOp::Sub, input_ref, _mu_ref) => input_ref.clone(),
             _ => return None,
         };
 
@@ -998,9 +999,10 @@ fn try_detect_layernorm(
         let consumed = vec![consumer_idx, std_producer, centered_producer];
 
         // Check all intermediates are single-use
-        let all_single_use = consumed.iter().skip(1).all(|&idx| {
-            ctx.ref_count(ops[idx].output.id) == 1
-        });
+        let all_single_use = consumed
+            .iter()
+            .skip(1)
+            .all(|&idx| ctx.ref_count(ops[idx].output.id) == 1);
 
         if all_single_use {
             return Some((
@@ -1030,7 +1032,9 @@ fn try_detect_attention(
     let consumer = &ops[consumer_idx];
 
     // Look for the outer matmul: matmul(weights, v)
-    if let TensorOp::MatMul(weights_ref, v_ref) | TensorOp::BatchMatMul(weights_ref, v_ref) = &consumer.op {
+    if let TensorOp::MatMul(weights_ref, v_ref) | TensorOp::BatchMatMul(weights_ref, v_ref) =
+        &consumer.op
+    {
         let weights_producer = find_producer(ops, weights_ref.id)?;
         if ops[weights_producer].fused {
             return None;
@@ -1087,7 +1091,11 @@ fn try_detect_attention(
         };
 
         // Infer scale from head dimension
-        let head_dim = query.meta.shape.dims().last()
+        let head_dim = query
+            .meta
+            .shape
+            .dims()
+            .last()
             .and_then(|d| d.static_value())
             .unwrap_or(64) as f64;
         let inferred_scale = 1.0 / head_dim.sqrt();
@@ -1418,7 +1426,11 @@ fn create_fused_group(
             (
                 vec![left_input.clone(), right_input.clone()],
                 output,
-                vec![TensorOp::ZipWith(fused_fn, left_input.clone(), right_input.clone())],
+                vec![TensorOp::ZipWith(
+                    fused_fn,
+                    left_input.clone(),
+                    right_input.clone(),
+                )],
             )
         }
         FusionPattern::FoldMap {
@@ -1453,7 +1465,6 @@ fn create_fused_group(
         // ====================================================================
         // ML-Specific Pattern Kernel Generation
         // ====================================================================
-
         FusionPattern::Softmax { input, axis: _ } => {
             let output_id = ctx.fresh_tensor_id();
             let output = TensorRef {
@@ -1621,7 +1632,10 @@ fn create_fused_group(
             // Output shape: [batch, out_features]
             let output_id = ctx.fresh_tensor_id();
             let w_dims = weight.meta.shape.dims();
-            let out_dim = w_dims.last().cloned().unwrap_or_else(|| crate::Dim::Static(1));
+            let out_dim = w_dims
+                .last()
+                .cloned()
+                .unwrap_or_else(|| crate::Dim::Static(1));
             let in_dims = input.meta.shape.dims();
             let mut out_shape: SmallVec<[crate::Dim; 4]> = in_dims.iter().cloned().collect();
             if let Some(last) = out_shape.last_mut() {
@@ -1758,27 +1772,31 @@ fn generate_kernel_name(group: &FusedGroup) -> Symbol {
                 }
             }
             FusionPattern::Gelu { fast, .. } => {
-                if *fast { "fused_gelu_fast" } else { "fused_gelu" }
-            }
-            FusionPattern::Silu { .. } => "fused_silu",
-            FusionPattern::FusedLinear { bias, activation, .. } => {
-                match (bias.is_some(), activation) {
-                    (true, Some(FusedActivation::Relu)) => "fused_linear_bias_relu",
-                    (true, Some(FusedActivation::Gelu)) => "fused_linear_bias_gelu",
-                    (true, Some(FusedActivation::GeluFast)) => "fused_linear_bias_gelu_fast",
-                    (true, Some(FusedActivation::Silu)) => "fused_linear_bias_silu",
-                    (true, Some(FusedActivation::Sigmoid)) => "fused_linear_bias_sigmoid",
-                    (true, Some(FusedActivation::Tanh)) => "fused_linear_bias_tanh",
-                    (true, None) => "fused_linear_bias",
-                    (false, Some(FusedActivation::Relu)) => "fused_linear_relu",
-                    (false, Some(FusedActivation::Gelu)) => "fused_linear_gelu",
-                    (false, Some(FusedActivation::GeluFast)) => "fused_linear_gelu_fast",
-                    (false, Some(FusedActivation::Silu)) => "fused_linear_silu",
-                    (false, Some(FusedActivation::Sigmoid)) => "fused_linear_sigmoid",
-                    (false, Some(FusedActivation::Tanh)) => "fused_linear_tanh",
-                    (false, None) => "fused_linear",
+                if *fast {
+                    "fused_gelu_fast"
+                } else {
+                    "fused_gelu"
                 }
             }
+            FusionPattern::Silu { .. } => "fused_silu",
+            FusionPattern::FusedLinear {
+                bias, activation, ..
+            } => match (bias.is_some(), activation) {
+                (true, Some(FusedActivation::Relu)) => "fused_linear_bias_relu",
+                (true, Some(FusedActivation::Gelu)) => "fused_linear_bias_gelu",
+                (true, Some(FusedActivation::GeluFast)) => "fused_linear_bias_gelu_fast",
+                (true, Some(FusedActivation::Silu)) => "fused_linear_bias_silu",
+                (true, Some(FusedActivation::Sigmoid)) => "fused_linear_bias_sigmoid",
+                (true, Some(FusedActivation::Tanh)) => "fused_linear_bias_tanh",
+                (true, None) => "fused_linear_bias",
+                (false, Some(FusedActivation::Relu)) => "fused_linear_relu",
+                (false, Some(FusedActivation::Gelu)) => "fused_linear_gelu",
+                (false, Some(FusedActivation::GeluFast)) => "fused_linear_gelu_fast",
+                (false, Some(FusedActivation::Silu)) => "fused_linear_silu",
+                (false, Some(FusedActivation::Sigmoid)) => "fused_linear_sigmoid",
+                (false, Some(FusedActivation::Tanh)) => "fused_linear_tanh",
+                (false, None) => "fused_linear",
+            },
         };
         Symbol::intern(name)
     } else if group.op_names.len() == 1 {
@@ -1824,7 +1842,11 @@ pub fn generate_kernel_report(ctx: &FusionContext) -> KernelReport {
     KernelReport {
         kernels: ctx.kernels.clone(),
         decisions: ctx.decisions.clone(),
-        total_ops: ctx.kernels.iter().map(|k| k.fusion_info.original_ops.len()).sum(),
+        total_ops: ctx
+            .kernels
+            .iter()
+            .map(|k| k.fusion_info.original_ops.len())
+            .sum(),
         fused_ops: ctx
             .decisions
             .iter()
@@ -1934,10 +1956,7 @@ mod tests {
         let kernels = fuse_ops(&mut ctx, ops);
 
         assert_eq!(kernels.len(), 1, "should produce single fused kernel");
-        assert!(
-            kernels[0].fusion_info.complete,
-            "fusion should be complete"
-        );
+        assert!(kernels[0].fusion_info.complete, "fusion should be complete");
         assert_eq!(
             kernels[0].fusion_info.original_ops.len(),
             2,
@@ -1962,10 +1981,7 @@ mod tests {
         let kernels = fuse_ops(&mut ctx, ops);
 
         assert_eq!(kernels.len(), 1, "should produce single fused kernel");
-        assert!(
-            kernels[0].fusion_info.complete,
-            "fusion should be complete"
-        );
+        assert!(kernels[0].fusion_info.complete, "fusion should be complete");
     }
 
     #[test]
@@ -2000,10 +2016,7 @@ mod tests {
             1,
             "Pattern 4 (fold-map) should fuse to single kernel"
         );
-        assert!(
-            kernels[0].fusion_info.complete,
-            "fusion should be complete"
-        );
+        assert!(kernels[0].fusion_info.complete, "fusion should be complete");
         assert_eq!(
             kernels[0].name.as_str(),
             "fused_fold_map",
@@ -2118,10 +2131,7 @@ mod tests {
 
         // Should produce single fused kernel
         assert_eq!(kernels.len(), 1, "should produce single fused kernel");
-        assert!(
-            kernels[0].fusion_info.complete,
-            "fusion should be complete"
-        );
+        assert!(kernels[0].fusion_info.complete, "fusion should be complete");
     }
 
     // ========================================================================
@@ -2416,7 +2426,11 @@ mod tests {
         let kernels = fuse_ops(&mut ctx, ops);
 
         // Should produce a fused SiLU kernel
-        assert_eq!(kernels.len(), 1, "SiLU pattern should fuse to single kernel");
+        assert_eq!(
+            kernels.len(),
+            1,
+            "SiLU pattern should fuse to single kernel"
+        );
         assert!(
             kernels[0].fusion_info.complete,
             "SiLU fusion should be complete"
@@ -2461,10 +2475,7 @@ mod tests {
             1,
             "Linear+bias+relu should fuse to single kernel"
         );
-        assert!(
-            kernels[0].fusion_info.complete,
-            "Fusion should be complete"
-        );
+        assert!(kernels[0].fusion_info.complete, "Fusion should be complete");
         assert_eq!(
             kernels[0].name.as_str(),
             "fused_linear_bias_relu",
@@ -2488,11 +2499,7 @@ mod tests {
         let ops = vec![matmul_op, add_op];
         let kernels = fuse_ops(&mut ctx, ops);
 
-        assert_eq!(
-            kernels.len(),
-            1,
-            "Linear+bias should fuse to single kernel"
-        );
+        assert_eq!(kernels.len(), 1, "Linear+bias should fuse to single kernel");
         assert!(kernels[0].fusion_info.complete);
         assert_eq!(
             kernels[0].name.as_str(),

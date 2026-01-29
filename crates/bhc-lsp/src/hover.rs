@@ -54,7 +54,10 @@ fn symbol_hover(word: &str, symbol: &Symbol, position: Position) -> Option<Hover
 
     // Add name with type signature
     if let Some(ref type_sig) = symbol.type_sig {
-        content.push_str(&format!("```haskell\n{} :: {}\n```\n", symbol.name, type_sig));
+        content.push_str(&format!(
+            "```haskell\n{} :: {}\n```\n",
+            symbol.name, type_sig
+        ));
     } else {
         content.push_str(&format!("```haskell\n{}\n```\n", symbol.name));
     }
@@ -149,14 +152,44 @@ mod tests {
     #[test]
     fn test_in_range() {
         let range = Range {
-            start: Position { line: 1, character: 5 },
-            end: Position { line: 1, character: 10 },
+            start: Position {
+                line: 1,
+                character: 5,
+            },
+            end: Position {
+                line: 1,
+                character: 10,
+            },
         };
 
-        assert!(in_range(Position { line: 1, character: 7 }, &range));
-        assert!(!in_range(Position { line: 0, character: 7 }, &range));
-        assert!(!in_range(Position { line: 1, character: 3 }, &range));
-        assert!(!in_range(Position { line: 1, character: 12 }, &range));
+        assert!(in_range(
+            Position {
+                line: 1,
+                character: 7
+            },
+            &range
+        ));
+        assert!(!in_range(
+            Position {
+                line: 0,
+                character: 7
+            },
+            &range
+        ));
+        assert!(!in_range(
+            Position {
+                line: 1,
+                character: 3
+            },
+            &range
+        ));
+        assert!(!in_range(
+            Position {
+                line: 1,
+                character: 12
+            },
+            &range
+        ));
     }
 
     #[test]

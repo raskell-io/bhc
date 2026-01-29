@@ -144,20 +144,12 @@ pub trait BlasProvider: Send + Sync {
     fn sscal(&self, alpha: f32, x: &mut PinnedBuffer<f32>) -> BlasResult<()>;
 
     /// AXPY: y = alpha * x + y
-    fn daxpy(
-        &self,
-        alpha: f64,
-        x: &PinnedBuffer<f64>,
-        y: &mut PinnedBuffer<f64>,
-    ) -> BlasResult<()>;
+    fn daxpy(&self, alpha: f64, x: &PinnedBuffer<f64>, y: &mut PinnedBuffer<f64>)
+        -> BlasResult<()>;
 
     /// Single-precision AXPY.
-    fn saxpy(
-        &self,
-        alpha: f32,
-        x: &PinnedBuffer<f32>,
-        y: &mut PinnedBuffer<f32>,
-    ) -> BlasResult<()>;
+    fn saxpy(&self, alpha: f32, x: &PinnedBuffer<f32>, y: &mut PinnedBuffer<f32>)
+        -> BlasResult<()>;
 
     /// Euclidean norm: ||x||_2
     fn dnrm2(&self, x: &PinnedBuffer<f64>) -> BlasResult<f64>;
@@ -628,9 +620,7 @@ pub mod openblas {
                 });
             }
 
-            let result = unsafe {
-                cblas_ddot(x.len() as i32, x.as_ptr(), 1, y.as_ptr(), 1)
-            };
+            let result = unsafe { cblas_ddot(x.len() as i32, x.as_ptr(), 1, y.as_ptr(), 1) };
             Ok(result)
         }
 
@@ -643,9 +633,7 @@ pub mod openblas {
                 });
             }
 
-            let result = unsafe {
-                cblas_sdot(x.len() as i32, x.as_ptr(), 1, y.as_ptr(), 1)
-            };
+            let result = unsafe { cblas_sdot(x.len() as i32, x.as_ptr(), 1, y.as_ptr(), 1) };
             Ok(result)
         }
 
@@ -673,9 +661,7 @@ pub mod openblas {
                 });
             }
 
-            unsafe {
-                cblas_daxpy(x.len() as i32, alpha, x.as_ptr(), 1, y.as_mut_ptr(), 1)
-            }
+            unsafe { cblas_daxpy(x.len() as i32, alpha, x.as_ptr(), 1, y.as_mut_ptr(), 1) }
             Ok(())
         }
 
@@ -693,9 +679,7 @@ pub mod openblas {
                 });
             }
 
-            unsafe {
-                cblas_saxpy(x.len() as i32, alpha, x.as_ptr(), 1, y.as_mut_ptr(), 1)
-            }
+            unsafe { cblas_saxpy(x.len() as i32, alpha, x.as_ptr(), 1, y.as_mut_ptr(), 1) }
             Ok(())
         }
 
@@ -884,13 +868,15 @@ mod tests {
         let a = PinnedBuffer::from_slice(&[
             1.0, 2.0, 3.0, // row 0
             4.0, 5.0, 6.0, // row 1
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let b = PinnedBuffer::from_slice(&[
-            7.0, 8.0,   // row 0
-            9.0, 10.0,  // row 1
+            7.0, 8.0, // row 0
+            9.0, 10.0, // row 1
             11.0, 12.0, // row 2
-        ]).unwrap();
+        ])
+        .unwrap();
 
         let mut c = PinnedBuffer::zeroed(4).unwrap();
 
@@ -898,12 +884,17 @@ mod tests {
             .dgemm(
                 Transpose::NoTrans,
                 Transpose::NoTrans,
-                2, 2, 3,  // m, n, k
-                1.0,      // alpha
-                &a, 3,    // A, lda
-                &b, 2,    // B, ldb
-                0.0,      // beta
-                &mut c, 2 // C, ldc
+                2,
+                2,
+                3,   // m, n, k
+                1.0, // alpha
+                &a,
+                3, // A, lda
+                &b,
+                2,   // B, ldb
+                0.0, // beta
+                &mut c,
+                2, // C, ldc
             )
             .unwrap();
 

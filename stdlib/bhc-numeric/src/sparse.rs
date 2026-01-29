@@ -357,12 +357,7 @@ fn spmv_row_simd_f32(col_indices: &[usize], values: &[f32], x: &[f32]) -> f32 {
 
 /// Sparse-dense matrix multiply: C = A * B
 /// where A is sparse (m x k) and B is dense (k x n).
-pub fn spmm_f64(
-    matrix: &CsrMatrix<f64>,
-    b: &[f64],
-    b_cols: usize,
-    c: &mut [f64],
-) {
+pub fn spmm_f64(matrix: &CsrMatrix<f64>, b: &[f64], b_cols: usize, c: &mut [f64]) {
     let m = matrix.rows;
     let k = matrix.cols;
     let n = b_cols;
@@ -392,12 +387,7 @@ pub fn spmm_f64(
 }
 
 /// Sparse-dense matrix multiply for f32.
-pub fn spmm_f32(
-    matrix: &CsrMatrix<f32>,
-    b: &[f32],
-    b_cols: usize,
-    c: &mut [f32],
-) {
+pub fn spmm_f32(matrix: &CsrMatrix<f32>, b: &[f32], b_cols: usize, c: &mut [f32]) {
     let m = matrix.rows;
     let k = matrix.cols;
     let n = b_cols;

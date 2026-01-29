@@ -187,7 +187,11 @@ impl Lockfile {
             }
 
             if !pkg.dependencies.is_empty() {
-                let deps: Vec<String> = pkg.dependencies.iter().map(|d| format!("\"{d}\"")).collect();
+                let deps: Vec<String> = pkg
+                    .dependencies
+                    .iter()
+                    .map(|d| format!("\"{d}\""))
+                    .collect();
                 output.push_str(&format!("dependencies = [{}]\n", deps.join(", ")));
             }
 
@@ -434,11 +438,7 @@ pub fn find_lockfile(start: impl AsRef<Utf8Path>) -> LockfileResult<Utf8PathBuf>
 
         match current.parent() {
             Some(parent) => current = parent.to_path_buf(),
-            None => {
-                return Err(LockfileError::NotFound(
-                    start.as_ref().join(LOCKFILE_NAME),
-                ))
-            }
+            None => return Err(LockfileError::NotFound(start.as_ref().join(LOCKFILE_NAME))),
         }
     }
 }
@@ -539,7 +539,10 @@ dependencies = []
 
     #[test]
     fn test_locked_source_parsing() {
-        assert_eq!(LockedSource::parse("registry"), Some(LockedSource::Registry));
+        assert_eq!(
+            LockedSource::parse("registry"),
+            Some(LockedSource::Registry)
+        );
 
         assert_eq!(
             LockedSource::parse("git+https://github.com/example/repo?rev=abc123"),
@@ -598,6 +601,9 @@ dependencies = []
     fn test_unsupported_version() {
         let content = "version = 999\n";
         let result = Lockfile::parse(content);
-        assert!(matches!(result, Err(LockfileError::UnsupportedVersion(999))));
+        assert!(matches!(
+            result,
+            Err(LockfileError::UnsupportedVersion(999))
+        ));
     }
 }

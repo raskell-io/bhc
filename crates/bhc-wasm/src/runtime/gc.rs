@@ -25,8 +25,8 @@
 //! - For boxed types: pointer count for traversal
 //! - For arrays: element count
 
-use crate::{WasmInstr, WasmType};
 use crate::codegen::{WasmFunc, WasmFuncType, WasmGlobal};
+use crate::{WasmInstr, WasmType};
 
 /// Object header size in bytes.
 pub const HEADER_SIZE: u32 = 12;
@@ -80,10 +80,10 @@ pub struct GcConfig {
 impl Default for GcConfig {
     fn default() -> Self {
         Self {
-            heap_start: 65536,        // After stack (64KB)
-            heap_end: 65536 * 8,      // 512KB heap
-            root_stack_start: 256,    // Root stack at low memory
-            gc_threshold: 65536 * 4,  // GC when 256KB allocated
+            heap_start: 65536,       // After stack (64KB)
+            heap_end: 65536 * 8,     // 512KB heap
+            root_stack_start: 256,   // Root stack at low memory
+            gc_threshold: 65536 * 4, // GC when 256KB allocated
         }
     }
 }
@@ -321,11 +321,7 @@ pub fn generate_gc_mark(heap_start: u32, heap_end: u32) -> WasmFunc {
 ///
 /// Walks the heap and reclaims unmarked objects, clearing marks on live objects.
 /// Uses a simple free list approach.
-pub fn generate_gc_sweep(
-    heap_start: u32,
-    heap_ptr_global: u32,
-    free_list_offset: u32,
-) -> WasmFunc {
+pub fn generate_gc_sweep(heap_start: u32, heap_ptr_global: u32, free_list_offset: u32) -> WasmFunc {
     let mut func = WasmFunc::new(WasmFuncType::new(vec![], vec![]));
     func.name = Some("gc_sweep".to_string());
 
@@ -349,7 +345,7 @@ pub fn generate_gc_sweep(
 
     // Main sweep loop
     func.emit(WasmInstr::Block(None)); // break target
-    func.emit(WasmInstr::Loop(None));  // continue target
+    func.emit(WasmInstr::Loop(None)); // continue target
 
     // while (current < heap_end)
     func.emit(WasmInstr::LocalGet(current));

@@ -26,10 +26,7 @@ use crate::{LowerError, LowerResult};
 /// This registers all variables bound by the bindings so they can be
 /// referenced in the body before the binding RHSes are lowered.
 /// Returns the variables in order corresponding to the bindings.
-pub fn preregister_bindings(
-    ctx: &mut LowerContext,
-    bindings: &[Binding],
-) -> LowerResult<Vec<Var>> {
+pub fn preregister_bindings(ctx: &mut LowerContext, bindings: &[Binding]) -> LowerResult<Vec<Var>> {
     let mut vars = Vec::with_capacity(bindings.len());
 
     for binding in bindings {
@@ -241,10 +238,7 @@ fn lower_binding_group(
 ///
 /// Returns the main variable and all names bound by the pattern.
 /// If the variable was pre-registered (via `preregister_bindings`), reuses that.
-fn extract_binding_info(
-    ctx: &mut LowerContext,
-    pat: &Pat,
-) -> LowerResult<(Var, Vec<Symbol>)> {
+fn extract_binding_info(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<(Var, Vec<Symbol>)> {
     match pat {
         Pat::Var(name, def_id, _span) => {
             // Try to use pre-registered variable if available
@@ -290,9 +284,7 @@ fn extract_binding_info(
             Ok((var, names))
         }
 
-        Pat::Ann(inner, _, _) => {
-            extract_binding_info(ctx, inner)
-        }
+        Pat::Ann(inner, _, _) => extract_binding_info(ctx, inner),
 
         _ => {
             // Other patterns (Lit, Or, Error)

@@ -94,20 +94,11 @@ pub fn find_references(
 }
 
 /// Find all symbols matching a pattern.
-pub fn find_symbols_matching(
-    analysis: &AnalysisResult,
-    pattern: &str,
-    uri: &Uri,
-) -> Vec<Location> {
+pub fn find_symbols_matching(analysis: &AnalysisResult, pattern: &str, uri: &Uri) -> Vec<Location> {
     let mut locations = Vec::new();
     let pattern_lower = pattern.to_lowercase();
 
-    fn search_symbol(
-        symbol: &Symbol,
-        pattern: &str,
-        uri: &Uri,
-        locations: &mut Vec<Location>,
-    ) {
+    fn search_symbol(symbol: &Symbol, pattern: &str, uri: &Uri, locations: &mut Vec<Location>) {
         if symbol.name.to_lowercase().contains(pattern) {
             locations.push(Location {
                 uri: uri.clone(),
@@ -128,10 +119,7 @@ pub fn find_symbols_matching(
 }
 
 /// Check if a position is at a definition.
-pub fn is_at_definition(
-    analysis: &AnalysisResult,
-    position: Position,
-) -> bool {
+pub fn is_at_definition(analysis: &AnalysisResult, position: Position) -> bool {
     for symbol in &analysis.symbols {
         if in_range(position, &symbol.selection_range) {
             return true;
@@ -174,14 +162,50 @@ mod tests {
     #[test]
     fn test_in_range() {
         let range = Range {
-            start: Position { line: 1, character: 5 },
-            end: Position { line: 1, character: 10 },
+            start: Position {
+                line: 1,
+                character: 5,
+            },
+            end: Position {
+                line: 1,
+                character: 10,
+            },
         };
 
-        assert!(in_range(Position { line: 1, character: 5 }, &range));
-        assert!(in_range(Position { line: 1, character: 7 }, &range));
-        assert!(in_range(Position { line: 1, character: 10 }, &range));
-        assert!(!in_range(Position { line: 1, character: 4 }, &range));
-        assert!(!in_range(Position { line: 1, character: 11 }, &range));
+        assert!(in_range(
+            Position {
+                line: 1,
+                character: 5
+            },
+            &range
+        ));
+        assert!(in_range(
+            Position {
+                line: 1,
+                character: 7
+            },
+            &range
+        ));
+        assert!(in_range(
+            Position {
+                line: 1,
+                character: 10
+            },
+            &range
+        ));
+        assert!(!in_range(
+            Position {
+                line: 1,
+                character: 4
+            },
+            &range
+        ));
+        assert!(!in_range(
+            Position {
+                line: 1,
+                character: 11
+            },
+            &range
+        ));
     }
 }

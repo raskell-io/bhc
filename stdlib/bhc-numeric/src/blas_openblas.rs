@@ -436,9 +436,17 @@ mod tests {
             Layout::RowMajor,
             Transpose::NoTrans,
             Transpose::NoTrans,
-            2, 2, 2,
-            1.0, &a, 2, &b, 2,
-            0.0, &mut c, 2,
+            2,
+            2,
+            2,
+            1.0,
+            &a,
+            2,
+            &b,
+            2,
+            0.0,
+            &mut c,
+            2,
         );
 
         assert_eq!(c, vec![19.0, 22.0, 43.0, 50.0]);

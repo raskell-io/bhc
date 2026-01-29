@@ -13,7 +13,9 @@ pub use simd::{SimdLowering, SimdPattern};
 pub use types::{type_to_wasm, LoopTypeMapping};
 
 use crate::{WasmConfig, WasmInstr, WasmResult, WasmType};
-use bhc_codegen::{CodegenConfig, CodegenContext, CodegenError, CodegenModule, CodegenOutputType, CodegenResult};
+use bhc_codegen::{
+    CodegenConfig, CodegenContext, CodegenError, CodegenModule, CodegenOutputType, CodegenResult,
+};
 use bhc_session::OptLevel;
 use bhc_target::TargetSpec;
 use rustc_hash::FxHashMap;
@@ -43,7 +45,11 @@ impl WasmFuncType {
         } else {
             format!(
                 "(param {})",
-                self.params.iter().map(|t| t.wat_name()).collect::<Vec<_>>().join(" ")
+                self.params
+                    .iter()
+                    .map(|t| t.wat_name())
+                    .collect::<Vec<_>>()
+                    .join(" ")
             )
         };
 
@@ -52,7 +58,11 @@ impl WasmFuncType {
         } else {
             format!(
                 "(result {})",
-                self.results.iter().map(|t| t.wat_name()).collect::<Vec<_>>().join(" ")
+                self.results
+                    .iter()
+                    .map(|t| t.wat_name())
+                    .collect::<Vec<_>>()
+                    .join(" ")
             )
         };
 
@@ -90,12 +100,10 @@ impl WasmImport {
     pub fn to_wat(&self) -> String {
         let kind_str = match &self.kind {
             WasmImportKind::Func(ty) => format!("(func {})", ty.to_wat()),
-            WasmImportKind::Memory(min, max) => {
-                match max {
-                    Some(m) => format!("(memory {min} {m})"),
-                    None => format!("(memory {min})"),
-                }
-            }
+            WasmImportKind::Memory(min, max) => match max {
+                Some(m) => format!("(memory {min} {m})"),
+                None => format!("(memory {min})"),
+            },
             WasmImportKind::Global(ty, mutable) => {
                 if *mutable {
                     format!("(global (mut {}))", ty.wat_name())
@@ -103,15 +111,16 @@ impl WasmImport {
                     format!("(global {})", ty.wat_name())
                 }
             }
-            WasmImportKind::Table(min, max) => {
-                match max {
-                    Some(m) => format!("(table {min} {m} funcref)"),
-                    None => format!("(table {min} funcref)"),
-                }
-            }
+            WasmImportKind::Table(min, max) => match max {
+                Some(m) => format!("(table {min} {m} funcref)"),
+                None => format!("(table {min} funcref)"),
+            },
         };
 
-        format!("(import \"{}\" \"{}\" {})", self.module, self.name, kind_str)
+        format!(
+            "(import \"{}\" \"{}\" {})",
+            self.module, self.name, kind_str
+        )
     }
 }
 
@@ -445,12 +454,18 @@ impl WasmModule {
 
     /// Add a function.
     pub fn add_function(&mut self, func: WasmFunc) -> u32 {
-        let idx = self.imports.iter().filter(|i| matches!(i.kind, WasmImportKind::Func(_))).count() as u32
+        let idx = self
+            .imports
+            .iter()
+            .filter(|i| matches!(i.kind, WasmImportKind::Func(_)))
+            .count() as u32
             + self.functions.len() as u32;
 
         // Add export if function is exported
         if func.exported {
-            let export_name = func.export_name.clone()
+            let export_name = func
+                .export_name
+                .clone()
                 .or_else(|| func.name.clone())
                 .unwrap_or_else(|| format!("f{idx}"));
             self.exports.push(WasmExport {
@@ -499,7 +514,9 @@ impl WasmModule {
         use crate::wasi;
 
         // Count imported functions to determine function indices
-        let num_imports = self.imports.iter()
+        let num_imports = self
+            .imports
+            .iter()
             .filter(|i| matches!(i.kind, WasmImportKind::Func(_)))
             .count() as u32;
 
@@ -541,9 +558,8 @@ impl WasmModule {
         use std::fs;
 
         let binary = self.to_wasm()?;
-        fs::write(path.as_ref(), binary).map_err(|e| {
-            crate::WasmError::Internal(format!("failed to write WASM file: {}", e))
-        })
+        fs::write(path.as_ref(), binary)
+            .map_err(|e| crate::WasmError::Internal(format!("failed to write WASM file: {}", e)))
     }
 
     /// Generate WAT (WebAssembly Text) format.
@@ -568,10 +584,10 @@ impl WasmModule {
 
         // Globals
         for (i, global) in self.globals.iter().enumerate() {
-            let name = global.name.as_ref().map_or_else(
-                || format!("$g{i}"),
-                |n| format!("${n}"),
-            );
+            let name = global
+                .name
+                .as_ref()
+                .map_or_else(|| format!("$g{i}"), |n| format!("${n}"));
             let mutability = if global.mutable { "(mut " } else { "" };
             let close = if global.mutable { ")" } else { "" };
             output.push_str(&format!(
@@ -647,8 +663,11 @@ impl CodegenModule for WasmModule {
     fn optimize(&mut self, level: OptLevel) -> CodegenResult<()> {
         match level {
             OptLevel::None => {}
-            OptLevel::Less | OptLevel::Default | OptLevel::Aggressive
-            | OptLevel::Size | OptLevel::SizeMin => {
+            OptLevel::Less
+            | OptLevel::Default
+            | OptLevel::Aggressive
+            | OptLevel::Size
+            | OptLevel::SizeMin => {
                 // Basic optimizations
                 for func in &mut self.functions {
                     optimize_function(func);
@@ -681,7 +700,8 @@ impl CodegenModule for WasmModule {
         let content = match output_type {
             CodegenOutputType::Object => {
                 // Write WASM binary
-                self.to_wasm().map_err(|e| CodegenError::Internal(e.to_string()))?
+                self.to_wasm()
+                    .map_err(|e| CodegenError::Internal(e.to_string()))?
             }
             CodegenOutputType::Assembly => {
                 // Write WAT text
@@ -771,7 +791,11 @@ impl BinaryEncoder {
     /// Encode a memory operation's alignment and offset.
     /// WASM binary format requires alignment as log2(byte_alignment).
     fn encode_memarg(&mut self, byte_align: u32, offset: u32) {
-        let log2_align = if byte_align == 0 { 0 } else { byte_align.trailing_zeros() };
+        let log2_align = if byte_align == 0 {
+            0
+        } else {
+            byte_align.trailing_zeros()
+        };
         self.encode_uleb128(log2_align);
         self.encode_uleb128(offset);
     }
@@ -893,7 +917,11 @@ impl BinaryEncoder {
         Ok(())
     }
 
-    fn encode_import_section(&mut self, module: &WasmModule, type_table: &[WasmFuncType]) -> WasmResult<()> {
+    fn encode_import_section(
+        &mut self,
+        module: &WasmModule,
+        type_table: &[WasmFuncType],
+    ) -> WasmResult<()> {
         if module.imports.is_empty() {
             return Ok(());
         }
@@ -947,7 +975,11 @@ impl BinaryEncoder {
         Ok(())
     }
 
-    fn encode_function_section(&mut self, module: &WasmModule, type_table: &[WasmFuncType]) -> WasmResult<()> {
+    fn encode_function_section(
+        &mut self,
+        module: &WasmModule,
+        type_table: &[WasmFuncType],
+    ) -> WasmResult<()> {
         if module.functions.is_empty() {
             return Ok(());
         }
@@ -995,7 +1027,9 @@ impl BinaryEncoder {
         encoder.encode_uleb128(module.globals.len() as u32);
         for global in &module.globals {
             encoder.encode_type(global.ty);
-            encoder.output.push(if global.mutable { 0x01 } else { 0x00 });
+            encoder
+                .output
+                .push(if global.mutable { 0x01 } else { 0x00 });
             encoder.encode_instr(&global.init)?;
             encoder.output.push(0x0B); // end
         }
@@ -1643,10 +1677,7 @@ mod tests {
 
     #[test]
     fn test_wasm_func_type_to_wat() {
-        let ty = WasmFuncType::new(
-            vec![WasmType::I32, WasmType::I32],
-            vec![WasmType::I32],
-        );
+        let ty = WasmFuncType::new(vec![WasmType::I32, WasmType::I32], vec![WasmType::I32]);
         assert!(ty.to_wat().contains("param"));
         assert!(ty.to_wat().contains("result"));
     }

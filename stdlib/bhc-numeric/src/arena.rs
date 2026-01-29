@@ -310,7 +310,10 @@ impl<'a, T> ArenaTensor<'a, T> {
 // ============================================================================
 
 /// Allocate a zeroed f32 tensor in the arena.
-pub fn arena_zeros_f32<'a>(arena: &'a mut TensorArena, shape: &[usize]) -> Option<ArenaTensor<'a, f32>> {
+pub fn arena_zeros_f32<'a>(
+    arena: &'a mut TensorArena,
+    shape: &[usize],
+) -> Option<ArenaTensor<'a, f32>> {
     let len: usize = shape.iter().product();
     if len == 0 {
         return None;
@@ -352,7 +355,10 @@ pub fn arena_full_f32<'a>(
 }
 
 /// Allocate an f32 tensor of ones in the arena.
-pub fn arena_ones_f32<'a>(arena: &'a mut TensorArena, shape: &[usize]) -> Option<ArenaTensor<'a, f32>> {
+pub fn arena_ones_f32<'a>(
+    arena: &'a mut TensorArena,
+    shape: &[usize],
+) -> Option<ArenaTensor<'a, f32>> {
     arena_full_f32(arena, shape, 1.0)
 }
 
@@ -388,7 +394,10 @@ pub fn arena_clone_f32<'a>(
 // ============================================================================
 
 /// Allocate a zeroed f64 tensor in the arena.
-pub fn arena_zeros_f64<'a>(arena: &'a mut TensorArena, shape: &[usize]) -> Option<ArenaTensor<'a, f64>> {
+pub fn arena_zeros_f64<'a>(
+    arena: &'a mut TensorArena,
+    shape: &[usize],
+) -> Option<ArenaTensor<'a, f64>> {
     let len: usize = shape.iter().product();
     if len == 0 {
         return None;
@@ -430,7 +439,10 @@ pub fn arena_full_f64<'a>(
 }
 
 /// Allocate an f64 tensor of ones in the arena.
-pub fn arena_ones_f64<'a>(arena: &'a mut TensorArena, shape: &[usize]) -> Option<ArenaTensor<'a, f64>> {
+pub fn arena_ones_f64<'a>(
+    arena: &'a mut TensorArena,
+    shape: &[usize],
+) -> Option<ArenaTensor<'a, f64>> {
     arena_full_f64(arena, shape, 1.0)
 }
 

@@ -44,7 +44,7 @@
 //! - Shape ranks must match
 
 use bhc_intern::Symbol;
-use bhc_tensor_ir::{Dim, DType, Shape};
+use bhc_tensor_ir::{DType, Dim, Shape};
 use bhc_types::{nat::TyNat, ty_list::TyList, Kind, Ty, TyCon};
 
 /// Error that can occur during shape conversion.
@@ -127,8 +127,8 @@ pub fn ty_nat_to_dim(nat: &TyNat) -> Result<Dim, ShapeBridgeError> {
     match nat {
         TyNat::Lit(n) => {
             // Check for overflow when converting u64 to usize
-            let n_usize = usize::try_from(*n)
-                .map_err(|_| ShapeBridgeError::DimensionOverflow(*n))?;
+            let n_usize =
+                usize::try_from(*n).map_err(|_| ShapeBridgeError::DimensionOverflow(*n))?;
             Ok(Dim::Static(n_usize))
         }
         TyNat::Var(v) => {
@@ -177,9 +177,7 @@ fn nat_to_symbolic(nat: &TyNat) -> String {
 /// ```
 pub fn extract_static_dims(ty_list: &TyList) -> Option<Vec<usize>> {
     let dims = ty_list.to_static_dims()?;
-    dims.into_iter()
-        .map(|d| usize::try_from(d).ok())
-        .collect()
+    dims.into_iter().map(|d| usize::try_from(d).ok()).collect()
 }
 
 /// Checks if a type-level shape is fully static (all dimensions known).
@@ -387,11 +385,9 @@ impl std::error::Error for ShapeVerifyError {}
 /// - Static dimensions (`TyNat::Lit`) must match exactly
 /// - Dynamic dimensions (`TyNat::Var`) are compatible with any value
 pub fn verify_shape(ty_shape: &TyList, runtime_shape: &Shape) -> Result<(), ShapeVerifyError> {
-    let ty_dims = ty_shape
-        .to_vec()
-        .ok_or(ShapeVerifyError::ConversionError(
-            ShapeBridgeError::UnresolvableShape,
-        ))?;
+    let ty_dims = ty_shape.to_vec().ok_or(ShapeVerifyError::ConversionError(
+        ShapeBridgeError::UnresolvableShape,
+    ))?;
 
     let runtime_dims = runtime_shape.dims();
 
@@ -566,10 +562,7 @@ mod tests {
         use bhc_types::TyVar;
 
         let n = TyVar::new(1, Kind::Nat);
-        let ty_shape = TyList::from_vec(vec![
-            Ty::Nat(TyNat::Lit(1024)),
-            Ty::Nat(TyNat::Var(n)),
-        ]);
+        let ty_shape = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Var(n))]);
 
         let ir_shape = ty_list_to_shape(&ty_shape).unwrap();
 
@@ -609,9 +602,8 @@ mod tests {
     #[test]
     fn test_non_nat_dimension_error() {
         // Try to use a non-Nat type as a dimension
-        let ty_shape = TyList::from_vec(vec![
-            Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star))
-        ]);
+        let ty_shape =
+            TyList::from_vec(vec![Ty::Con(TyCon::new(Symbol::intern("Int"), Kind::Star))]);
 
         let result = ty_list_to_shape(&ty_shape);
         assert!(matches!(result, Err(ShapeBridgeError::NonNatDimension)));
@@ -722,10 +714,7 @@ mod tests {
 
         // Type-level shape with variable dimension
         let n = TyVar::new(1, Kind::Nat);
-        let ty_shape = TyList::from_vec(vec![
-            Ty::Nat(TyNat::Lit(1024)),
-            Ty::Nat(TyNat::Var(n)),
-        ]);
+        let ty_shape = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Var(n))]);
 
         // Runtime shape with any second dimension should be compatible
         let ir_shape = Shape::from_static([1024, 999]);
@@ -778,10 +767,7 @@ mod tests {
         use bhc_types::TyVar;
 
         let n = TyVar::new(1, Kind::Nat);
-        let shape = TyList::from_vec(vec![
-            Ty::Nat(TyNat::Lit(1024)),
-            Ty::Nat(TyNat::Var(n)),
-        ]);
+        let shape = TyList::from_vec(vec![Ty::Nat(TyNat::Lit(1024)), Ty::Nat(TyNat::Var(n))]);
         let float_ty = Ty::Con(TyCon::new(Symbol::intern("Float64"), Kind::Star));
         let tensor_ty = build_tensor_type(shape, float_ty);
 

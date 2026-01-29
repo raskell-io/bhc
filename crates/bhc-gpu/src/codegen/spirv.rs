@@ -48,7 +48,9 @@ pub fn generate_module_header(name: &str, device: &DeviceInfo) -> String {
          OpCapability Int64\n\
          OpCapability Float64\n\
          OpMemoryModel Logical GLSL450\n\n",
-        SPIRV_VERSION, name, device.arch_name()
+        SPIRV_VERSION,
+        name,
+        device.arch_name()
     )
 }
 
@@ -86,7 +88,11 @@ fn generate_kernel_entry(
     writeln!(code, "%v3uint = OpTypeVector %uint 3").unwrap();
     writeln!(code, "%ptr_input_v3uint = OpTypePointer Input %v3uint").unwrap();
     writeln!(code, "%ptr_uniform_float = OpTypePointer Uniform %float").unwrap();
-    writeln!(code, "%ptr_storage_float = OpTypePointer StorageBuffer %float").unwrap();
+    writeln!(
+        code,
+        "%ptr_storage_float = OpTypePointer StorageBuffer %float"
+    )
+    .unwrap();
     writeln!(code).unwrap();
 
     // Constants
@@ -94,13 +100,26 @@ fn generate_kernel_entry(
     writeln!(code, "%uint_0 = OpConstant %uint 0").unwrap();
     writeln!(code, "%uint_1 = OpConstant %uint 1").unwrap();
     writeln!(code, "%uint_2 = OpConstant %uint 2").unwrap();
-    writeln!(code, "%uint_{} = OpConstant %uint {}", block_size, block_size).unwrap();
+    writeln!(
+        code,
+        "%uint_{} = OpConstant %uint {}",
+        block_size, block_size
+    )
+    .unwrap();
     writeln!(code).unwrap();
 
     // Built-in variables
     writeln!(code, "; Built-in variables").unwrap();
-    writeln!(code, "%gl_GlobalInvocationID = OpVariable %ptr_input_v3uint Input").unwrap();
-    writeln!(code, "OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId").unwrap();
+    writeln!(
+        code,
+        "%gl_GlobalInvocationID = OpVariable %ptr_input_v3uint Input"
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId"
+    )
+    .unwrap();
     writeln!(code).unwrap();
 
     // Buffer declarations for inputs/outputs
@@ -138,12 +157,7 @@ fn generate_kernel_entry(
         params.name
     )
     .unwrap();
-    writeln!(
-        code,
-        "OpExecutionMode %main LocalSize {} 1 1",
-        block_size
-    )
-    .unwrap();
+    writeln!(code, "OpExecutionMode %main LocalSize {} 1 1", block_size).unwrap();
     writeln!(code).unwrap();
 
     // Main function
@@ -154,16 +168,8 @@ fn generate_kernel_entry(
 
     // Get global invocation ID
     writeln!(code, "; Get global thread index").unwrap();
-    writeln!(
-        code,
-        "%gid_vec = OpLoad %v3uint %gl_GlobalInvocationID"
-    )
-    .unwrap();
-    writeln!(
-        code,
-        "%gid = OpCompositeExtract %uint %gid_vec 0"
-    )
-    .unwrap();
+    writeln!(code, "%gid_vec = OpLoad %v3uint %gl_GlobalInvocationID").unwrap();
+    writeln!(code, "%gid = OpCompositeExtract %uint %gid_vec 0").unwrap();
     writeln!(code).unwrap();
 
     // Generate kernel body
@@ -233,41 +239,86 @@ fn generate_unary_op(code: &mut String, op: UnaryOp, dtype: DType, idx: usize) -
     let ty = dtype_to_spirv_type(dtype);
 
     // Load input
-    writeln!(code, "%unary_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%unary_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%unary_in{} = OpLoad %{} %unary_ptr{}", idx, ty, idx).unwrap();
 
     // Apply operation
     let result = match op {
         UnaryOp::Neg => {
             if dtype.is_float() {
-                writeln!(code, "%unary_out{} = OpFNegate %{} %unary_in{}", idx, ty, idx).unwrap();
+                writeln!(
+                    code,
+                    "%unary_out{} = OpFNegate %{} %unary_in{}",
+                    idx, ty, idx
+                )
+                .unwrap();
             } else {
-                writeln!(code, "%unary_out{} = OpSNegate %{} %unary_in{}", idx, ty, idx).unwrap();
+                writeln!(
+                    code,
+                    "%unary_out{} = OpSNegate %{} %unary_in{}",
+                    idx, ty, idx
+                )
+                .unwrap();
             }
             format!("%unary_out{}", idx)
         }
         UnaryOp::Abs => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 FAbs %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 FAbs %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         UnaryOp::Sqrt => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 Sqrt %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 Sqrt %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         UnaryOp::Exp => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 Exp %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 Exp %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         UnaryOp::Log => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 Log %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 Log %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         UnaryOp::Sin => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 Sin %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 Sin %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         UnaryOp::Cos => {
-            writeln!(code, "%unary_out{} = OpExtInst %{} %GLSL_std_450 Cos %unary_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%unary_out{} = OpExtInst %{} %GLSL_std_450 Cos %unary_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%unary_out{}", idx)
         }
         _ => {
@@ -277,7 +328,12 @@ fn generate_unary_op(code: &mut String, op: UnaryOp, dtype: DType, idx: usize) -
     };
 
     // Store output
-    writeln!(code, "%out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %out_ptr{} {}", idx, result).unwrap();
 
     Ok(())
@@ -288,44 +344,99 @@ fn generate_binary_op(code: &mut String, op: BinaryOp, dtype: DType, idx: usize)
     let ty = dtype_to_spirv_type(dtype);
 
     // Load inputs
-    writeln!(code, "%bin_ptr_a{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%bin_ptr_a{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%bin_a{} = OpLoad %{} %bin_ptr_a{}", idx, ty, idx).unwrap();
-    writeln!(code, "%bin_ptr_b{} = OpAccessChain %ptr_storage_{} %buffer_in1 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%bin_ptr_b{} = OpAccessChain %ptr_storage_{} %buffer_in1 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%bin_b{} = OpLoad %{} %bin_ptr_b{}", idx, ty, idx).unwrap();
 
     // Apply operation
     let result = match op {
         BinaryOp::Add => {
             if dtype.is_float() {
-                writeln!(code, "%bin_out{} = OpFAdd %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpFAdd %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             } else {
-                writeln!(code, "%bin_out{} = OpIAdd %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpIAdd %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             }
             format!("%bin_out{}", idx)
         }
         BinaryOp::Sub => {
             if dtype.is_float() {
-                writeln!(code, "%bin_out{} = OpFSub %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpFSub %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             } else {
-                writeln!(code, "%bin_out{} = OpISub %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpISub %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             }
             format!("%bin_out{}", idx)
         }
         BinaryOp::Mul => {
             if dtype.is_float() {
-                writeln!(code, "%bin_out{} = OpFMul %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpFMul %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             } else {
-                writeln!(code, "%bin_out{} = OpIMul %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpIMul %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             }
             format!("%bin_out{}", idx)
         }
         BinaryOp::Div => {
             if dtype.is_float() {
-                writeln!(code, "%bin_out{} = OpFDiv %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpFDiv %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             } else if dtype.is_signed() {
-                writeln!(code, "%bin_out{} = OpSDiv %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpSDiv %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             } else {
-                writeln!(code, "%bin_out{} = OpUDiv %{} %bin_a{} %bin_b{}", idx, ty, idx, idx).unwrap();
+                writeln!(
+                    code,
+                    "%bin_out{} = OpUDiv %{} %bin_a{} %bin_b{}",
+                    idx, ty, idx, idx
+                )
+                .unwrap();
             }
             format!("%bin_out{}", idx)
         }
@@ -336,7 +447,12 @@ fn generate_binary_op(code: &mut String, op: BinaryOp, dtype: DType, idx: usize)
     };
 
     // Store output
-    writeln!(code, "%bin_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%bin_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %bin_out_ptr{} {}", idx, result).unwrap();
 
     Ok(())
@@ -354,17 +470,32 @@ fn generate_map_op(
     let fn_name = map_fn.name.as_str();
 
     // Load input
-    writeln!(code, "%map_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%map_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%map_in{} = OpLoad %{} %map_ptr{}", idx, ty, idx).unwrap();
 
     // Apply map function based on name pattern
     let result = if fn_name.contains("mul") || fn_name.contains("*") {
         writeln!(code, "%map_const{} = OpConstant %{} 2.0", idx, ty).unwrap();
-        writeln!(code, "%map_out{} = OpFMul %{} %map_in{} %map_const{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%map_out{} = OpFMul %{} %map_in{} %map_const{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%map_out{}", idx)
     } else if fn_name.contains("add") || fn_name.contains("+") {
         writeln!(code, "%map_const{} = OpConstant %{} 1.0", idx, ty).unwrap();
-        writeln!(code, "%map_out{} = OpFAdd %{} %map_in{} %map_const{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%map_out{} = OpFAdd %{} %map_in{} %map_const{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%map_out{}", idx)
     } else {
         // Identity
@@ -372,7 +503,12 @@ fn generate_map_op(
     };
 
     // Store output
-    writeln!(code, "%map_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%map_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %map_out_ptr{} {}", idx, result).unwrap();
 
     Ok(())
@@ -390,29 +526,64 @@ fn generate_zipwith_op(
     let fn_name = zip_fn.name.as_str();
 
     // Load inputs
-    writeln!(code, "%zip_ptr_a{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%zip_ptr_a{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%zip_a{} = OpLoad %{} %zip_ptr_a{}", idx, ty, idx).unwrap();
-    writeln!(code, "%zip_ptr_b{} = OpAccessChain %ptr_storage_{} %buffer_in1 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%zip_ptr_b{} = OpAccessChain %ptr_storage_{} %buffer_in1 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%zip_b{} = OpLoad %{} %zip_ptr_b{}", idx, ty, idx).unwrap();
 
     // Apply zipwith function
     let result = if fn_name.contains("add") || fn_name.contains("+") {
-        writeln!(code, "%zip_out{} = OpFAdd %{} %zip_a{} %zip_b{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%zip_out{} = OpFAdd %{} %zip_a{} %zip_b{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%zip_out{}", idx)
     } else if fn_name.contains("mul") || fn_name.contains("*") {
-        writeln!(code, "%zip_out{} = OpFMul %{} %zip_a{} %zip_b{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%zip_out{} = OpFMul %{} %zip_a{} %zip_b{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%zip_out{}", idx)
     } else if fn_name.contains("sub") || fn_name.contains("-") {
-        writeln!(code, "%zip_out{} = OpFSub %{} %zip_a{} %zip_b{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%zip_out{} = OpFSub %{} %zip_a{} %zip_b{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%zip_out{}", idx)
     } else {
         // Default to multiply
-        writeln!(code, "%zip_out{} = OpFMul %{} %zip_a{} %zip_b{}", idx, ty, idx, idx).unwrap();
+        writeln!(
+            code,
+            "%zip_out{} = OpFMul %{} %zip_a{} %zip_b{}",
+            idx, ty, idx, idx
+        )
+        .unwrap();
         format!("%zip_out{}", idx)
     };
 
     // Store output
-    writeln!(code, "%zip_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%zip_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %zip_out_ptr{} {}", idx, result).unwrap();
 
     Ok(())
@@ -431,25 +602,50 @@ fn generate_reduce_op(
     writeln!(code, "; Parallel reduction using subgroup operations").unwrap();
 
     // Load input
-    writeln!(code, "%red_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%red_ptr{} = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "%red_in{} = OpLoad %{} %red_ptr{}", idx, ty, idx).unwrap();
 
     // Use subgroup reduction if available
     let result = match op {
         ReduceOp::Sum => {
-            writeln!(code, "%red_out{} = OpGroupNonUniformFAdd %{} %uint_3 Reduce %red_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%red_out{} = OpGroupNonUniformFAdd %{} %uint_3 Reduce %red_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%red_out{}", idx)
         }
         ReduceOp::Prod => {
-            writeln!(code, "%red_out{} = OpGroupNonUniformFMul %{} %uint_3 Reduce %red_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%red_out{} = OpGroupNonUniformFMul %{} %uint_3 Reduce %red_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%red_out{}", idx)
         }
         ReduceOp::Min => {
-            writeln!(code, "%red_out{} = OpGroupNonUniformFMin %{} %uint_3 Reduce %red_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%red_out{} = OpGroupNonUniformFMin %{} %uint_3 Reduce %red_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%red_out{}", idx)
         }
         ReduceOp::Max => {
-            writeln!(code, "%red_out{} = OpGroupNonUniformFMax %{} %uint_3 Reduce %red_in{}", idx, ty, idx).unwrap();
+            writeln!(
+                code,
+                "%red_out{} = OpGroupNonUniformFMax %{} %uint_3 Reduce %red_in{}",
+                idx, ty, idx
+            )
+            .unwrap();
             format!("%red_out{}", idx)
         }
         _ => {
@@ -461,9 +657,19 @@ fn generate_reduce_op(
     // Store output (first thread only for full reduction)
     writeln!(code, "%is_first = OpIEqual %bool %gid %uint_0").unwrap();
     writeln!(code, "OpSelectionMerge %reduce_merge{} None", idx).unwrap();
-    writeln!(code, "OpBranchConditional %is_first %reduce_store{} %reduce_merge{}", idx, idx).unwrap();
+    writeln!(
+        code,
+        "OpBranchConditional %is_first %reduce_store{} %reduce_merge{}",
+        idx, idx
+    )
+    .unwrap();
     writeln!(code, "%reduce_store{} = OpLabel", idx).unwrap();
-    writeln!(code, "%red_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %uint_0", idx, ty).unwrap();
+    writeln!(
+        code,
+        "%red_out_ptr{} = OpAccessChain %ptr_storage_{} %buffer_out0 %uint_0",
+        idx, ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %red_out_ptr{} {}", idx, result).unwrap();
     writeln!(code, "OpBranch %reduce_merge{}", idx).unwrap();
     writeln!(code, "%reduce_merge{} = OpLabel", idx).unwrap();
@@ -497,10 +703,20 @@ pub fn generate_elementwise_kernel(
     let mut code = String::new();
 
     writeln!(code, "; Elementwise kernel: {}", op_code).unwrap();
-    writeln!(code, "%elem_ptr = OpAccessChain %ptr_storage_{} %buffer_in0 %gid", ty).unwrap();
+    writeln!(
+        code,
+        "%elem_ptr = OpAccessChain %ptr_storage_{} %buffer_in0 %gid",
+        ty
+    )
+    .unwrap();
     writeln!(code, "%elem_in = OpLoad %{} %elem_ptr", ty).unwrap();
     writeln!(code, "%elem_out = {} %{} %elem_in", op_code, ty).unwrap();
-    writeln!(code, "%elem_out_ptr = OpAccessChain %ptr_storage_{} %buffer_out0 %gid", ty).unwrap();
+    writeln!(
+        code,
+        "%elem_out_ptr = OpAccessChain %ptr_storage_{} %buffer_out0 %gid",
+        ty
+    )
+    .unwrap();
     writeln!(code, "OpStore %elem_out_ptr %elem_out").unwrap();
 
     Ok(code)

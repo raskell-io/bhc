@@ -36,7 +36,11 @@ pub struct EnvError {
 
 impl std::fmt::Display for EnvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Environment error for '{}': {}", self.var_name, self.message)
+        write!(
+            f,
+            "Environment error for '{}': {}",
+            self.var_name, self.message
+        )
     }
 }
 
