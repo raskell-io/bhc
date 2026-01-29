@@ -456,6 +456,88 @@ pub enum PrimOp {
     /// Enumeration: enumFromTo start end
     EnumFromTo,
 
+    // Additional list operations (second batch)
+    /// Even predicate: even n
+    Even,
+    /// Odd predicate: odd n
+    Odd,
+    /// List membership: elem x xs
+    Elem,
+    /// List non-membership: notElem x xs
+    NotElem,
+    /// Take while predicate holds: takeWhile p xs
+    TakeWhile,
+    /// Drop while predicate holds: dropWhile p xs
+    DropWhile,
+    /// Split at predicate: span p xs
+    Span,
+    /// Split at predicate negation: break p xs
+    Break,
+    /// Split at index: splitAt n xs
+    SplitAt,
+    /// Iterate function: iterate f x (returns first 1000 elements)
+    Iterate,
+    /// Repeat value: repeat x (returns first 1000 elements)
+    Repeat,
+    /// Cycle list: cycle xs (returns first 1000 elements)
+    Cycle,
+    /// Lookup in assoc list: lookup k xs
+    Lookup,
+    /// Unzip pairs: unzip xs
+    Unzip,
+    /// Product of list: product xs
+    Product,
+    /// Flip function arguments: flip f x y = f y x
+    Flip,
+    /// Minimum of two: min a b
+    Min,
+    /// Maximum of two: max a b
+    Max,
+    /// Identity conversion: fromIntegral n
+    FromIntegral,
+    /// Maybe eliminator: maybe def f m
+    MaybeElim,
+    /// Default from Maybe: fromMaybe def m
+    FromMaybe,
+    /// Either eliminator: either f g e
+    EitherElim,
+    /// isJust :: Maybe a -> Bool
+    IsJust,
+    /// isNothing :: Maybe a -> Bool
+    IsNothing,
+    /// Absolute value: abs n
+    Abs,
+    /// Sign: signum n
+    Signum,
+    /// curry :: ((a, b) -> c) -> a -> b -> c
+    Curry,
+    /// uncurry :: (a -> b -> c) -> (a, b) -> c
+    Uncurry,
+    /// swap :: (a, b) -> (b, a)
+    Swap,
+    /// any :: (a -> Bool) -> [a] -> Bool
+    Any,
+    /// all :: (a -> Bool) -> [a] -> Bool
+    All,
+    /// and :: [Bool] -> Bool
+    And,
+    /// or :: [Bool] -> Bool
+    Or,
+    /// lines :: String -> [String]
+    Lines,
+    /// unlines :: [String] -> String
+    Unlines,
+    /// words :: String -> [String]
+    Words,
+    /// unwords :: [String] -> String
+    Unwords,
+    /// show :: a -> String
+    Show,
+    /// id :: a -> a
+    Id,
+    /// const :: a -> b -> a
+    Const,
+
     // IO operations
     /// Print a string followed by newline.
     PutStrLn,
@@ -490,6 +572,11 @@ impl PrimOp {
             | Self::UArrayFromList | Self::UArrayToList | Self::UArraySum | Self::UArrayLength
             | Self::ListReturn | Self::Head | Self::Tail | Self::Last | Self::Init
             | Self::Reverse | Self::Null
+            | Self::Even | Self::Odd | Self::Cycle | Self::Unzip | Self::Product
+            | Self::FromIntegral | Self::IsJust | Self::IsNothing
+            | Self::Abs | Self::Signum | Self::Swap | Self::Repeat
+            | Self::And | Self::Or | Self::Lines | Self::Unlines | Self::Words | Self::Unwords
+            | Self::Show | Self::Id
             | Self::PutStrLn | Self::PutStr | Self::Print | Self::IoReturn => 1,
             // Arity 0
             Self::GetLine => 0,
@@ -497,10 +584,13 @@ impl PrimOp {
             Self::UArrayMap | Self::UArrayRange | Self::Concat | Self::ConcatMap | Self::Append
             | Self::ListBind | Self::ListThen | Self::Filter | Self::Zip | Self::Take | Self::Drop
             | Self::Index | Self::Replicate | Self::EnumFromTo
+            | Self::Elem | Self::NotElem | Self::TakeWhile | Self::DropWhile | Self::Span | Self::Break
+            | Self::SplitAt | Self::Iterate | Self::Lookup | Self::Min | Self::Max
+            | Self::FromMaybe | Self::Any | Self::All | Self::Const | Self::Uncurry
             | Self::IoBind | Self::IoThen | Self::MonadBind | Self::MonadThen => 2,
             // Arity 3
             Self::UArrayZipWith | Self::UArrayFold | Self::Foldr | Self::Foldl | Self::FoldlStrict
-            | Self::ZipWith => 3,
+            | Self::ZipWith | Self::Flip | Self::MaybeElim | Self::EitherElim | Self::Curry => 3,
             // Default arity 2 for arithmetic/comparison ops
             _ => 2,
         }
@@ -534,8 +624,8 @@ impl PrimOp {
             "int2Double#" => Some(Self::IntToDouble),
             "double2Int#" => Some(Self::DoubleToInt),
             "eqChar#" => Some(Self::EqChar),
-            "ord#" => Some(Self::CharToInt),
-            "chr#" => Some(Self::IntToChar),
+            "ord" | "ord#" => Some(Self::CharToInt),
+            "chr" | "chr#" => Some(Self::IntToChar),
             "seq" => Some(Self::Seq),
             "error" => Some(Self::Error),
             // UArray operations
@@ -573,6 +663,47 @@ impl PrimOp {
             "!!" => Some(Self::Index),
             "replicate" => Some(Self::Replicate),
             "enumFromTo" => Some(Self::EnumFromTo),
+            // Additional list/prelude operations
+            "even" => Some(Self::Even),
+            "odd" => Some(Self::Odd),
+            "elem" => Some(Self::Elem),
+            "notElem" => Some(Self::NotElem),
+            "takeWhile" => Some(Self::TakeWhile),
+            "dropWhile" => Some(Self::DropWhile),
+            "span" => Some(Self::Span),
+            "break" => Some(Self::Break),
+            "splitAt" => Some(Self::SplitAt),
+            "iterate" => Some(Self::Iterate),
+            "repeat" => Some(Self::Repeat),
+            "cycle" => Some(Self::Cycle),
+            "lookup" => Some(Self::Lookup),
+            "unzip" => Some(Self::Unzip),
+            "product" => Some(Self::Product),
+            "flip" => Some(Self::Flip),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            "fromIntegral" | "toInteger" => Some(Self::FromIntegral),
+            "maybe" => Some(Self::MaybeElim),
+            "fromMaybe" => Some(Self::FromMaybe),
+            "either" => Some(Self::EitherElim),
+            "isJust" => Some(Self::IsJust),
+            "isNothing" => Some(Self::IsNothing),
+            "abs" => Some(Self::Abs),
+            "signum" => Some(Self::Signum),
+            "curry" => Some(Self::Curry),
+            "uncurry" => Some(Self::Uncurry),
+            "swap" => Some(Self::Swap),
+            "any" => Some(Self::Any),
+            "all" => Some(Self::All),
+            "and" => Some(Self::And),
+            "or" => Some(Self::Or),
+            "lines" => Some(Self::Lines),
+            "unlines" => Some(Self::Unlines),
+            "words" => Some(Self::Words),
+            "unwords" => Some(Self::Unwords),
+            "show" => Some(Self::Show),
+            "id" => Some(Self::Id),
+            "const" => Some(Self::Const),
             // IO operations
             "putStrLn" => Some(Self::PutStrLn),
             "putStr" => Some(Self::PutStr),

@@ -1094,6 +1094,279 @@ impl TyCtxt {
                     vec![a.clone(), b.clone()],
                     Ty::fun(Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]), Ty::Var(b.clone())),
                 ),
+                // replicate :: Int -> a -> [a]
+                "replicate" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), list_a)),
+                    )
+                }
+                // enumFromTo :: Int -> Int -> [Int]
+                "enumFromTo" => {
+                    let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
+                    Scheme::mono(Ty::fun(
+                        self.builtins.int_ty.clone(),
+                        Ty::fun(self.builtins.int_ty.clone(), list_int),
+                    ))
+                }
+                // ord :: Char -> Int
+                "ord" => Scheme::mono(Ty::fun(
+                    self.builtins.char_ty.clone(),
+                    self.builtins.int_ty.clone(),
+                )),
+                // chr :: Int -> Char
+                "chr" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    self.builtins.char_ty.clone(),
+                )),
+                // flip :: (a -> b -> c) -> b -> a -> c
+                "flip" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone()))),
+                        ),
+                    )
+                }
+                // even, odd :: Int -> Bool
+                "even" | "odd" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    self.builtins.bool_ty.clone(),
+                )),
+                // elem, notElem :: a -> [a] -> Bool
+                "elem" | "notElem" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a, self.builtins.bool_ty.clone())),
+                    )
+                }
+                // takeWhile, dropWhile :: (a -> Bool) -> [a] -> [a]
+                "takeWhile" | "dropWhile" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                            Ty::fun(list_a.clone(), list_a),
+                        ),
+                    )
+                }
+                // span :: (a -> Bool) -> [a] -> ([a], [a])
+                "span" | "break" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    let pair = Ty::Tuple(vec![list_a.clone(), list_a.clone()]);
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                            Ty::fun(list_a, pair),
+                        ),
+                    )
+                }
+                // splitAt :: Int -> [a] -> ([a], [a])
+                "splitAt" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    let pair = Ty::Tuple(vec![list_a.clone(), list_a.clone()]);
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(list_a, pair)),
+                    )
+                }
+                // iterate :: (a -> a) -> a -> [a]
+                "iterate" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                            Ty::fun(Ty::Var(a.clone()), list_a),
+                        ),
+                    )
+                }
+                // repeat :: a -> [a]
+                "repeat" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), list_a))
+                }
+                // cycle :: [a] -> [a]
+                "cycle" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(list_a.clone(), list_a))
+                }
+                // lookup :: a -> [(a, b)] -> Maybe b
+                "lookup" => {
+                    let pair_ab = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    let list_pairs = Ty::List(Box::new(pair_ab));
+                    let maybe_b = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(list_pairs, maybe_b)),
+                    )
+                }
+                // unzip :: [(a, b)] -> ([a], [b])
+                "unzip" => {
+                    let pair_ab = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    let list_pairs = Ty::List(Box::new(pair_ab));
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                    let result = Ty::Tuple(vec![list_a, list_b]);
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(list_pairs, result),
+                    )
+                }
+                // maybe :: b -> (a -> b) -> Maybe a -> b
+                "maybe" => {
+                    let maybe_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::Var(b.clone()),
+                            Ty::fun(
+                                Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                                Ty::fun(maybe_a, Ty::Var(b.clone())),
+                            ),
+                        ),
+                    )
+                }
+                // fromMaybe :: a -> Maybe a -> a
+                "fromMaybe" => {
+                    let maybe_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(maybe_a, Ty::Var(a.clone()))),
+                    )
+                }
+                // either :: (a -> c) -> (b -> c) -> Either a b -> c
+                "either" => {
+                    let either_ab = Ty::App(
+                        Box::new(Ty::App(
+                            Box::new(Ty::Con(self.builtins.either_con.clone())),
+                            Box::new(Ty::Var(a.clone())),
+                        )),
+                        Box::new(Ty::Var(b.clone())),
+                    );
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(c.clone())),
+                            Ty::fun(
+                                Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone())),
+                                Ty::fun(either_ab, Ty::Var(c.clone())),
+                            ),
+                        ),
+                    )
+                }
+                // min, max :: Int -> Int -> Int (Int-specialized for now)
+                "min" | "max" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    Ty::fun(self.builtins.int_ty.clone(), self.builtins.int_ty.clone()),
+                )),
+                // fromIntegral, toInteger :: Int -> Int (identity for now)
+                "fromIntegral" | "toInteger" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    self.builtins.int_ty.clone(),
+                )),
+                // any :: (a -> Bool) -> [a] -> Bool
+                "any" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                            Ty::fun(list_a, self.builtins.bool_ty.clone()),
+                        ),
+                    )
+                }
+                // all :: (a -> Bool) -> [a] -> Bool
+                "all" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                            Ty::fun(list_a, self.builtins.bool_ty.clone()),
+                        ),
+                    )
+                }
+                // and :: [Bool] -> Bool
+                "and" => {
+                    let list_bool = Ty::List(Box::new(self.builtins.bool_ty.clone()));
+                    Scheme::mono(Ty::fun(list_bool, self.builtins.bool_ty.clone()))
+                }
+                // or :: [Bool] -> Bool
+                "or" => {
+                    let list_bool = Ty::List(Box::new(self.builtins.bool_ty.clone()));
+                    Scheme::mono(Ty::fun(list_bool, self.builtins.bool_ty.clone()))
+                }
+                // lines :: String -> [String]
+                "lines" => {
+                    let list_string = Ty::List(Box::new(self.builtins.string_ty.clone()));
+                    Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), list_string))
+                }
+                // unlines :: [String] -> String
+                "unlines" => {
+                    let list_string = Ty::List(Box::new(self.builtins.string_ty.clone()));
+                    Scheme::mono(Ty::fun(list_string, self.builtins.string_ty.clone()))
+                }
+                // words :: String -> [String]
+                "words" => {
+                    let list_string = Ty::List(Box::new(self.builtins.string_ty.clone()));
+                    Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), list_string))
+                }
+                // unwords :: [String] -> String
+                "unwords" => {
+                    let list_string = Ty::List(Box::new(self.builtins.string_ty.clone()));
+                    Scheme::mono(Ty::fun(list_string, self.builtins.string_ty.clone()))
+                }
+                // isJust :: Maybe a -> Bool
+                "isJust" | "isNothing" => {
+                    let maybe_a = Ty::App(
+                        Box::new(Ty::Con(self.builtins.maybe_con.clone())),
+                        Box::new(Ty::Var(a.clone())),
+                    );
+                    Scheme::poly(vec![a.clone()], Ty::fun(maybe_a, self.builtins.bool_ty.clone()))
+                }
+                // curry :: ((a, b) -> c) -> a -> b -> c
+                "curry" => {
+                    let pair = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(
+                            Ty::fun(pair, Ty::Var(c.clone())),
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                        ),
+                    )
+                }
+                // uncurry :: (a -> b -> c) -> (a, b) -> c
+                "uncurry" => {
+                    let pair = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))),
+                            Ty::fun(pair, Ty::Var(c.clone())),
+                        ),
+                    )
+                }
+                // swap :: (a, b) -> (b, a)
+                "swap" => {
+                    let pair_ab = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    let pair_ba = Ty::Tuple(vec![Ty::Var(b.clone()), Ty::Var(a.clone())]);
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(pair_ab, pair_ba))
+                }
                 // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };
