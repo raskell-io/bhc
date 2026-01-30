@@ -1397,9 +1397,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "isLeft" => Some(1),
             "isRight" => Some(1),
 
-            // Error
+            // Error / Exception handling
             "error" => Some(1),
             "undefined" => Some(0),
+            "throw" | "throwIO" => Some(1),
+            "catch" => Some(2),
+            "try" => Some(1),
+            "bracket" => Some(3),
+            "finally" | "onException" => Some(2),
 
             // Misc
             "seq" => Some(2),
@@ -1761,9 +1766,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "isLeft" => self.lower_builtin_is_left(args[0]),
             "isRight" => self.lower_builtin_is_right(args[0]),
 
-            // Error
+            // Error / Exception handling
             "error" => self.lower_builtin_error(args[0]),
             "undefined" => self.lower_builtin_undefined(),
+            "throw" | "throwIO" => self.lower_builtin_throw(args[0]),
+            "catch" => self.lower_builtin_catch(args[0], args[1]),
+            "try" => self.lower_builtin_try(args[0]),
+            "bracket" => self.lower_builtin_bracket(args[0], args[1], args[2]),
+            "finally" => self.lower_builtin_finally(args[0], args[1]),
+            "onException" => self.lower_builtin_on_exception(args[0], args[1]),
 
             // Misc
             "seq" => self.lower_builtin_seq(args[0], args[1]),
@@ -5911,6 +5922,134 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("failed to build unreachable: {:?}", e)))?;
 
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `throw` / `throwIO` - call bhc_throw and return null.
+    fn lower_builtin_throw(
+        &mut self,
+        msg_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let msg_val = self
+            .lower_expr(msg_expr)?
+            .ok_or_else(|| CodegenError::Internal("throw: message has no value".to_string()))?;
+
+        let msg_ptr = match msg_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => self
+                .module
+                .add_global_string("throw_default", "exception"),
+        };
+
+        let throw_fn = self
+            .functions
+            .get(&VarId::new(1080))
+            .ok_or_else(|| CodegenError::Internal("bhc_throw not declared".to_string()))?;
+
+        self.builder()
+            .build_call(*throw_fn, &[msg_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("failed to call throw: {:?}", e)))?;
+
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `catch` - execute action, catch exceptions with handler.
+    /// Simplified: just execute the action (no actual exception catching yet).
+    fn lower_builtin_catch(
+        &mut self,
+        action_expr: &Expr,
+        handler_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Evaluate both to ensure they're lowered, but only use the action result
+        let _ = self.lower_expr(handler_expr)?;
+        let result = self.lower_expr(action_expr)?;
+        Ok(result)
+    }
+
+    /// Lower `try` - execute action, return Right(result) on success.
+    /// Simplified: just execute the action.
+    fn lower_builtin_try(
+        &mut self,
+        action_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let result = self.lower_expr(action_expr)?;
+        Ok(result)
+    }
+
+    /// Lower `bracket` - acquire resource, use it, release it.
+    /// Simplified: acquire, use, release in sequence.
+    fn lower_builtin_bracket(
+        &mut self,
+        acquire_expr: &Expr,
+        release_expr: &Expr,
+        use_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let resource = self
+            .lower_expr(acquire_expr)?
+            .ok_or_else(|| CodegenError::Internal("bracket: acquire has no value".to_string()))?;
+
+        // Apply use_fn to resource
+        let use_fn = self
+            .lower_expr(use_expr)?
+            .ok_or_else(|| CodegenError::Internal("bracket: use fn has no value".to_string()))?;
+        let use_fn_ptr = use_fn.into_pointer_value();
+        let fn_ptr = self.extract_closure_fn_ptr(use_fn_ptr)?;
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self
+            .builder()
+            .build_indirect_call(
+                fn_type,
+                fn_ptr,
+                &[use_fn_ptr.into(), resource.into()],
+                "bracket_use_result",
+            )
+            .map_err(|e| CodegenError::Internal(format!("bracket use call failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("bracket: use returned void".to_string()))?;
+
+        // Apply release_fn to resource
+        let release_fn = self
+            .lower_expr(release_expr)?
+            .ok_or_else(|| CodegenError::Internal("bracket: release fn has no value".to_string()))?;
+        let release_fn_ptr = release_fn.into_pointer_value();
+        let rel_ptr = self.extract_closure_fn_ptr(release_fn_ptr)?;
+        self.builder()
+            .build_indirect_call(
+                fn_type,
+                rel_ptr,
+                &[release_fn_ptr.into(), resource.into()],
+                "bracket_release_result",
+            )
+            .map_err(|e| {
+                CodegenError::Internal(format!("bracket release call failed: {:?}", e))
+            })?;
+
+        Ok(Some(result))
+    }
+
+    /// Lower `finally` - execute action then cleanup.
+    /// Simplified: execute action, then cleanup, return action result.
+    fn lower_builtin_finally(
+        &mut self,
+        action_expr: &Expr,
+        cleanup_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let result = self.lower_expr(action_expr)?;
+        let _ = self.lower_expr(cleanup_expr)?;
+        Ok(result)
+    }
+
+    /// Lower `onException` - execute action, run handler only if exception.
+    /// Simplified: just execute the action (no actual exception detection yet).
+    fn lower_builtin_on_exception(
+        &mut self,
+        action_expr: &Expr,
+        handler_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(handler_expr)?;
+        let result = self.lower_expr(action_expr)?;
+        Ok(result)
     }
 
     /// Lower `seq` - force evaluation of first argument, return second.

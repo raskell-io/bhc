@@ -1443,6 +1443,42 @@ impl TyCtxt {
                     let pair_ba = Ty::Tuple(vec![Ty::Var(b.clone()), Ty::Var(a.clone())]);
                     Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(pair_ab, pair_ba))
                 }
+                // readFile :: String -> IO String
+                "readFile" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        Ty::App(
+                            Box::new(Ty::Con(self.builtins.io_con.clone())),
+                            Box::new(self.builtins.string_ty.clone()),
+                        ),
+                    ))
+                }
+                // writeFile :: String -> String -> IO ()
+                "writeFile" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        Ty::fun(
+                            self.builtins.string_ty.clone(),
+                            Ty::App(
+                                Box::new(Ty::Con(self.builtins.io_con.clone())),
+                                Box::new(Ty::unit()),
+                            ),
+                        ),
+                    ))
+                }
+                // appendFile :: String -> String -> IO ()
+                "appendFile" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        Ty::fun(
+                            self.builtins.string_ty.clone(),
+                            Ty::App(
+                                Box::new(Ty::Con(self.builtins.io_con.clone())),
+                                Box::new(Ty::unit()),
+                            ),
+                        ),
+                    ))
+                }
                 // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };
