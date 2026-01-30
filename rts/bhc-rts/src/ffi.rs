@@ -1225,6 +1225,96 @@ pub extern "C" fn bhc_show_char(c: u32) -> *mut c_char {
 }
 
 // ----------------------------------------------------------------------------
+// Math: atan2 for Float and Double
+// ----------------------------------------------------------------------------
+
+/// atan2 for Float
+#[no_mangle]
+pub extern "C" fn bhc_atan2_float(y: f32, x: f32) -> f32 {
+    y.atan2(x)
+}
+
+/// atan2 for Double
+#[no_mangle]
+pub extern "C" fn bhc_atan2_double(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+}
+
+/// Signum for Int
+#[no_mangle]
+pub extern "C" fn bhc_signum_int(a: i64) -> i64 {
+    match a.cmp(&0) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// Abs for Int
+#[no_mangle]
+pub extern "C" fn bhc_abs_int(a: i64) -> i64 {
+    a.wrapping_abs()
+}
+
+/// Signum for Float
+#[no_mangle]
+pub extern "C" fn bhc_signum_float(a: f32) -> f32 {
+    if a > 0.0 {
+        1.0
+    } else if a < 0.0 {
+        -1.0
+    } else {
+        0.0
+    }
+}
+
+/// Signum for Double
+#[no_mangle]
+pub extern "C" fn bhc_signum_double(a: f64) -> f64 {
+    if a > 0.0 {
+        1.0
+    } else if a < 0.0 {
+        -1.0
+    } else {
+        0.0
+    }
+}
+
+// ----------------------------------------------------------------------------
+// IO: getLine, readFile, writeFile, appendFile
+// ----------------------------------------------------------------------------
+
+/// Read a line from stdin (FFI)
+/// Returns a heap-allocated null-terminated C string, or null on error/EOF.
+#[no_mangle]
+pub extern "C" fn bhc_getLine() -> *mut c_char {
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) => ptr::null_mut(), // EOF
+        Ok(_) => {
+            // Remove trailing newline
+            if line.ends_with('\n') {
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
+            }
+            match std::ffi::CString::new(line) {
+                Ok(cstr) => cstr.into_raw(),
+                Err(_) => ptr::null_mut(),
+            }
+        }
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Print a newline to stdout
+#[no_mangle]
+pub extern "C" fn bhc_print_newline() {
+    println!();
+}
+
+// ----------------------------------------------------------------------------
 // String Memory Management
 // ----------------------------------------------------------------------------
 

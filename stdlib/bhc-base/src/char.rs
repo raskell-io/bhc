@@ -88,6 +88,55 @@ pub extern "C" fn bhc_char_is_ascii(c: u32) -> bool {
     c <= 127
 }
 
+/// Check if character is a control character
+#[no_mangle]
+pub extern "C" fn bhc_char_is_control(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| c.is_control())
+}
+
+/// Check if character is a hex digit
+#[no_mangle]
+pub extern "C" fn bhc_char_is_hex_digit(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| c.is_ascii_hexdigit())
+}
+
+/// Check if character is a letter (alias for is_alpha)
+#[no_mangle]
+pub extern "C" fn bhc_char_is_letter(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| c.is_alphabetic())
+}
+
+/// Check if character is a number
+#[no_mangle]
+pub extern "C" fn bhc_char_is_number(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| c.is_numeric())
+}
+
+/// Check if character is punctuation
+#[no_mangle]
+pub extern "C" fn bhc_char_is_punctuation(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| c.is_ascii_punctuation())
+}
+
+/// Check if character is a symbol
+#[no_mangle]
+pub extern "C" fn bhc_char_is_symbol(c: u32) -> bool {
+    char::from_u32(c).map_or(false, |c| {
+        matches!(
+            c,
+            '$' | '+' | '<' | '=' | '>' | '^' | '`' | '|' | '~'
+                | '¢' | '£' | '¤' | '¥' | '¦' | '§' | '©' | '¬'
+                | '®' | '°' | '±' | 'µ' | '¶' | '×' | '÷'
+        ) || c.is_ascii_punctuation()
+            && !matches!(
+                c,
+                '!' | '"' | '#' | '%' | '&' | '\'' | '(' | ')' | '*'
+                    | ',' | '-' | '.' | '/' | ':' | ';' | '?' | '@'
+                    | '[' | '\\' | ']' | '_' | '{' | '}'
+            )
+    })
+}
+
 /// Get character's code point
 #[no_mangle]
 pub extern "C" fn bhc_char_ord(c: u32) -> u32 {

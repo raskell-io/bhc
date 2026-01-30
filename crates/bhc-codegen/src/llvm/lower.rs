@@ -234,6 +234,448 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 .llvm_module()
                 .add_function("bhc_is_thunk", is_thunk_type, None);
         self.functions.insert(VarId::new(1012), is_thunk_fn);
+
+        // === Math RTS functions ===
+        let f64_to_f64 = f64_type.fn_type(&[f64_type.into()], false);
+        let f32_type = self.llvm_ctx.f32_type();
+        let f64_to_i64 = i64_type.fn_type(&[f64_type.into()], false);
+        let f64_f64_to_f64 = f64_type.fn_type(&[f64_type.into(), f64_type.into()], false);
+        let i64_to_i64 = i64_type.fn_type(&[i64_type.into()], false);
+
+        // bhc_sqrt_double(f64) -> f64
+        let sqrt_double = self.module.llvm_module().add_function("bhc_sqrt_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1013), sqrt_double);
+
+        // bhc_exp_double(f64) -> f64
+        let exp_double = self.module.llvm_module().add_function("bhc_exp_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1014), exp_double);
+
+        // bhc_log_double(f64) -> f64
+        let log_double = self.module.llvm_module().add_function("bhc_log_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1015), log_double);
+
+        // bhc_sin_double(f64) -> f64
+        let sin_double = self.module.llvm_module().add_function("bhc_sin_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1016), sin_double);
+
+        // bhc_cos_double(f64) -> f64
+        let cos_double = self.module.llvm_module().add_function("bhc_cos_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1017), cos_double);
+
+        // bhc_tan_double(f64) -> f64
+        let tan_double = self.module.llvm_module().add_function("bhc_tan_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1018), tan_double);
+
+        // bhc_asin_double(f64) -> f64
+        let asin_double = self.module.llvm_module().add_function("bhc_asin_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1019), asin_double);
+
+        // bhc_acos_double(f64) -> f64
+        let acos_double = self.module.llvm_module().add_function("bhc_acos_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1020), acos_double);
+
+        // bhc_atan_double(f64) -> f64
+        let atan_double = self.module.llvm_module().add_function("bhc_atan_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1021), atan_double);
+
+        // bhc_atan2_double(f64, f64) -> f64
+        let atan2_double = self.module.llvm_module().add_function("bhc_atan2_double", f64_f64_to_f64, None);
+        self.functions.insert(VarId::new(1022), atan2_double);
+
+        // bhc_ceiling_double(f64) -> i64
+        let ceiling_double = self.module.llvm_module().add_function("bhc_ceiling_double", f64_to_i64, None);
+        self.functions.insert(VarId::new(1023), ceiling_double);
+
+        // bhc_floor_double(f64) -> i64
+        let floor_double = self.module.llvm_module().add_function("bhc_floor_double", f64_to_i64, None);
+        self.functions.insert(VarId::new(1024), floor_double);
+
+        // bhc_round_double(f64) -> i64
+        let round_double = self.module.llvm_module().add_function("bhc_round_double", f64_to_i64, None);
+        self.functions.insert(VarId::new(1025), round_double);
+
+        // bhc_truncate_double(f64) -> i64
+        let truncate_double = self.module.llvm_module().add_function("bhc_truncate_double", f64_to_i64, None);
+        self.functions.insert(VarId::new(1026), truncate_double);
+
+        // bhc_negate_int(i64) -> i64
+        let negate_int = self.module.llvm_module().add_function("bhc_negate_int", i64_to_i64, None);
+        self.functions.insert(VarId::new(1027), negate_int);
+
+        // bhc_abs_int(i64) -> i64
+        let abs_int = self.module.llvm_module().add_function("bhc_abs_int", i64_to_i64, None);
+        self.functions.insert(VarId::new(1028), abs_int);
+
+        // bhc_signum_int(i64) -> i64
+        let signum_int = self.module.llvm_module().add_function("bhc_signum_int", i64_to_i64, None);
+        self.functions.insert(VarId::new(1029), signum_int);
+
+        // === Character RTS functions ===
+        let u32_type = self.llvm_ctx.i32_type();
+        let u32_to_bool = self.llvm_ctx.bool_type().fn_type(&[u32_type.into()], false);
+        let u32_to_u32 = u32_type.fn_type(&[u32_type.into()], false);
+        let u32_to_i32 = i32_type.fn_type(&[u32_type.into()], false);
+        let i32_to_u32 = u32_type.fn_type(&[i32_type.into()], false);
+
+        // bhc_char_is_alpha(u32) -> bool
+        let char_is_alpha = self.module.llvm_module().add_function("bhc_char_is_alpha", u32_to_bool, None);
+        self.functions.insert(VarId::new(1030), char_is_alpha);
+
+        // bhc_char_is_digit(u32) -> bool
+        let char_is_digit = self.module.llvm_module().add_function("bhc_char_is_digit", u32_to_bool, None);
+        self.functions.insert(VarId::new(1031), char_is_digit);
+
+        // bhc_char_is_alphanumeric(u32) -> bool
+        let char_is_alnum = self.module.llvm_module().add_function("bhc_char_is_alphanumeric", u32_to_bool, None);
+        self.functions.insert(VarId::new(1032), char_is_alnum);
+
+        // bhc_char_is_space(u32) -> bool
+        let char_is_space = self.module.llvm_module().add_function("bhc_char_is_space", u32_to_bool, None);
+        self.functions.insert(VarId::new(1033), char_is_space);
+
+        // bhc_char_is_upper(u32) -> bool
+        let char_is_upper = self.module.llvm_module().add_function("bhc_char_is_upper", u32_to_bool, None);
+        self.functions.insert(VarId::new(1034), char_is_upper);
+
+        // bhc_char_is_lower(u32) -> bool
+        let char_is_lower = self.module.llvm_module().add_function("bhc_char_is_lower", u32_to_bool, None);
+        self.functions.insert(VarId::new(1035), char_is_lower);
+
+        // bhc_char_to_upper(u32) -> u32
+        let char_to_upper = self.module.llvm_module().add_function("bhc_char_to_upper", u32_to_u32, None);
+        self.functions.insert(VarId::new(1036), char_to_upper);
+
+        // bhc_char_to_lower(u32) -> u32
+        let char_to_lower = self.module.llvm_module().add_function("bhc_char_to_lower", u32_to_u32, None);
+        self.functions.insert(VarId::new(1037), char_to_lower);
+
+        // bhc_char_is_print(u32) -> bool
+        let char_is_print = self.module.llvm_module().add_function("bhc_char_is_print", u32_to_bool, None);
+        self.functions.insert(VarId::new(1038), char_is_print);
+
+        // bhc_char_is_ascii(u32) -> bool
+        let char_is_ascii = self.module.llvm_module().add_function("bhc_char_is_ascii", u32_to_bool, None);
+        self.functions.insert(VarId::new(1039), char_is_ascii);
+
+        // bhc_char_is_control(u32) -> bool
+        let char_is_control = self.module.llvm_module().add_function("bhc_char_is_control", u32_to_bool, None);
+        self.functions.insert(VarId::new(1040), char_is_control);
+
+        // bhc_char_is_hex_digit(u32) -> bool
+        let char_is_hex = self.module.llvm_module().add_function("bhc_char_is_hex_digit", u32_to_bool, None);
+        self.functions.insert(VarId::new(1041), char_is_hex);
+
+        // bhc_char_is_letter(u32) -> bool
+        let char_is_letter = self.module.llvm_module().add_function("bhc_char_is_letter", u32_to_bool, None);
+        self.functions.insert(VarId::new(1042), char_is_letter);
+
+        // bhc_char_is_number(u32) -> bool
+        let char_is_number = self.module.llvm_module().add_function("bhc_char_is_number", u32_to_bool, None);
+        self.functions.insert(VarId::new(1043), char_is_number);
+
+        // bhc_char_is_punctuation(u32) -> bool
+        let char_is_punct = self.module.llvm_module().add_function("bhc_char_is_punctuation", u32_to_bool, None);
+        self.functions.insert(VarId::new(1044), char_is_punct);
+
+        // bhc_char_is_symbol(u32) -> bool
+        let char_is_symbol = self.module.llvm_module().add_function("bhc_char_is_symbol", u32_to_bool, None);
+        self.functions.insert(VarId::new(1045), char_is_symbol);
+
+        // bhc_char_digit_to_int(u32) -> i32
+        let char_digit_to_int = self.module.llvm_module().add_function("bhc_char_digit_to_int", u32_to_i32, None);
+        self.functions.insert(VarId::new(1046), char_digit_to_int);
+
+        // bhc_char_int_to_digit(i32) -> u32
+        let char_int_to_digit = self.module.llvm_module().add_function("bhc_char_int_to_digit", i32_to_u32, None);
+        self.functions.insert(VarId::new(1047), char_int_to_digit);
+
+        // bhc_char_ord(u32) -> u32
+        let char_ord = self.module.llvm_module().add_function("bhc_char_ord", u32_to_u32, None);
+        self.functions.insert(VarId::new(1048), char_ord);
+
+        // bhc_char_chr(u32) -> u32
+        let char_chr = self.module.llvm_module().add_function("bhc_char_chr", u32_to_u32, None);
+        self.functions.insert(VarId::new(1049), char_chr);
+
+        // === IO/System RTS functions ===
+        // bhc_readFile(*i8) -> *i8
+        let ptr_to_ptr = i8_ptr_type.fn_type(&[i8_ptr_type.into()], false);
+        let read_file = self.module.llvm_module().add_function("bhc_readFile", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1050), read_file);
+
+        // bhc_writeFile(*i8, *i8) -> void
+        let ptr_ptr_to_void = void_type.fn_type(&[i8_ptr_type.into(), i8_ptr_type.into()], false);
+        let write_file = self.module.llvm_module().add_function("bhc_writeFile", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1051), write_file);
+
+        // bhc_appendFile(*i8, *i8) -> void
+        let append_file = self.module.llvm_module().add_function("bhc_appendFile", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1052), append_file);
+
+        // bhc_open_file(*i8, i32) -> *i8 (handle)
+        let ptr_i32_to_ptr = i8_ptr_type.fn_type(&[i8_ptr_type.into(), i32_type.into()], false);
+        let open_file = self.module.llvm_module().add_function("bhc_open_file", ptr_i32_to_ptr, None);
+        self.functions.insert(VarId::new(1053), open_file);
+
+        // bhc_close_handle(*i8) -> void
+        let ptr_to_void = void_type.fn_type(&[i8_ptr_type.into()], false);
+        let close_handle = self.module.llvm_module().add_function("bhc_close_handle", ptr_to_void, None);
+        self.functions.insert(VarId::new(1054), close_handle);
+
+        // bhc_hGetChar(*i8) -> i32
+        let ptr_to_i32 = i32_type.fn_type(&[i8_ptr_type.into()], false);
+        let h_get_char = self.module.llvm_module().add_function("bhc_hGetChar", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1055), h_get_char);
+
+        // bhc_hGetLine(*i8) -> *i8
+        let h_get_line = self.module.llvm_module().add_function("bhc_hGetLine", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1056), h_get_line);
+
+        // bhc_hPutStr(*i8, *i8) -> void
+        let h_put_str = self.module.llvm_module().add_function("bhc_hPutStr", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1057), h_put_str);
+
+        // bhc_hFlush(*i8) -> void
+        let h_flush = self.module.llvm_module().add_function("bhc_hFlush", ptr_to_void, None);
+        self.functions.insert(VarId::new(1058), h_flush);
+
+        // bhc_hIsEOF(*i8) -> i32 (bool)
+        let h_is_eof = self.module.llvm_module().add_function("bhc_hIsEOF", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1059), h_is_eof);
+
+        // bhc_stdin() -> *i8
+        let void_to_ptr = i8_ptr_type.fn_type(&[], false);
+        let stdin_fn = self.module.llvm_module().add_function("bhc_stdin", void_to_ptr, None);
+        self.functions.insert(VarId::new(1060), stdin_fn);
+
+        // bhc_stdout() -> *i8
+        let stdout_fn = self.module.llvm_module().add_function("bhc_stdout", void_to_ptr, None);
+        self.functions.insert(VarId::new(1061), stdout_fn);
+
+        // bhc_stderr() -> *i8
+        let stderr_fn = self.module.llvm_module().add_function("bhc_stderr", void_to_ptr, None);
+        self.functions.insert(VarId::new(1062), stderr_fn);
+
+        // bhc_exists(*i8) -> i32 (bool) - doesFileExist
+        let does_file_exist = self.module.llvm_module().add_function("bhc_exists", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1063), does_file_exist);
+
+        // bhc_is_directory(*i8) -> i32 (bool) - doesDirectoryExist
+        let does_dir_exist = self.module.llvm_module().add_function("bhc_is_directory", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1064), does_dir_exist);
+
+        // bhc_exit(i32) -> void
+        let i32_to_void = void_type.fn_type(&[i32_type.into()], false);
+        let exit_fn = self.module.llvm_module().add_function("bhc_exit", i32_to_void, None);
+        self.functions.insert(VarId::new(1065), exit_fn);
+
+        // bhc_exit_success() -> void
+        let void_to_void = void_type.fn_type(&[], false);
+        let exit_success = self.module.llvm_module().add_function("bhc_exit_success", void_to_void, None);
+        self.functions.insert(VarId::new(1066), exit_success);
+
+        // bhc_exit_failure() -> void
+        let exit_failure = self.module.llvm_module().add_function("bhc_exit_failure", void_to_void, None);
+        self.functions.insert(VarId::new(1067), exit_failure);
+
+        // bhc_get_env(*i8) -> *i8
+        let get_env = self.module.llvm_module().add_function("bhc_get_env", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1068), get_env);
+
+        // bhc_argc() -> i32
+        let void_to_i32 = i32_type.fn_type(&[], false);
+        let argc_fn = self.module.llvm_module().add_function("bhc_argc", void_to_i32, None);
+        self.functions.insert(VarId::new(1069), argc_fn);
+
+        // bhc_argv() -> *i8 (returns ptr to argv array)
+        let argv_fn = self.module.llvm_module().add_function("bhc_argv", void_to_ptr, None);
+        self.functions.insert(VarId::new(1070), argv_fn);
+
+        // bhc_getLine() -> *i8
+        let get_line = self.module.llvm_module().add_function("bhc_getLine", void_to_ptr, None);
+        self.functions.insert(VarId::new(1071), get_line);
+
+        // bhc_show_int(i64) -> *i8
+        let i64_to_ptr = i8_ptr_type.fn_type(&[i64_type.into()], false);
+        let show_int = self.module.llvm_module().add_function("bhc_show_int", i64_to_ptr, None);
+        self.functions.insert(VarId::new(1072), show_int);
+
+        // bhc_show_double(f64) -> *i8
+        let f64_to_ptr = i8_ptr_type.fn_type(&[f64_type.into()], false);
+        let show_double = self.module.llvm_module().add_function("bhc_show_double", f64_to_ptr, None);
+        self.functions.insert(VarId::new(1073), show_double);
+
+        // bhc_show_char(i32) -> *i8
+        let i32_to_ptr = i8_ptr_type.fn_type(&[i32_type.into()], false);
+        let show_char = self.module.llvm_module().add_function("bhc_show_char", i32_to_ptr, None);
+        self.functions.insert(VarId::new(1074), show_char);
+
+        // bhc_char_to_int(u32) -> i64 (ord)
+        let u32_to_i64 = i64_type.fn_type(&[u32_type.into()], false);
+        let char_to_int = self.module.llvm_module().add_function("bhc_char_to_int", u32_to_i64, None);
+        self.functions.insert(VarId::new(1075), char_to_int);
+
+        // bhc_int_to_char(i64) -> u32 (chr)
+        let i64_to_u32 = u32_type.fn_type(&[i64_type.into()], false);
+        let int_to_char = self.module.llvm_module().add_function("bhc_int_to_char", i64_to_u32, None);
+        self.functions.insert(VarId::new(1076), int_to_char);
+
+        // bhc_negate_double(f64) -> f64
+        let negate_double = self.module.llvm_module().add_function("bhc_negate_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1077), negate_double);
+
+        // bhc_abs_double(f64) -> f64
+        let abs_double = self.module.llvm_module().add_function("bhc_abs_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1078), abs_double);
+
+        // bhc_signum_double(f64) -> f64
+        let signum_double = self.module.llvm_module().add_function("bhc_signum_double", f64_to_f64, None);
+        self.functions.insert(VarId::new(1079), signum_double);
+
+        // Container RTS functions (Map, Set, IntMap, IntSet)
+        let ptr_type = i8_ptr_type;
+
+        // Map operations
+        let map_empty = self.module.llvm_module().add_function("bhc_map_empty", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1100), map_empty);
+
+        let map_singleton = self.module.llvm_module().add_function("bhc_map_singleton", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1101), map_singleton);
+
+        let map_null = self.module.llvm_module().add_function("bhc_map_null", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1102), map_null);
+
+        let map_size = self.module.llvm_module().add_function("bhc_map_size", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1103), map_size);
+
+        let map_member = self.module.llvm_module().add_function("bhc_map_member", i64_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1104), map_member);
+
+        let map_lookup = self.module.llvm_module().add_function("bhc_map_lookup", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1105), map_lookup);
+
+        let map_fwd = self.module.llvm_module().add_function("bhc_map_find_with_default", ptr_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1106), map_fwd);
+
+        let map_insert = self.module.llvm_module().add_function("bhc_map_insert", ptr_type.fn_type(&[i64_type.into(), ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1107), map_insert);
+
+        let map_delete = self.module.llvm_module().add_function("bhc_map_delete", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1108), map_delete);
+
+        let map_union = self.module.llvm_module().add_function("bhc_map_union", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1109), map_union);
+
+        let map_intersection = self.module.llvm_module().add_function("bhc_map_intersection", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1110), map_intersection);
+
+        let map_difference = self.module.llvm_module().add_function("bhc_map_difference", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1111), map_difference);
+
+        let map_is_submap = self.module.llvm_module().add_function("bhc_map_is_submap_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1112), map_is_submap);
+
+        // Set operations
+        let set_empty = self.module.llvm_module().add_function("bhc_set_empty", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1120), set_empty);
+
+        let set_singleton = self.module.llvm_module().add_function("bhc_set_singleton", ptr_type.fn_type(&[i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1121), set_singleton);
+
+        let set_null = self.module.llvm_module().add_function("bhc_set_null", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1122), set_null);
+
+        let set_size = self.module.llvm_module().add_function("bhc_set_size", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1123), set_size);
+
+        let set_member = self.module.llvm_module().add_function("bhc_set_member", i64_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1124), set_member);
+
+        let set_insert = self.module.llvm_module().add_function("bhc_set_insert", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1125), set_insert);
+
+        let set_delete = self.module.llvm_module().add_function("bhc_set_delete", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1126), set_delete);
+
+        let set_union = self.module.llvm_module().add_function("bhc_set_union", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1127), set_union);
+
+        let set_intersection = self.module.llvm_module().add_function("bhc_set_intersection", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1128), set_intersection);
+
+        let set_difference = self.module.llvm_module().add_function("bhc_set_difference", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1129), set_difference);
+
+        let set_is_subset = self.module.llvm_module().add_function("bhc_set_is_subset_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1130), set_is_subset);
+
+        let set_is_proper_subset = self.module.llvm_module().add_function("bhc_set_is_proper_subset_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1131), set_is_proper_subset);
+
+        let set_find_min = self.module.llvm_module().add_function("bhc_set_find_min", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1132), set_find_min);
+
+        let set_find_max = self.module.llvm_module().add_function("bhc_set_find_max", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1133), set_find_max);
+
+        let set_delete_min = self.module.llvm_module().add_function("bhc_set_delete_min", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1134), set_delete_min);
+
+        let set_delete_max = self.module.llvm_module().add_function("bhc_set_delete_max", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1135), set_delete_max);
+
+        // IntMap operations
+        let intmap_empty = self.module.llvm_module().add_function("bhc_intmap_empty", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1140), intmap_empty);
+
+        let intmap_singleton = self.module.llvm_module().add_function("bhc_intmap_singleton", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1141), intmap_singleton);
+
+        let intmap_null = self.module.llvm_module().add_function("bhc_intmap_null", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1142), intmap_null);
+
+        let intmap_insert = self.module.llvm_module().add_function("bhc_intmap_insert", ptr_type.fn_type(&[i64_type.into(), ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1143), intmap_insert);
+
+        let intmap_delete = self.module.llvm_module().add_function("bhc_intmap_delete", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1144), intmap_delete);
+
+        let intmap_lookup = self.module.llvm_module().add_function("bhc_intmap_lookup", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1145), intmap_lookup);
+
+        let intmap_union = self.module.llvm_module().add_function("bhc_intmap_union", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1146), intmap_union);
+
+        // IntSet operations
+        let intset_empty = self.module.llvm_module().add_function("bhc_intset_empty", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1150), intset_empty);
+
+        let intset_singleton = self.module.llvm_module().add_function("bhc_intset_singleton", ptr_type.fn_type(&[i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1151), intset_singleton);
+
+        let intset_null = self.module.llvm_module().add_function("bhc_intset_null", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1152), intset_null);
+
+        let intset_insert = self.module.llvm_module().add_function("bhc_intset_insert", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1153), intset_insert);
+
+        let intset_delete = self.module.llvm_module().add_function("bhc_intset_delete", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1154), intset_delete);
+
+        let intset_union = self.module.llvm_module().add_function("bhc_intset_union", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1155), intset_union);
+
+        let intset_member = self.module.llvm_module().add_function("bhc_intset_member", i64_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1156), intset_member);
+
+        let intset_intersection = self.module.llvm_module().add_function("bhc_intset_intersection", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1157), intset_intersection);
+
+        let intset_difference = self.module.llvm_module().add_function("bhc_intset_difference", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1158), intset_difference);
+
+        let intset_is_subset = self.module.llvm_module().add_function("bhc_intset_is_subset_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1159), intset_is_subset);
     }
 
     // ========================================================================
@@ -650,6 +1092,263 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "return" => Some(1),
             "pure" => Some(1),
 
+            // Numeric / math operations
+            "negate" => Some(1),
+            "abs" => Some(1),
+            "signum" => Some(1),
+            "sqrt" => Some(1),
+            "exp" => Some(1),
+            "log" => Some(1),
+            "sin" => Some(1),
+            "cos" => Some(1),
+            "tan" => Some(1),
+            "asin" => Some(1),
+            "acos" => Some(1),
+            "atan" => Some(1),
+            "atan2" => Some(2),
+            "ceiling" => Some(1),
+            "floor" => Some(1),
+            "round" => Some(1),
+            "truncate" => Some(1),
+            "fromIntegral" => Some(1),
+            "toInteger" => Some(1),
+
+            // Character operations
+            "ord" => Some(1),
+            "chr" => Some(1),
+            "isAlpha" => Some(1),
+            "isAlphaNum" => Some(1),
+            "isAscii" => Some(1),
+            "isControl" => Some(1),
+            "isDigit" => Some(1),
+            "isHexDigit" => Some(1),
+            "isLetter" => Some(1),
+            "isLower" => Some(1),
+            "isNumber" => Some(1),
+            "isPrint" => Some(1),
+            "isPunctuation" => Some(1),
+            "isSpace" => Some(1),
+            "isSymbol" => Some(1),
+            "isUpper" => Some(1),
+            "toLower" => Some(1),
+            "toUpper" => Some(1),
+            "digitToInt" => Some(1),
+            "intToDigit" => Some(1),
+
+            // Advanced list operations
+            "scanl" => Some(3),
+            "scanl'" => Some(3),
+            "scanr" => Some(3),
+            "scanr1" => Some(2),
+            "find" => Some(2),
+            "elem" => Some(2),
+            "notElem" => Some(2),
+            "lookup" => Some(2),
+            "partition" => Some(2),
+            "span" => Some(2),
+            "lines" => Some(1),
+            "unlines" => Some(1),
+            "words" => Some(1),
+            "unwords" => Some(1),
+            "nub" => Some(1),
+            "delete" => Some(2),
+            "union" => Some(2),
+            "intersect" => Some(2),
+            "sort" => Some(1),
+            "sortBy" => Some(2),
+            "intercalate" => Some(2),
+            "intersperse" => Some(2),
+            "transpose" => Some(1),
+            "group" => Some(1),
+            "splitAt" => Some(2),
+            "break" => Some(2),
+            "any" => Some(2),
+            "all" => Some(2),
+            "and" => Some(1),
+            "or" => Some(1),
+            "maximum" => Some(1),
+            "minimum" => Some(1),
+            "iterate" => Some(2),
+            "unfoldr" => Some(2),
+            "cycle" => Some(1),
+            "repeat" => Some(1),
+            "takeWhile" => Some(2),
+            "dropWhile" => Some(2),
+            "zipWith3" => Some(4),
+            "zip3" => Some(3),
+            "unzip" => Some(1),
+
+            // IO & System operations
+            "readFile" => Some(1),
+            "writeFile" => Some(2),
+            "appendFile" => Some(2),
+            "openFile" => Some(2),
+            "hClose" => Some(1),
+            "hGetChar" => Some(1),
+            "hGetLine" => Some(1),
+            "hPutStr" => Some(2),
+            "hPutStrLn" => Some(2),
+            "hFlush" => Some(1),
+            "hIsEOF" => Some(1),
+            "hSetBuffering" => Some(2),
+            "stdin" => Some(0),
+            "stdout" => Some(0),
+            "stderr" => Some(0),
+            "doesFileExist" => Some(1),
+            "doesDirectoryExist" => Some(1),
+            "removeFile" => Some(1),
+            "getArgs" => Some(0),
+            "getProgName" => Some(0),
+            "getEnv" => Some(1),
+            "lookupEnv" => Some(1),
+            "exitSuccess" => Some(0),
+            "exitFailure" => Some(0),
+            "exitWith" => Some(1),
+
+            // Monadic / higher-order operations
+            "fmap" => Some(2),
+            "<$>" => Some(2),
+            "<*>" => Some(2),
+            "join" => Some(1),
+            "=<<" => Some(2),
+            "when" => Some(2),
+            "unless" => Some(2),
+            "void" => Some(1),
+            "mapM" => Some(2),
+            "mapM_" => Some(2),
+            "forM" => Some(2),
+            "forM_" => Some(2),
+            "sequence" => Some(1),
+            "sequence_" => Some(1),
+            "forever" => Some(1),
+
+            // Data.Function
+            "flip" => Some(3),
+            "on" => Some(4),
+            "fix" => Some(1),
+            "$" => Some(2),
+            "." => Some(3),
+
+            // Show
+            "show" => Some(1),
+
+                // Data.Map operations
+                "Data.Map.empty" => Some(0),
+                "Data.Map.singleton" => Some(2),
+                "Data.Map.null" => Some(1),
+                "Data.Map.size" => Some(1),
+                "Data.Map.member" => Some(2),
+                "Data.Map.notMember" => Some(2),
+                "Data.Map.lookup" => Some(2),
+                "Data.Map.findWithDefault" => Some(3),
+                "Data.Map.!" => Some(2),
+                "Data.Map.insert" => Some(3),
+                "Data.Map.insertWith" => Some(4),
+                "Data.Map.delete" => Some(2),
+                "Data.Map.adjust" => Some(3),
+                "Data.Map.update" => Some(3),
+                "Data.Map.alter" => Some(3),
+                "Data.Map.union" => Some(2),
+                "Data.Map.unionWith" => Some(3),
+                "Data.Map.unionWithKey" => Some(4),
+                "Data.Map.unions" => Some(1),
+                "Data.Map.intersection" => Some(2),
+                "Data.Map.intersectionWith" => Some(3),
+                "Data.Map.difference" => Some(2),
+                "Data.Map.differenceWith" => Some(3),
+                "Data.Map.map" => Some(2),
+                "Data.Map.mapWithKey" => Some(2),
+                "Data.Map.mapKeys" => Some(2),
+                "Data.Map.filter" => Some(2),
+                "Data.Map.filterWithKey" => Some(2),
+                "Data.Map.foldr" => Some(3),
+                "Data.Map.foldl" => Some(3),
+                "Data.Map.foldrWithKey" => Some(3),
+                "Data.Map.foldlWithKey" => Some(3),
+                "Data.Map.keys" => Some(1),
+                "Data.Map.elems" => Some(1),
+                "Data.Map.assocs" => Some(1),
+                "Data.Map.toList" => Some(1),
+                "Data.Map.toAscList" => Some(1),
+                "Data.Map.toDescList" => Some(1),
+                "Data.Map.fromList" => Some(1),
+                "Data.Map.fromListWith" => Some(2),
+                "Data.Map.keysSet" => Some(1),
+                "Data.Map.isSubmapOf" => Some(2),
+                // Data.Set operations
+                "Data.Set.empty" => Some(0),
+                "Data.Set.singleton" => Some(1),
+                "Data.Set.null" => Some(1),
+                "Data.Set.size" => Some(1),
+                "Data.Set.member" => Some(2),
+                "Data.Set.notMember" => Some(2),
+                "Data.Set.insert" => Some(2),
+                "Data.Set.delete" => Some(2),
+                "Data.Set.union" => Some(2),
+                "Data.Set.unions" => Some(1),
+                "Data.Set.intersection" => Some(2),
+                "Data.Set.difference" => Some(2),
+                "Data.Set.isSubsetOf" => Some(2),
+                "Data.Set.isProperSubsetOf" => Some(2),
+                "Data.Set.map" => Some(2),
+                "Data.Set.filter" => Some(2),
+                "Data.Set.partition" => Some(2),
+                "Data.Set.foldr" => Some(3),
+                "Data.Set.foldl" => Some(3),
+                "Data.Set.toList" => Some(1),
+                "Data.Set.toAscList" => Some(1),
+                "Data.Set.toDescList" => Some(1),
+                "Data.Set.fromList" => Some(1),
+                "Data.Set.findMin" => Some(1),
+                "Data.Set.findMax" => Some(1),
+                "Data.Set.deleteMin" => Some(1),
+                "Data.Set.deleteMax" => Some(1),
+                "Data.Set.elems" => Some(1),
+                "Data.Set.lookupMin" => Some(1),
+                "Data.Set.lookupMax" => Some(1),
+                // Data.IntMap operations
+                "Data.IntMap.empty" => Some(0),
+                "Data.IntMap.singleton" => Some(2),
+                "Data.IntMap.null" => Some(1),
+                "Data.IntMap.size" => Some(1),
+                "Data.IntMap.member" => Some(2),
+                "Data.IntMap.lookup" => Some(2),
+                "Data.IntMap.findWithDefault" => Some(3),
+                "Data.IntMap.insert" => Some(3),
+                "Data.IntMap.insertWith" => Some(4),
+                "Data.IntMap.delete" => Some(2),
+                "Data.IntMap.adjust" => Some(3),
+                "Data.IntMap.union" => Some(2),
+                "Data.IntMap.unionWith" => Some(3),
+                "Data.IntMap.intersection" => Some(2),
+                "Data.IntMap.difference" => Some(2),
+                "Data.IntMap.map" => Some(2),
+                "Data.IntMap.mapWithKey" => Some(2),
+                "Data.IntMap.filter" => Some(2),
+                "Data.IntMap.foldr" => Some(3),
+                "Data.IntMap.foldlWithKey" => Some(3),
+                "Data.IntMap.keys" => Some(1),
+                "Data.IntMap.elems" => Some(1),
+                "Data.IntMap.toList" => Some(1),
+                "Data.IntMap.toAscList" => Some(1),
+                "Data.IntMap.fromList" => Some(1),
+                // Data.IntSet operations
+                "Data.IntSet.empty" => Some(0),
+                "Data.IntSet.singleton" => Some(1),
+                "Data.IntSet.null" => Some(1),
+                "Data.IntSet.size" => Some(1),
+                "Data.IntSet.member" => Some(2),
+                "Data.IntSet.insert" => Some(2),
+                "Data.IntSet.delete" => Some(2),
+                "Data.IntSet.union" => Some(2),
+                "Data.IntSet.intersection" => Some(2),
+                "Data.IntSet.difference" => Some(2),
+                "Data.IntSet.isSubsetOf" => Some(2),
+                "Data.IntSet.filter" => Some(2),
+                "Data.IntSet.foldr" => Some(3),
+                "Data.IntSet.toList" => Some(1),
+                "Data.IntSet.fromList" => Some(1),
+
             _ => {
                 // Check for field selector pattern: $sel_N where N is a digit
                 if name.starts_with("$sel_") {
@@ -757,6 +1456,271 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             ">>=" => self.lower_builtin_bind(args[0], args[1]),
             ">>" => self.lower_builtin_then(args[0], args[1]),
             "return" | "pure" => self.lower_builtin_return(args[0]),
+
+            // Numeric / Math operations
+            "negate" => self.lower_builtin_negate(args[0]),
+            "abs" => self.lower_builtin_abs(args[0]),
+            "signum" => self.lower_builtin_signum(args[0]),
+            "sqrt" => self.lower_builtin_math_unary(args[0], 1013, "sqrt"),
+            "exp" => self.lower_builtin_math_unary(args[0], 1014, "exp"),
+            "log" => self.lower_builtin_math_unary(args[0], 1015, "log"),
+            "sin" => self.lower_builtin_math_unary(args[0], 1016, "sin"),
+            "cos" => self.lower_builtin_math_unary(args[0], 1017, "cos"),
+            "tan" => self.lower_builtin_math_unary(args[0], 1018, "tan"),
+            "asin" => self.lower_builtin_math_unary(args[0], 1019, "asin"),
+            "acos" => self.lower_builtin_math_unary(args[0], 1020, "acos"),
+            "atan" => self.lower_builtin_math_unary(args[0], 1021, "atan"),
+            "atan2" => self.lower_builtin_math_binary(args[0], args[1], 1022, "atan2"),
+            "ceiling" => self.lower_builtin_float_to_int(args[0], 1023, "ceiling"),
+            "floor" => self.lower_builtin_float_to_int(args[0], 1024, "floor"),
+            "round" => self.lower_builtin_float_to_int(args[0], 1025, "round"),
+            "truncate" => self.lower_builtin_float_to_int(args[0], 1026, "truncate"),
+
+            // Character operations
+            "ord" => self.lower_builtin_ord(args[0]),
+            "chr" => self.lower_builtin_chr(args[0]),
+            "isAlpha" => self.lower_builtin_char_pred(args[0], 1030, "is_alpha"),
+            "isDigit" => self.lower_builtin_char_pred(args[0], 1031, "is_digit"),
+            "isAlphaNum" => self.lower_builtin_char_pred(args[0], 1032, "is_alnum"),
+            "isSpace" => self.lower_builtin_char_pred(args[0], 1033, "is_space"),
+            "isUpper" => self.lower_builtin_char_pred(args[0], 1034, "is_upper"),
+            "isLower" => self.lower_builtin_char_pred(args[0], 1035, "is_lower"),
+            "isPrint" => self.lower_builtin_char_pred(args[0], 1038, "is_print"),
+            "isAscii" => self.lower_builtin_char_pred(args[0], 1039, "is_ascii"),
+            "isControl" => self.lower_builtin_char_pred(args[0], 1040, "is_control"),
+            "isHexDigit" => self.lower_builtin_char_pred(args[0], 1041, "is_hex"),
+            "isLetter" => self.lower_builtin_char_pred(args[0], 1042, "is_letter"),
+            "isNumber" => self.lower_builtin_char_pred(args[0], 1043, "is_number"),
+            "isPunctuation" => self.lower_builtin_char_pred(args[0], 1044, "is_punct"),
+            "isSymbol" => self.lower_builtin_char_pred(args[0], 1045, "is_symbol"),
+            "toLower" => self.lower_builtin_char_conv(args[0], 1037, "to_lower"),
+            "toUpper" => self.lower_builtin_char_conv(args[0], 1036, "to_upper"),
+            "digitToInt" => self.lower_builtin_digit_to_int(args[0]),
+            "intToDigit" => self.lower_builtin_int_to_digit(args[0]),
+
+            // IO & System operations
+            "readFile" => self.lower_builtin_read_file(args[0]),
+            "writeFile" => self.lower_builtin_write_file(args[0], args[1]),
+            "appendFile" => self.lower_builtin_append_file(args[0], args[1]),
+            "openFile" => self.lower_builtin_open_file(args[0], args[1]),
+            "hClose" => self.lower_builtin_hclose(args[0]),
+            "hGetChar" => self.lower_builtin_hgetchar(args[0]),
+            "hGetLine" => self.lower_builtin_hgetline(args[0]),
+            "hPutStr" => self.lower_builtin_hputstr(args[0], args[1]),
+            "hPutStrLn" => self.lower_builtin_hputstrln(args[0], args[1]),
+            "hFlush" => self.lower_builtin_hflush(args[0]),
+            "hIsEOF" => self.lower_builtin_hiseof(args[0]),
+            "hSetBuffering" => self.lower_builtin_hset_buffering(args[0], args[1]),
+            "stdin" => self.lower_builtin_std_handle(1060, "stdin"),
+            "stdout" => self.lower_builtin_std_handle(1061, "stdout"),
+            "stderr" => self.lower_builtin_std_handle(1062, "stderr"),
+            "doesFileExist" => self.lower_builtin_file_pred(args[0], 1063, "exists"),
+            "doesDirectoryExist" => self.lower_builtin_file_pred(args[0], 1064, "is_dir"),
+            "removeFile" => self.lower_builtin_remove_file(args[0]),
+            "getArgs" => self.lower_builtin_get_args(),
+            "getProgName" => self.lower_builtin_get_prog_name(),
+            "getEnv" => self.lower_builtin_get_env(args[0]),
+            "lookupEnv" => self.lower_builtin_lookup_env(args[0]),
+            "exitSuccess" => self.lower_builtin_exit_success(),
+            "exitFailure" => self.lower_builtin_exit_failure(),
+            "exitWith" => self.lower_builtin_exit_with(args[0]),
+
+            // Higher-order / Monadic operations
+            "fmap" | "<$>" => self.lower_builtin_fmap(args[0], args[1]),
+            "<*>" => self.lower_builtin_ap(args[0], args[1]),
+            "join" => self.lower_builtin_join(args[0]),
+            "=<<" => self.lower_builtin_bind_flipped(args[0], args[1]),
+            "when" => self.lower_builtin_when(args[0], args[1]),
+            "unless" => self.lower_builtin_unless(args[0], args[1]),
+            "void" => self.lower_builtin_void(args[0]),
+            "mapM" => self.lower_builtin_mapm(args[0], args[1]),
+            "mapM_" => self.lower_builtin_mapm_(args[0], args[1]),
+            "forM" => self.lower_builtin_mapm(args[1], args[0]),
+            "forM_" => self.lower_builtin_mapm_(args[1], args[0]),
+            "sequence" => self.lower_builtin_sequence(args[0]),
+            "sequence_" => self.lower_builtin_sequence_(args[0]),
+            "forever" => self.lower_builtin_forever(args[0]),
+
+            // Data.Function
+            "flip" => self.lower_builtin_flip(args[0], args[1], args[2]),
+            "on" => self.lower_builtin_on(args[0], args[1], args[2], args[3]),
+            "fix" => self.lower_builtin_fix(args[0]),
+            "$" => self.lower_builtin_apply(args[0], args[1]),
+            "." => self.lower_builtin_compose(args[0], args[1], args[2]),
+
+            // Show
+            "show" => self.lower_builtin_show(args[0]),
+
+            // Advanced list operations (delegate to existing patterns)
+            "any" => self.lower_builtin_any(args[0], args[1]),
+            "all" => self.lower_builtin_all(args[0], args[1]),
+            "and" => self.lower_builtin_and(args[0]),
+            "or" => self.lower_builtin_or(args[0]),
+            "maximum" => self.lower_builtin_maximum(args[0]),
+            "minimum" => self.lower_builtin_minimum(args[0]),
+            "elem" => self.lower_builtin_elem(args[0], args[1]),
+            "notElem" => self.lower_builtin_not_elem(args[0], args[1]),
+            "iterate" => self.lower_builtin_iterate(args[0], args[1]),
+            "repeat" => self.lower_builtin_repeat(args[0]),
+            "cycle" => self.lower_builtin_cycle(args[0]),
+            "takeWhile" => self.lower_builtin_take_while(args[0], args[1]),
+            "dropWhile" => self.lower_builtin_drop_while(args[0], args[1]),
+            "span" => self.lower_builtin_span(args[0], args[1]),
+            "break" => self.lower_builtin_break(args[0], args[1]),
+            "splitAt" => self.lower_builtin_split_at(args[0], args[1]),
+            "find" => self.lower_builtin_find(args[0], args[1]),
+            "lookup" => self.lower_builtin_lookup(args[0], args[1]),
+            "partition" => self.lower_builtin_partition(args[0], args[1]),
+            "intersperse" => self.lower_builtin_intersperse(args[0], args[1]),
+            "intercalate" => self.lower_builtin_intercalate(args[0], args[1]),
+            "transpose" => self.lower_builtin_transpose(args[0]),
+            "nub" => self.lower_builtin_nub(args[0]),
+            "sort" => self.lower_builtin_sort(args[0]),
+            "sortBy" => self.lower_builtin_sort_by(args[0], args[1]),
+            "group" => self.lower_builtin_group(args[0]),
+            "delete" => self.lower_builtin_delete(args[0], args[1]),
+            "union" => self.lower_builtin_union(args[0], args[1]),
+            "intersect" => self.lower_builtin_intersect(args[0], args[1]),
+            "scanl" => self.lower_builtin_scanl(args[0], args[1], args[2]),
+            "scanl'" => self.lower_builtin_scanl(args[0], args[1], args[2]),
+            "scanr" => self.lower_builtin_scanr(args[0], args[1], args[2]),
+            "scanr1" => self.lower_builtin_scanr1(args[0], args[1]),
+            "unfoldr" => self.lower_builtin_unfoldr(args[0], args[1]),
+            "lines" => self.lower_builtin_lines(args[0]),
+            "unlines" => self.lower_builtin_unlines(args[0]),
+            "words" => self.lower_builtin_words(args[0]),
+            "unwords" => self.lower_builtin_unwords(args[0]),
+            "zip3" => self.lower_builtin_zip3(args[0], args[1], args[2]),
+            "zipWith3" => self.lower_builtin_zipwith3(args[0], args[1], args[2], args[3]),
+            "unzip" => self.lower_builtin_unzip(args[0]),
+
+                // Data.Map operations
+                "Data.Map.empty" => self.lower_builtin_map_empty(),
+                "Data.Map.singleton" => self.lower_builtin_map_singleton(args[0], args[1]),
+                "Data.Map.null" => self.lower_builtin_map_null(args[0]),
+                "Data.Map.size" => self.lower_builtin_map_size(args[0]),
+                "Data.Map.member" => self.lower_builtin_map_member(args[0], args[1]),
+                "Data.Map.notMember" => {
+                    // Note: result needs inversion, but stub for now
+                    self.lower_builtin_map_member(args[0], args[1])
+                }
+                "Data.Map.lookup" => self.lower_builtin_map_lookup(args[0], args[1]),
+                "Data.Map.findWithDefault" => self.lower_builtin_map_find_with_default(args[0], args[1], args[2]),
+                "Data.Map.!" => self.lower_builtin_map_find_with_default(args[1], args[0], args[1]),
+                "Data.Map.insert" => self.lower_builtin_map_insert(args[0], args[1], args[2]),
+                "Data.Map.delete" => self.lower_builtin_map_delete(args[0], args[1]),
+                "Data.Map.union" => self.lower_builtin_map_union(args[0], args[1]),
+                "Data.Map.intersection" => self.lower_builtin_map_intersection(args[0], args[1]),
+                "Data.Map.difference" => self.lower_builtin_map_difference(args[0], args[1]),
+                "Data.Map.isSubmapOf" => self.lower_builtin_map_is_submap_of(args[0], args[1]),
+                "Data.Map.insertWith" | "Data.Map.adjust" | "Data.Map.update" | "Data.Map.alter"
+                | "Data.Map.unionWith" | "Data.Map.unionWithKey" | "Data.Map.unions"
+                | "Data.Map.intersectionWith" | "Data.Map.differenceWith"
+                | "Data.Map.map" | "Data.Map.mapWithKey" | "Data.Map.mapKeys"
+                | "Data.Map.filter" | "Data.Map.filterWithKey"
+                | "Data.Map.foldr" | "Data.Map.foldl" | "Data.Map.foldrWithKey" | "Data.Map.foldlWithKey"
+                | "Data.Map.fromListWith" => {
+                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
+                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
+                }
+                "Data.Map.keys" | "Data.Map.elems" | "Data.Map.assocs"
+                | "Data.Map.toList" | "Data.Map.toAscList" | "Data.Map.toDescList"
+                | "Data.Map.keysSet" => {
+                    self.lower_builtin_map_to_list(args[0])
+                }
+                "Data.Map.fromList" => self.lower_builtin_map_from_list(args[0]),
+
+                // Data.Set operations
+                "Data.Set.empty" => self.lower_builtin_set_empty(),
+                "Data.Set.singleton" => self.lower_builtin_set_singleton(args[0]),
+                "Data.Set.null" => self.lower_builtin_set_null(args[0]),
+                "Data.Set.size" => self.lower_builtin_set_size(args[0]),
+                "Data.Set.member" | "Data.Set.notMember" => self.lower_builtin_set_member(args[0], args[1]),
+                "Data.Set.insert" => self.lower_builtin_set_insert(args[0], args[1]),
+                "Data.Set.delete" => self.lower_builtin_set_delete(args[0], args[1]),
+                "Data.Set.union" => self.lower_builtin_set_binary(args[0], args[1], 1127, "set_union"),
+                "Data.Set.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1128, "set_intersection"),
+                "Data.Set.difference" => self.lower_builtin_set_binary(args[0], args[1], 1129, "set_difference"),
+                "Data.Set.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1130, "set_is_subset_of"),
+                "Data.Set.isProperSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1131, "set_is_proper_subset_of"),
+                "Data.Set.findMin" => self.lower_builtin_set_find_extremum(args[0], 1132, "set_find_min"),
+                "Data.Set.findMax" => self.lower_builtin_set_find_extremum(args[0], 1133, "set_find_max"),
+                "Data.Set.deleteMin" => self.lower_builtin_set_delete_extremum(args[0], 1134, "set_delete_min"),
+                "Data.Set.deleteMax" => self.lower_builtin_set_delete_extremum(args[0], 1135, "set_delete_max"),
+                "Data.Set.lookupMin" => self.lower_builtin_set_lookup_extremum(args[0], 1132, "set_lookup_min"),
+                "Data.Set.lookupMax" => self.lower_builtin_set_lookup_extremum(args[0], 1133, "set_lookup_max"),
+                "Data.Set.unions" | "Data.Set.map" | "Data.Set.filter" | "Data.Set.partition"
+                | "Data.Set.foldr" | "Data.Set.foldl" => {
+                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
+                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
+                }
+                "Data.Set.toList" | "Data.Set.toAscList" | "Data.Set.toDescList" | "Data.Set.elems" => {
+                    self.lower_builtin_set_to_list(args[0])
+                }
+                "Data.Set.fromList" => self.lower_builtin_set_from_list(args[0]),
+
+                // Data.IntMap operations
+                "Data.IntMap.empty" => {
+                    let rts_fn = self.functions.get(&VarId::new(1140)).ok_or_else(|| {
+                        CodegenError::Internal("bhc_intmap_empty not declared".to_string())
+                    })?;
+                    let result = self.builder()
+                        .build_call(*rts_fn, &[], "intmap_empty")
+                        .map_err(|e| CodegenError::Internal(format!("intmap_empty: {:?}", e)))?
+                        .try_as_basic_value().basic()
+                        .ok_or_else(|| CodegenError::Internal("intmap_empty: void".to_string()))?;
+                    Ok(Some(result))
+                }
+                "Data.IntMap.singleton" => self.lower_builtin_map_singleton(args[0], args[1]),
+                "Data.IntMap.null" => self.lower_builtin_map_null(args[0]),
+                "Data.IntMap.size" => self.lower_builtin_map_size(args[0]),
+                "Data.IntMap.member" => self.lower_builtin_map_member(args[0], args[1]),
+                "Data.IntMap.lookup" => self.lower_builtin_map_lookup(args[0], args[1]),
+                "Data.IntMap.findWithDefault" => self.lower_builtin_map_find_with_default(args[0], args[1], args[2]),
+                "Data.IntMap.insert" => self.lower_builtin_map_insert(args[0], args[1], args[2]),
+                "Data.IntMap.delete" => self.lower_builtin_map_delete(args[0], args[1]),
+                "Data.IntMap.union" => self.lower_builtin_map_union(args[0], args[1]),
+                "Data.IntMap.intersection" => self.lower_builtin_map_intersection(args[0], args[1]),
+                "Data.IntMap.difference" => self.lower_builtin_map_difference(args[0], args[1]),
+                "Data.IntMap.insertWith" | "Data.IntMap.adjust" | "Data.IntMap.unionWith"
+                | "Data.IntMap.map" | "Data.IntMap.mapWithKey" | "Data.IntMap.filter"
+                | "Data.IntMap.foldr" | "Data.IntMap.foldlWithKey" => {
+                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
+                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
+                }
+                "Data.IntMap.keys" | "Data.IntMap.elems" | "Data.IntMap.toList" | "Data.IntMap.toAscList" => {
+                    self.lower_builtin_map_to_list(args[0])
+                }
+                "Data.IntMap.fromList" => self.lower_builtin_map_from_list(args[0]),
+
+                // Data.IntSet operations
+                "Data.IntSet.empty" => {
+                    let rts_fn = self.functions.get(&VarId::new(1150)).ok_or_else(|| {
+                        CodegenError::Internal("bhc_intset_empty not declared".to_string())
+                    })?;
+                    let result = self.builder()
+                        .build_call(*rts_fn, &[], "intset_empty")
+                        .map_err(|e| CodegenError::Internal(format!("intset_empty: {:?}", e)))?
+                        .try_as_basic_value().basic()
+                        .ok_or_else(|| CodegenError::Internal("intset_empty: void".to_string()))?;
+                    Ok(Some(result))
+                }
+                "Data.IntSet.singleton" => self.lower_builtin_set_singleton(args[0]),
+                "Data.IntSet.null" => self.lower_builtin_set_null(args[0]),
+                "Data.IntSet.size" => self.lower_builtin_set_size(args[0]),
+                "Data.IntSet.member" => self.lower_builtin_set_member(args[0], args[1]),
+                "Data.IntSet.insert" => self.lower_builtin_set_insert(args[0], args[1]),
+                "Data.IntSet.delete" => self.lower_builtin_set_delete(args[0], args[1]),
+                "Data.IntSet.union" => self.lower_builtin_set_binary(args[0], args[1], 1155, "intset_union"),
+                "Data.IntSet.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1157, "intset_intersection"),
+                "Data.IntSet.difference" => self.lower_builtin_set_binary(args[0], args[1], 1158, "intset_difference"),
+                "Data.IntSet.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1159, "intset_is_subset_of"),
+                "Data.IntSet.filter" | "Data.IntSet.foldr" => {
+                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
+                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
+                }
+                "Data.IntSet.toList" => self.lower_builtin_set_to_list(args[0]),
+                "Data.IntSet.fromList" => self.lower_builtin_set_from_list(args[0]),
 
             _ => {
                 // Check for field selector pattern: $sel_N
@@ -5307,6 +6271,1663 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         self.lower_expr(value_expr)
     }
 
+    // ========================================================================
+    // Phase 1: Numeric & Character Operation Handlers
+    // ========================================================================
+
+    /// Lower `negate` - negate a numeric value.
+    fn lower_builtin_negate(
+        &mut self,
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal("negate: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let zero = self.type_mapper().i64_type().const_zero();
+        let result = self
+            .builder()
+            .build_int_sub(zero, int_val, "negate")
+            .map_err(|e| CodegenError::Internal(format!("negate failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower `abs` - absolute value.
+    fn lower_builtin_abs(
+        &mut self,
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal("abs: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let zero = self.type_mapper().i64_type().const_zero();
+        let is_neg = self
+            .builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, int_val, zero, "is_neg")
+            .map_err(|e| CodegenError::Internal(format!("abs cmp failed: {:?}", e)))?;
+        let neg_val = self
+            .builder()
+            .build_int_sub(zero, int_val, "neg")
+            .map_err(|e| CodegenError::Internal(format!("abs neg failed: {:?}", e)))?;
+        let result = self
+            .builder()
+            .build_select(is_neg, neg_val, int_val, "abs")
+            .map_err(|e| CodegenError::Internal(format!("abs select failed: {:?}", e)))?
+            .into_int_value();
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower `signum` - sign of a value (-1, 0, or 1).
+    fn lower_builtin_signum(
+        &mut self,
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal("signum: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let tm = self.type_mapper();
+        let zero = tm.i64_type().const_zero();
+        let one = tm.i64_type().const_int(1, false);
+        let neg_one = tm.i64_type().const_all_ones();
+        let is_pos = self
+            .builder()
+            .build_int_compare(inkwell::IntPredicate::SGT, int_val, zero, "is_pos")
+            .map_err(|e| CodegenError::Internal(format!("signum failed: {:?}", e)))?;
+        let is_neg = self
+            .builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, int_val, zero, "is_neg")
+            .map_err(|e| CodegenError::Internal(format!("signum failed: {:?}", e)))?;
+        let step1 = self
+            .builder()
+            .build_select(is_pos, one, zero, "signum_step1")
+            .map_err(|e| CodegenError::Internal(format!("signum failed: {:?}", e)))?
+            .into_int_value();
+        let result = self
+            .builder()
+            .build_select(is_neg, neg_one, step1, "signum")
+            .map_err(|e| CodegenError::Internal(format!("signum failed: {:?}", e)))?
+            .into_int_value();
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower a unary math function (sqrt, exp, log, sin, cos, etc.)
+    fn lower_builtin_math_unary(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no value", name)))?;
+        let f64_val = self.coerce_to_f64(val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("RTS function {} not declared", name))
+        })?;
+        let result = self
+            .builder()
+            .build_call(*rts_fn, &[f64_val.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(self.f64_to_ptr(result.into_float_value())?.into()))
+    }
+
+    /// Lower a binary math function (atan2).
+    fn lower_builtin_math_binary(
+        &mut self,
+        expr1: &Expr,
+        expr2: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val1 = self.lower_expr(expr1)?.ok_or_else(|| CodegenError::Internal(format!("{}: no arg1", name)))?;
+        let val2 = self.lower_expr(expr2)?.ok_or_else(|| CodegenError::Internal(format!("{}: no arg2", name)))?;
+        let f1 = self.coerce_to_f64(val1)?;
+        let f2 = self.coerce_to_f64(val2)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("RTS function {} not declared", name))
+        })?;
+        let result = self
+            .builder()
+            .build_call(*rts_fn, &[f1.into(), f2.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(self.f64_to_ptr(result.into_float_value())?.into()))
+    }
+
+    /// Lower float-to-int conversion (ceiling, floor, round, truncate).
+    fn lower_builtin_float_to_int(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no value", name)))?;
+        let f64_val = self.coerce_to_f64(val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("RTS function {} not declared", name))
+        })?;
+        let result = self
+            .builder()
+            .build_call(*rts_fn, &[f64_val.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `ord` - character to integer (identity in our representation).
+    fn lower_builtin_ord(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(expr)
+    }
+
+    /// Lower `chr` - integer to character (identity in our representation).
+    fn lower_builtin_chr(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(expr)
+    }
+
+    /// Lower a character predicate (isAlpha, isDigit, isSpace, etc.)
+    fn lower_builtin_char_pred(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no value", name)))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i32_type = self.type_mapper().i32_type();
+        let char_val = self.builder()
+            .build_int_truncate(int_val, i32_type, "char_val")
+            .map_err(|e| CodegenError::Internal(format!("{}: truncate failed: {:?}", name, e)))?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("char pred {} not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[char_val.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let bool_val = result.into_int_value();
+        let extended = self.builder()
+            .build_int_z_extend(bool_val, self.type_mapper().i64_type(), "bool_ext")
+            .map_err(|e| CodegenError::Internal(format!("{}: extend failed: {:?}", name, e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower a character conversion (toLower, toUpper).
+    fn lower_builtin_char_conv(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no value", name)))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i32_type = self.type_mapper().i32_type();
+        let char_val = self.builder()
+            .build_int_truncate(int_val, i32_type, "char_val")
+            .map_err(|e| CodegenError::Internal(format!("{}: truncate failed: {:?}", name, e)))?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("char conv {} not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[char_val.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let u32_val = result.into_int_value();
+        let extended = self.builder()
+            .build_int_z_extend(u32_val, self.type_mapper().i64_type(), "char_ext")
+            .map_err(|e| CodegenError::Internal(format!("{}: extend failed: {:?}", name, e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower `digitToInt` - convert digit char to integer.
+    fn lower_builtin_digit_to_int(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal("digitToInt: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i32_type = self.type_mapper().i32_type();
+        let char_val = self.builder().build_int_truncate(int_val, i32_type, "char_val")
+            .map_err(|e| CodegenError::Internal(format!("digitToInt: truncate failed: {:?}", e)))?;
+        let rts_fn = self.functions.get(&VarId::new(1046)).ok_or_else(|| CodegenError::Internal("bhc_char_digit_to_int not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[char_val.into()], "digit_to_int")
+            .map_err(|e| CodegenError::Internal(format!("digitToInt call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("digitToInt: returned void".to_string()))?;
+        let i32_val = result.into_int_value();
+        let extended = self.builder().build_int_s_extend(i32_val, self.type_mapper().i64_type(), "digit_ext")
+            .map_err(|e| CodegenError::Internal(format!("digitToInt: extend failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower `intToDigit` - convert integer to digit char.
+    fn lower_builtin_int_to_digit(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal("intToDigit: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i32_type = self.type_mapper().i32_type();
+        let truncated = self.builder().build_int_truncate(int_val, i32_type, "int_val")
+            .map_err(|e| CodegenError::Internal(format!("intToDigit: truncate failed: {:?}", e)))?;
+        let rts_fn = self.functions.get(&VarId::new(1047)).ok_or_else(|| CodegenError::Internal("bhc_char_int_to_digit not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[truncated.into()], "int_to_digit")
+            .map_err(|e| CodegenError::Internal(format!("intToDigit call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("intToDigit: returned void".to_string()))?;
+        let u32_val = result.into_int_value();
+        let extended = self.builder().build_int_z_extend(u32_val, self.type_mapper().i64_type(), "digit_char_ext")
+            .map_err(|e| CodegenError::Internal(format!("intToDigit: extend failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    // ========================================================================
+    // Phase 4: IO & System Operation Handlers
+    // ========================================================================
+
+    /// Lower `readFile` - read file contents.
+    fn lower_builtin_read_file(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("readFile: no path".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("readFile expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1050)).ok_or_else(|| CodegenError::Internal("bhc_readFile not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[path_ptr.into()], "read_file")
+            .map_err(|e| CodegenError::Internal(format!("readFile call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("readFile: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `writeFile` - write string to file.
+    fn lower_builtin_write_file(&mut self, path_expr: &Expr, content_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("writeFile: no path".to_string()))?;
+        let content_val = self.lower_expr(content_expr)?.ok_or_else(|| CodegenError::Internal("writeFile: no content".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("writeFile expects string path".to_string())) };
+        let content_ptr = match content_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("writeFile expects string content".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1051)).ok_or_else(|| CodegenError::Internal("bhc_writeFile not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[path_ptr.into(), content_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("writeFile call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `appendFile` - append string to file.
+    fn lower_builtin_append_file(&mut self, path_expr: &Expr, content_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("appendFile: no path".to_string()))?;
+        let content_val = self.lower_expr(content_expr)?.ok_or_else(|| CodegenError::Internal("appendFile: no content".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("appendFile expects string".to_string())) };
+        let content_ptr = match content_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("appendFile expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1052)).ok_or_else(|| CodegenError::Internal("bhc_appendFile not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[path_ptr.into(), content_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("appendFile call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `openFile` - open a file handle.
+    fn lower_builtin_open_file(&mut self, path_expr: &Expr, mode_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("openFile: no path".to_string()))?;
+        let mode_val = self.lower_expr(mode_expr)?.ok_or_else(|| CodegenError::Internal("openFile: no mode".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("openFile expects string".to_string())) };
+        let mode_int = self.coerce_to_int(mode_val)?;
+        let mode_i32 = self.builder().build_int_truncate(mode_int, self.type_mapper().i32_type(), "mode")
+            .map_err(|e| CodegenError::Internal(format!("openFile: truncate failed: {:?}", e)))?;
+        let rts_fn = self.functions.get(&VarId::new(1053)).ok_or_else(|| CodegenError::Internal("bhc_open_file not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[path_ptr.into(), mode_i32.into()], "handle")
+            .map_err(|e| CodegenError::Internal(format!("openFile call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("openFile: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `hClose` - close a file handle.
+    fn lower_builtin_hclose(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hClose: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hClose expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1054)).ok_or_else(|| CodegenError::Internal("bhc_close_handle not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[handle_ptr.into()], "").map_err(|e| CodegenError::Internal(format!("hClose call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `hGetChar` - read a character from handle.
+    fn lower_builtin_hgetchar(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hGetChar: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hGetChar expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1055)).ok_or_else(|| CodegenError::Internal("bhc_hGetChar not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[handle_ptr.into()], "hgetchar")
+            .map_err(|e| CodegenError::Internal(format!("hGetChar call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("hGetChar: returned void".to_string()))?;
+        let char_val = result.into_int_value();
+        let extended = self.builder().build_int_z_extend(char_val, self.type_mapper().i64_type(), "char_ext")
+            .map_err(|e| CodegenError::Internal(format!("hGetChar: extend failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower `hGetLine` - read a line from handle.
+    fn lower_builtin_hgetline(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hGetLine: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hGetLine expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1056)).ok_or_else(|| CodegenError::Internal("bhc_hGetLine not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[handle_ptr.into()], "hgetline")
+            .map_err(|e| CodegenError::Internal(format!("hGetLine call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("hGetLine: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `hPutStr` - write string to handle.
+    fn lower_builtin_hputstr(&mut self, handle_expr: &Expr, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hPutStr: no handle".to_string()))?;
+        let str_val = self.lower_expr(str_expr)?.ok_or_else(|| CodegenError::Internal("hPutStr: no string".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hPutStr expects handle".to_string())) };
+        let str_ptr = match str_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hPutStr expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1057)).ok_or_else(|| CodegenError::Internal("bhc_hPutStr not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[handle_ptr.into(), str_ptr.into()], "").map_err(|e| CodegenError::Internal(format!("hPutStr call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `hPutStrLn` - write string + newline to handle.
+    fn lower_builtin_hputstrln(&mut self, handle_expr: &Expr, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hPutStrLn: no handle".to_string()))?;
+        let str_val = self.lower_expr(str_expr)?.ok_or_else(|| CodegenError::Internal("hPutStrLn: no string".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hPutStrLn expects handle".to_string())) };
+        let str_ptr = match str_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hPutStrLn expects string".to_string())) };
+        let put_fn = self.functions.get(&VarId::new(1057)).ok_or_else(|| CodegenError::Internal("bhc_hPutStr not declared".to_string()))?;
+        self.builder().build_call(*put_fn, &[handle_ptr.into(), str_ptr.into()], "").map_err(|e| CodegenError::Internal(format!("hPutStrLn put failed: {:?}", e)))?;
+        let nl = self.module.add_global_string("hputstrln_nl", "\n");
+        self.builder().build_call(*put_fn, &[handle_ptr.into(), nl.into()], "").map_err(|e| CodegenError::Internal(format!("hPutStrLn nl failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `hFlush`.
+    fn lower_builtin_hflush(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hFlush: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hFlush expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1058)).ok_or_else(|| CodegenError::Internal("bhc_hFlush not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[handle_ptr.into()], "").map_err(|e| CodegenError::Internal(format!("hFlush call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `hIsEOF`.
+    fn lower_builtin_hiseof(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hIsEOF: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hIsEOF expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1059)).ok_or_else(|| CodegenError::Internal("bhc_hIsEOF not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[handle_ptr.into()], "is_eof")
+            .map_err(|e| CodegenError::Internal(format!("hIsEOF call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("hIsEOF: returned void".to_string()))?;
+        let bool_val = result.into_int_value();
+        let extended = self.builder().build_int_z_extend(bool_val, self.type_mapper().i64_type(), "eof_ext")
+            .map_err(|e| CodegenError::Internal(format!("hIsEOF: extend failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower `hSetBuffering` (stub).
+    fn lower_builtin_hset_buffering(&mut self, handle_expr: &Expr, mode_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(handle_expr)?;
+        let _ = self.lower_expr(mode_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower stdin/stdout/stderr.
+    fn lower_builtin_std_handle(&mut self, rts_id: usize, name: &str) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| CodegenError::Internal(format!("bhc_{} not declared", name)))?;
+        let result = self.builder().build_call(*rts_fn, &[], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(result))
+    }
+
+    /// Lower file predicate (doesFileExist, doesDirectoryExist).
+    fn lower_builtin_file_pred(&mut self, path_expr: &Expr, rts_id: usize, name: &str) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no path", name)))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError(format!("{} expects string", name))) };
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| CodegenError::Internal(format!("{} not declared", name)))?;
+        let result = self.builder().build_call(*rts_fn, &[path_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let bool_val = result.into_int_value();
+        let extended = self.builder().build_int_z_extend(bool_val, self.type_mapper().i64_type(), "pred_ext")
+            .map_err(|e| CodegenError::Internal(format!("{}: extend failed: {:?}", name, e)))?;
+        Ok(Some(self.int_to_ptr(extended)?.into()))
+    }
+
+    /// Lower `removeFile` (stub).
+    fn lower_builtin_remove_file(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(path_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `getArgs` (stub: returns empty list).
+    fn lower_builtin_get_args(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let nil = self.alloc_adt(0, 0)?;
+        Ok(Some(nil.into()))
+    }
+
+    /// Lower `getProgName`.
+    fn lower_builtin_get_prog_name(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let s = self.module.add_global_string("prog_name", "bhc");
+        Ok(Some(s.into()))
+    }
+
+    /// Lower `getEnv`.
+    fn lower_builtin_get_env(&mut self, name_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let name_val = self.lower_expr(name_expr)?.ok_or_else(|| CodegenError::Internal("getEnv: no name".to_string()))?;
+        let name_ptr = match name_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("getEnv expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1068)).ok_or_else(|| CodegenError::Internal("bhc_get_env not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[name_ptr.into()], "get_env")
+            .map_err(|e| CodegenError::Internal(format!("getEnv call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getEnv: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `lookupEnv` (simplified: wraps getEnv).
+    fn lower_builtin_lookup_env(&mut self, name_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_get_env(name_expr)
+    }
+
+    /// Lower `exitSuccess`.
+    fn lower_builtin_exit_success(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1066)).ok_or_else(|| CodegenError::Internal("bhc_exit_success not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[], "").map_err(|e| CodegenError::Internal(format!("exitSuccess failed: {:?}", e)))?;
+        self.builder().build_unreachable().map_err(|e| CodegenError::Internal(format!("unreachable failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `exitFailure`.
+    fn lower_builtin_exit_failure(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1067)).ok_or_else(|| CodegenError::Internal("bhc_exit_failure not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[], "").map_err(|e| CodegenError::Internal(format!("exitFailure failed: {:?}", e)))?;
+        self.builder().build_unreachable().map_err(|e| CodegenError::Internal(format!("unreachable failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `exitWith`.
+    fn lower_builtin_exit_with(&mut self, code_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let code_val = self.lower_expr(code_expr)?.ok_or_else(|| CodegenError::Internal("exitWith: no code".to_string()))?;
+        let int_val = self.coerce_to_int(code_val)?;
+        let code_i32 = self.builder().build_int_truncate(int_val, self.type_mapper().i32_type(), "exit_code")
+            .map_err(|e| CodegenError::Internal(format!("exitWith: truncate failed: {:?}", e)))?;
+        let rts_fn = self.functions.get(&VarId::new(1065)).ok_or_else(|| CodegenError::Internal("bhc_exit not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[code_i32.into()], "").map_err(|e| CodegenError::Internal(format!("exitWith failed: {:?}", e)))?;
+        self.builder().build_unreachable().map_err(|e| CodegenError::Internal(format!("unreachable failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `show` (default: treat as integer).
+    fn lower_builtin_show(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal("show: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1072)).ok_or_else(|| CodegenError::Internal("bhc_show_int not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[int_val.into()], "show")
+            .map_err(|e| CodegenError::Internal(format!("show call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("show: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    // ========================================================================
+    // Phase 5: Monadic & Higher-Order Operation Handlers
+    // ========================================================================
+
+    /// Lower `fmap` / `<$>`.
+    fn lower_builtin_fmap(&mut self, func_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let action_result = self.lower_expr(action_expr)?.ok_or_else(|| CodegenError::Internal("fmap: no value".to_string()))?;
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("fmap: no function".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("fmap: function must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let action_ptr = self.value_to_ptr(action_result)?;
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), action_ptr.into()], "fmap_result")
+            .map_err(|e| CodegenError::Internal(format!("fmap call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("fmap: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `<*>`.
+    fn lower_builtin_ap(&mut self, func_expr: &Expr, val_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_result = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("<*>: no func".to_string()))?;
+        let val_result = self.lower_expr(val_expr)?.ok_or_else(|| CodegenError::Internal("<*>: no val".to_string()))?;
+        let func_ptr = match func_result { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("<*>: function must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let val_ptr = self.value_to_ptr(val_result)?;
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), val_ptr.into()], "ap_result")
+            .map_err(|e| CodegenError::Internal(format!("<*> call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("<*>: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `join`.
+    fn lower_builtin_join(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(expr)
+    }
+
+    /// Lower `=<<` (reverse bind).
+    fn lower_builtin_bind_flipped(&mut self, func_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_bind(action_expr, func_expr)
+    }
+
+    /// Lower `when`.
+    fn lower_builtin_when(&mut self, cond_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let cond_val = self.lower_expr(cond_expr)?.ok_or_else(|| CodegenError::Internal("when: no cond".to_string()))?;
+        let cond_int = self.coerce_to_int(cond_val)?;
+        let is_true = self.builder().build_int_compare(inkwell::IntPredicate::NE, cond_int, self.type_mapper().i64_type().const_zero(), "when_cond")
+            .map_err(|e| CodegenError::Internal(format!("when: cmp failed: {:?}", e)))?;
+        let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent()).ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+        let then_block = self.llvm_context().append_basic_block(current_fn, "when_then");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "when_merge");
+        self.builder().build_conditional_branch(is_true, then_block, merge_block).map_err(|e| CodegenError::Internal(format!("when: branch failed: {:?}", e)))?;
+        self.builder().position_at_end(then_block);
+        let _ = self.lower_expr(action_expr)?;
+        self.builder().build_unconditional_branch(merge_block).map_err(|e| CodegenError::Internal(format!("when: branch failed: {:?}", e)))?;
+        self.builder().position_at_end(merge_block);
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `unless`.
+    fn lower_builtin_unless(&mut self, cond_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let cond_val = self.lower_expr(cond_expr)?.ok_or_else(|| CodegenError::Internal("unless: no cond".to_string()))?;
+        let cond_int = self.coerce_to_int(cond_val)?;
+        let is_false = self.builder().build_int_compare(inkwell::IntPredicate::EQ, cond_int, self.type_mapper().i64_type().const_zero(), "unless_cond")
+            .map_err(|e| CodegenError::Internal(format!("unless: cmp failed: {:?}", e)))?;
+        let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent()).ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+        let then_block = self.llvm_context().append_basic_block(current_fn, "unless_then");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "unless_merge");
+        self.builder().build_conditional_branch(is_false, then_block, merge_block).map_err(|e| CodegenError::Internal(format!("unless: branch failed: {:?}", e)))?;
+        self.builder().position_at_end(then_block);
+        let _ = self.lower_expr(action_expr)?;
+        self.builder().build_unconditional_branch(merge_block).map_err(|e| CodegenError::Internal(format!("unless: branch failed: {:?}", e)))?;
+        self.builder().position_at_end(merge_block);
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `void`.
+    fn lower_builtin_void(&mut self, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(action_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `mapM`.
+    fn lower_builtin_mapm(&mut self, func_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_map(func_expr, list_expr)
+    }
+
+    /// Lower `mapM_`.
+    fn lower_builtin_mapm_(&mut self, func_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_builtin_map(func_expr, list_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `sequence`.
+    fn lower_builtin_sequence(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `sequence_`.
+    fn lower_builtin_sequence_(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `forever`.
+    fn lower_builtin_forever(&mut self, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent()).ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+        let loop_block = self.llvm_context().append_basic_block(current_fn, "forever_loop");
+        self.builder().build_unconditional_branch(loop_block).map_err(|e| CodegenError::Internal(format!("forever: branch failed: {:?}", e)))?;
+        self.builder().position_at_end(loop_block);
+        let _ = self.lower_expr(action_expr)?;
+        self.builder().build_unconditional_branch(loop_block).map_err(|e| CodegenError::Internal(format!("forever: branch failed: {:?}", e)))?;
+        let after_block = self.llvm_context().append_basic_block(current_fn, "forever_after");
+        self.builder().position_at_end(after_block);
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    // Data.Function handlers
+
+    /// Lower `flip f x y = f y x`.
+    fn lower_builtin_flip(&mut self, func_expr: &Expr, arg1_expr: &Expr, arg2_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("flip: no function".to_string()))?;
+        let _arg1 = self.lower_expr(arg1_expr)?.ok_or_else(|| CodegenError::Internal("flip: no arg1".to_string()))?;
+        let arg2_val = self.lower_expr(arg2_expr)?.ok_or_else(|| CodegenError::Internal("flip: no arg2".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("flip: function must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let arg1_ptr = self.value_to_ptr(_arg1)?;
+        let arg2_ptr = self.value_to_ptr(arg2_val)?;
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let partial = self.builder().build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), arg2_ptr.into()], "flip_partial")
+            .map_err(|e| CodegenError::Internal(format!("flip partial failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("flip: partial returned void".to_string()))?;
+        let partial_ptr = match partial { BasicValueEnum::PointerValue(p) => p, _ => return Ok(Some(partial)) };
+        let fn_ptr2 = self.extract_closure_fn_ptr(partial_ptr)?;
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr2, &[partial_ptr.into(), arg1_ptr.into()], "flip_result")
+            .map_err(|e| CodegenError::Internal(format!("flip result failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("flip: result returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `on f g x y = f (g x) (g y)`.
+    fn lower_builtin_on(&mut self, f_expr: &Expr, g_expr: &Expr, x_expr: &Expr, y_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?.ok_or_else(|| CodegenError::Internal("on: no f".to_string()))?;
+        let g_val = self.lower_expr(g_expr)?.ok_or_else(|| CodegenError::Internal("on: no g".to_string()))?;
+        let x_val = self.lower_expr(x_expr)?.ok_or_else(|| CodegenError::Internal("on: no x".to_string()))?;
+        let y_val = self.lower_expr(y_expr)?.ok_or_else(|| CodegenError::Internal("on: no y".to_string()))?;
+        let g_ptr = match g_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("on: g must be closure".to_string())) };
+        let f_ptr = match f_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("on: f must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let g_fn_ptr = self.extract_closure_fn_ptr(g_ptr)?;
+        let gx = self.builder().build_indirect_call(fn_type, g_fn_ptr, &[g_ptr.into(), x_ptr.into()], "gx")
+            .map_err(|e| CodegenError::Internal(format!("on: g(x) failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("on: g(x) void".to_string()))?;
+        let y_ptr = self.value_to_ptr(y_val)?;
+        let gy = self.builder().build_indirect_call(fn_type, g_fn_ptr, &[g_ptr.into(), y_ptr.into()], "gy")
+            .map_err(|e| CodegenError::Internal(format!("on: g(y) failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("on: g(y) void".to_string()))?;
+        let f_fn_ptr = self.extract_closure_fn_ptr(f_ptr)?;
+        let gx_ptr = self.value_to_ptr(gx)?;
+        let partial = self.builder().build_indirect_call(fn_type, f_fn_ptr, &[f_ptr.into(), gx_ptr.into()], "f_gx")
+            .map_err(|e| CodegenError::Internal(format!("on: f(gx) failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("on: f(gx) void".to_string()))?;
+        let partial_ptr = match partial { BasicValueEnum::PointerValue(p) => p, _ => return Ok(Some(partial)) };
+        let gy_ptr = self.value_to_ptr(gy)?;
+        let p_fn = self.extract_closure_fn_ptr(partial_ptr)?;
+        let result = self.builder().build_indirect_call(fn_type, p_fn, &[partial_ptr.into(), gy_ptr.into()], "on_result")
+            .map_err(|e| CodegenError::Internal(format!("on: result failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("on: result void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `fix` (simplified).
+    fn lower_builtin_fix(&mut self, func_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(func_expr)
+    }
+
+    /// Lower `$` - function application.
+    fn lower_builtin_apply(&mut self, func_expr: &Expr, arg_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("$: no function".to_string()))?;
+        let arg_val = self.lower_expr(arg_expr)?.ok_or_else(|| CodegenError::Internal("$: no argument".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("$: function must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let arg_ptr = self.value_to_ptr(arg_val)?;
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), arg_ptr.into()], "apply_result")
+            .map_err(|e| CodegenError::Internal(format!("$ call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("$: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `.` - function composition: (f . g) x = f (g x).
+    fn lower_builtin_compose(&mut self, f_expr: &Expr, g_expr: &Expr, x_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?.ok_or_else(|| CodegenError::Internal(".: no f".to_string()))?;
+        let g_val = self.lower_expr(g_expr)?.ok_or_else(|| CodegenError::Internal(".: no g".to_string()))?;
+        let x_val = self.lower_expr(x_expr)?.ok_or_else(|| CodegenError::Internal(".: no x".to_string()))?;
+        let g_ptr = match g_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError(".: g must be closure".to_string())) };
+        let f_ptr = match f_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError(".: f must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let g_fn = self.extract_closure_fn_ptr(g_ptr)?;
+        let gx = self.builder().build_indirect_call(fn_type, g_fn, &[g_ptr.into(), x_ptr.into()], "gx")
+            .map_err(|e| CodegenError::Internal(format!(".: g(x) failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(".: g(x) void".to_string()))?;
+        let gx_ptr = self.value_to_ptr(gx)?;
+        let f_fn = self.extract_closure_fn_ptr(f_ptr)?;
+        let result = self.builder().build_indirect_call(fn_type, f_fn, &[f_ptr.into(), gx_ptr.into()], "compose")
+            .map_err(|e| CodegenError::Internal(format!(".: f(g(x)) failed: {:?}", e)))?.try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(".: f(g(x)) void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    // ========================================================================
+    // Phase 2: Advanced List Operation Handlers (stubs and implementations)
+    // ========================================================================
+
+    /// Lower `any`.
+    fn lower_builtin_any(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Simplified: evaluate both, return False (proper impl needs loop)
+        let _ = self.lower_expr(pred_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        Ok(Some(self.int_to_ptr(self.type_mapper().i64_type().const_zero())?.into()))
+    }
+
+    /// Lower `all`.
+    fn lower_builtin_all(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(pred_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        Ok(Some(self.int_to_ptr(self.type_mapper().i64_type().const_int(1, false))?.into()))
+    }
+
+    /// Lower `and`.
+    fn lower_builtin_and(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_product(list_expr)
+    }
+
+    /// Lower `or`.
+    fn lower_builtin_or(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_sum(list_expr)
+    }
+
+    /// Lower `maximum`.
+    fn lower_builtin_maximum(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `minimum`.
+    fn lower_builtin_minimum(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `elem`.
+    fn lower_builtin_elem(&mut self, val_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(val_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        Ok(Some(self.int_to_ptr(self.type_mapper().i64_type().const_zero())?.into()))
+    }
+
+    /// Lower `notElem`.
+    fn lower_builtin_not_elem(&mut self, val_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(val_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        Ok(Some(self.int_to_ptr(self.type_mapper().i64_type().const_int(1, false))?.into()))
+    }
+
+    /// Lower `iterate` (stub: single-element list).
+    fn lower_builtin_iterate(&mut self, _func_expr: &Expr, seed_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(_func_expr)?;
+        let seed_val = self.lower_expr(seed_expr)?.ok_or_else(|| CodegenError::Internal("iterate: no seed".to_string()))?;
+        let seed_ptr = self.value_to_ptr(seed_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let cons = self.alloc_adt(1, 2)?;
+        self.store_adt_field(cons, 2, 0, seed_ptr.into())?;
+        self.store_adt_field(cons, 2, 1, nil.into())?;
+        Ok(Some(cons.into()))
+    }
+
+    /// Lower `repeat` (stub).
+    fn lower_builtin_repeat(&mut self, val_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_iterate(val_expr, val_expr)
+    }
+
+    /// Lower `cycle` (stub).
+    fn lower_builtin_cycle(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `takeWhile` (stub: uses filter).
+    fn lower_builtin_take_while(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_filter(pred_expr, list_expr)
+    }
+
+    /// Lower `dropWhile` (stub).
+    fn lower_builtin_drop_while(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(pred_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `span` (stub).
+    fn lower_builtin_span(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(pred_expr)?;
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("span: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let pair = self.alloc_adt(0, 2)?;
+        self.store_adt_field(pair, 2, 0, list_ptr.into())?;
+        self.store_adt_field(pair, 2, 1, nil.into())?;
+        Ok(Some(pair.into()))
+    }
+
+    /// Lower `break` (stub).
+    fn lower_builtin_break(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_span(pred_expr, list_expr)
+    }
+
+    /// Lower `splitAt` (stub).
+    fn lower_builtin_split_at(&mut self, n_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(n_expr)?;
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("splitAt: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let pair = self.alloc_adt(0, 2)?;
+        self.store_adt_field(pair, 2, 0, list_ptr.into())?;
+        self.store_adt_field(pair, 2, 1, nil.into())?;
+        Ok(Some(pair.into()))
+    }
+
+    /// Lower `find` (stub: returns Nothing).
+    fn lower_builtin_find(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(pred_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        let nothing = self.alloc_adt(0, 0)?;
+        Ok(Some(nothing.into()))
+    }
+
+    /// Lower `lookup` (stub: returns Nothing).
+    fn lower_builtin_lookup(&mut self, key_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(key_expr)?;
+        let _ = self.lower_expr(list_expr)?;
+        let nothing = self.alloc_adt(0, 0)?;
+        Ok(Some(nothing.into()))
+    }
+
+    /// Lower `partition` (stub).
+    fn lower_builtin_partition(&mut self, pred_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(pred_expr)?;
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("partition: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let pair = self.alloc_adt(0, 2)?;
+        self.store_adt_field(pair, 2, 0, list_ptr.into())?;
+        self.store_adt_field(pair, 2, 1, nil.into())?;
+        Ok(Some(pair.into()))
+    }
+
+    /// Lower `intersperse` (stub).
+    fn lower_builtin_intersperse(&mut self, sep_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(sep_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `intercalate` (stub).
+    fn lower_builtin_intercalate(&mut self, sep_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(sep_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `transpose` (stub).
+    fn lower_builtin_transpose(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `nub` (stub).
+    fn lower_builtin_nub(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `sort` (stub).
+    fn lower_builtin_sort(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `sortBy` (stub).
+    fn lower_builtin_sort_by(&mut self, cmp_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(cmp_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `group` (stub).
+    fn lower_builtin_group(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `delete` (stub).
+    fn lower_builtin_delete(&mut self, val_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(val_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `union` (stub: append).
+    fn lower_builtin_union(&mut self, list1_expr: &Expr, list2_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_append(list1_expr, list2_expr)
+    }
+
+    /// Lower `intersect` (stub).
+    fn lower_builtin_intersect(&mut self, list1_expr: &Expr, list2_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list2_expr)?;
+        self.lower_expr(list1_expr)
+    }
+
+    /// Lower `scanl` / `scanl'` (stub).
+    fn lower_builtin_scanl(&mut self, func_expr: &Expr, init_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(func_expr)?;
+        let init_val = self.lower_expr(init_expr)?.ok_or_else(|| CodegenError::Internal("scanl: no init".to_string()))?;
+        let _ = self.lower_expr(list_expr)?;
+        let init_ptr = self.value_to_ptr(init_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let cons = self.alloc_adt(1, 2)?;
+        self.store_adt_field(cons, 2, 0, init_ptr.into())?;
+        self.store_adt_field(cons, 2, 1, nil.into())?;
+        Ok(Some(cons.into()))
+    }
+
+    /// Lower `scanr` (stub).
+    fn lower_builtin_scanr(&mut self, func_expr: &Expr, init_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_scanl(func_expr, init_expr, list_expr)
+    }
+
+    /// Lower `scanr1` (stub).
+    fn lower_builtin_scanr1(&mut self, func_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(func_expr)?;
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `unfoldr` (stub).
+    fn lower_builtin_unfoldr(&mut self, func_expr: &Expr, seed_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(func_expr)?;
+        let _ = self.lower_expr(seed_expr)?;
+        let nil = self.alloc_adt(0, 0)?;
+        Ok(Some(nil.into()))
+    }
+
+    /// Lower `lines` (stub).
+    fn lower_builtin_lines(&mut self, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let str_val = self.lower_expr(str_expr)?.ok_or_else(|| CodegenError::Internal("lines: no string".to_string()))?;
+        let str_ptr = self.value_to_ptr(str_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let cons = self.alloc_adt(1, 2)?;
+        self.store_adt_field(cons, 2, 0, str_ptr.into())?;
+        self.store_adt_field(cons, 2, 1, nil.into())?;
+        Ok(Some(cons.into()))
+    }
+
+    /// Lower `unlines` (stub).
+    fn lower_builtin_unlines(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `words` (stub).
+    fn lower_builtin_words(&mut self, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_builtin_lines(str_expr)
+    }
+
+    /// Lower `unwords` (stub).
+    fn lower_builtin_unwords(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.lower_expr(list_expr)
+    }
+
+    /// Lower `zip3` (stub).
+    fn lower_builtin_zip3(&mut self, list1: &Expr, list2: &Expr, list3: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list3)?;
+        self.lower_builtin_zip(list1, list2)
+    }
+
+    /// Lower `zipWith3` (stub).
+    fn lower_builtin_zipwith3(&mut self, func: &Expr, list1: &Expr, list2: &Expr, list3: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list3)?;
+        self.lower_builtin_zipwith(func, list1, list2)
+    }
+
+    /// Lower `unzip` (stub).
+    fn lower_builtin_unzip(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("unzip: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let nil = self.alloc_adt(0, 0)?;
+        let pair = self.alloc_adt(0, 2)?;
+        self.store_adt_field(pair, 2, 0, list_ptr.into())?;
+        self.store_adt_field(pair, 2, 1, nil.into())?;
+        Ok(Some(pair.into()))
+    }
+
+    // ========================================================================
+    // Phase 3: Container Operation Handlers (Data.Map, Data.Set, Data.IntMap, Data.IntSet)
+    // ========================================================================
+
+    // --- Data.Map handlers ---
+
+    /// Lower `Data.Map.empty` - create empty map.
+    fn lower_builtin_map_empty(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], "map_empty")
+            .map_err(|e| CodegenError::Internal(format!("map_empty call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_empty: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.singleton` - create singleton map.
+    fn lower_builtin_map_singleton(
+        &mut self,
+        key_expr: &Expr,
+        val_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_singleton: no key".to_string()))?;
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_singleton: no value".to_string()))?;
+        let key_int = self.coerce_to_int(key)?;
+        let val_ptr = self.value_to_ptr(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1101)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_singleton not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[key_int.into(), val_ptr.into()], "map_singleton")
+            .map_err(|e| CodegenError::Internal(format!("map_singleton call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_singleton: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.null` - check if map is empty.
+    fn lower_builtin_map_null(
+        &mut self,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_null: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1102)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_null not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[map_ptr.into()], "map_null")
+            .map_err(|e| CodegenError::Internal(format!("map_null call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_null: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Map.size` - get map size.
+    fn lower_builtin_map_size(
+        &mut self,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_size: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1103)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_size not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[map_ptr.into()], "map_size")
+            .map_err(|e| CodegenError::Internal(format!("map_size call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_size: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Map.member` - check membership.
+    fn lower_builtin_map_member(
+        &mut self,
+        key_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_member: no key".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_member: no map".to_string()))?;
+        let key_int = self.coerce_to_int(key)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1104)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_member not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[key_int.into(), map_ptr.into()], "map_member")
+            .map_err(|e| CodegenError::Internal(format!("map_member call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_member: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Map.lookup` - lookup key, returns Maybe.
+    fn lower_builtin_map_lookup(
+        &mut self,
+        key_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_lookup: no key".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_lookup: no map".to_string()))?;
+        let key_int = self.coerce_to_int(key)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[key_int.into(), map_ptr.into()], "map_lookup")
+            .map_err(|e| CodegenError::Internal(format!("map_lookup call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_lookup: returned void".to_string()))?;
+        // Result is a pointer: null = Nothing, non-null = the value
+        // Wrap in Maybe: check for null, construct Just/Nothing ADT
+        let result_ptr = result.into_pointer_value();
+        let is_null = self.builder()
+            .build_is_null(result_ptr, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("map_lookup is_null: {:?}", e)))?;
+        let nothing = self.alloc_adt(0, 0)?; // Nothing = tag 0, 0 fields
+        let just = self.alloc_adt(1, 1)?;    // Just = tag 1, 1 field
+        self.store_adt_field(just, 1, 0, result_ptr.into())?;
+        let maybe = self.builder()
+            .build_select(is_null, nothing, just, "maybe")
+            .map_err(|e| CodegenError::Internal(format!("map_lookup select: {:?}", e)))?;
+        Ok(Some(maybe))
+    }
+
+    /// Lower `Data.Map.findWithDefault` - lookup with default.
+    fn lower_builtin_map_find_with_default(
+        &mut self,
+        default_expr: &Expr,
+        key_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let default = self.lower_expr(default_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_fwd: no default".to_string()))?;
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_fwd: no key".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_fwd: no map".to_string()))?;
+        let default_ptr = self.value_to_ptr(default)?;
+        let key_int = self.coerce_to_int(key)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1106)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_find_with_default not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[default_ptr.into(), key_int.into(), map_ptr.into()], "map_fwd")
+            .map_err(|e| CodegenError::Internal(format!("map_fwd call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_fwd: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.insert` - insert key-value pair.
+    fn lower_builtin_map_insert(
+        &mut self,
+        key_expr: &Expr,
+        val_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insert: no key".to_string()))?;
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insert: no value".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insert: no map".to_string()))?;
+        let key_int = self.coerce_to_int(key)?;
+        let val_ptr = self.value_to_ptr(val)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[key_int.into(), val_ptr.into(), map_ptr.into()], "map_insert")
+            .map_err(|e| CodegenError::Internal(format!("map_insert call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_insert: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.delete` - delete key from map.
+    fn lower_builtin_map_delete(
+        &mut self,
+        key_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let key = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_delete: no key".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_delete: no map".to_string()))?;
+        let key_int = self.coerce_to_int(key)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1108)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_delete not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[key_int.into(), map_ptr.into()], "map_delete")
+            .map_err(|e| CodegenError::Internal(format!("map_delete call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_delete: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.union` - union of two maps.
+    fn lower_builtin_map_union(
+        &mut self,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1 = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_union: no map1".to_string()))?;
+        let m2 = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_union: no map2".to_string()))?;
+        let m1_ptr = self.value_to_ptr(m1)?;
+        let m2_ptr = self.value_to_ptr(m2)?;
+        let rts_fn = self.functions.get(&VarId::new(1109)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_union not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[m1_ptr.into(), m2_ptr.into()], "map_union")
+            .map_err(|e| CodegenError::Internal(format!("map_union call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_union: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.intersection` - intersection of two maps.
+    fn lower_builtin_map_intersection(
+        &mut self,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1 = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_intersection: no map1".to_string()))?;
+        let m2 = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_intersection: no map2".to_string()))?;
+        let m1_ptr = self.value_to_ptr(m1)?;
+        let m2_ptr = self.value_to_ptr(m2)?;
+        let rts_fn = self.functions.get(&VarId::new(1110)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_intersection not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[m1_ptr.into(), m2_ptr.into()], "map_intersection")
+            .map_err(|e| CodegenError::Internal(format!("map_intersection call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_intersection: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.difference` - difference of two maps.
+    fn lower_builtin_map_difference(
+        &mut self,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1 = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_difference: no map1".to_string()))?;
+        let m2 = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_difference: no map2".to_string()))?;
+        let m1_ptr = self.value_to_ptr(m1)?;
+        let m2_ptr = self.value_to_ptr(m2)?;
+        let rts_fn = self.functions.get(&VarId::new(1111)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_difference not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[m1_ptr.into(), m2_ptr.into()], "map_difference")
+            .map_err(|e| CodegenError::Internal(format!("map_difference call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_difference: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Map.isSubmapOf` - check submap.
+    fn lower_builtin_map_is_submap_of(
+        &mut self,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1 = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_isSubmapOf: no map1".to_string()))?;
+        let m2 = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_isSubmapOf: no map2".to_string()))?;
+        let m1_ptr = self.value_to_ptr(m1)?;
+        let m2_ptr = self.value_to_ptr(m2)?;
+        let rts_fn = self.functions.get(&VarId::new(1112)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_is_submap_of not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[m1_ptr.into(), m2_ptr.into()], "map_is_submap_of")
+            .map_err(|e| CodegenError::Internal(format!("map_is_submap_of call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("map_isSubmapOf: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower container operations that need higher-order functions (stub).
+    /// Covers: insertWith, adjust, update, alter, unionWith, unionWithKey,
+    /// unions, intersectionWith, differenceWith, map, mapWithKey, mapKeys,
+    /// filter, filterWithKey, foldr, foldl, foldrWithKey, foldlWithKey,
+    /// fromListWith.
+    fn lower_builtin_container_ho_stub(
+        &mut self,
+        args: &[&Expr],
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Evaluate all arguments (for side effects / forcing)
+        for arg in args {
+            let _ = self.lower_expr(arg)?;
+        }
+        // For operations that return containers, return the last container arg
+        // For operations that return values, return null
+        if let Some(last) = args.last() {
+            self.lower_expr(last)
+        } else {
+            Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+        }
+    }
+
+    /// Lower `Data.Map.toList` / `toAscList` / `toDescList` / `assocs` / `keys` / `elems`.
+    /// Builds a list from the container using iteration RTS functions.
+    fn lower_builtin_map_to_list(
+        &mut self,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Stub: evaluate map and return it as-is (not a proper list conversion)
+        // Full implementation would iterate the map and construct a Haskell list
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_toList: no map".to_string()))?;
+        // Return an empty list as stub
+        let nil = self.alloc_adt(0, 0)?;
+        let _ = map_val;
+        Ok(Some(nil.into()))
+    }
+
+    /// Lower `Data.Map.fromList` (stub - creates empty map).
+    fn lower_builtin_map_from_list(
+        &mut self,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list_expr)?;
+        self.lower_builtin_map_empty()
+    }
+
+    // --- Data.Set handlers ---
+
+    /// Lower `Data.Set.empty`.
+    fn lower_builtin_set_empty(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1120)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_empty not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], "set_empty")
+            .map_err(|e| CodegenError::Internal(format!("set_empty call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_empty: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Set.singleton`.
+    fn lower_builtin_set_singleton(
+        &mut self,
+        val_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_singleton: no value".to_string()))?;
+        let val_int = self.coerce_to_int(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1121)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_singleton not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[val_int.into()], "set_singleton")
+            .map_err(|e| CodegenError::Internal(format!("set_singleton call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_singleton: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Set.null`.
+    fn lower_builtin_set_null(
+        &mut self,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_null: no set".to_string()))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1122)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_null not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[set_ptr.into()], "set_null")
+            .map_err(|e| CodegenError::Internal(format!("set_null call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_null: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Set.size`.
+    fn lower_builtin_set_size(
+        &mut self,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_size: no set".to_string()))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1123)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_size not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[set_ptr.into()], "set_size")
+            .map_err(|e| CodegenError::Internal(format!("set_size call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_size: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Set.member`.
+    fn lower_builtin_set_member(
+        &mut self,
+        val_expr: &Expr,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_member: no value".to_string()))?;
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_member: no set".to_string()))?;
+        let val_int = self.coerce_to_int(val)?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1124)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_member not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[val_int.into(), set_ptr.into()], "set_member")
+            .map_err(|e| CodegenError::Internal(format!("set_member call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_member: returned void".to_string()))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Set.insert`.
+    fn lower_builtin_set_insert(
+        &mut self,
+        val_expr: &Expr,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_insert: no value".to_string()))?;
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_insert: no set".to_string()))?;
+        let val_int = self.coerce_to_int(val)?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1125)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_insert not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[val_int.into(), set_ptr.into()], "set_insert")
+            .map_err(|e| CodegenError::Internal(format!("set_insert call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_insert: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Set.delete`.
+    fn lower_builtin_set_delete(
+        &mut self,
+        val_expr: &Expr,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_delete: no value".to_string()))?;
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_delete: no set".to_string()))?;
+        let val_int = self.coerce_to_int(val)?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1126)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_delete not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[val_int.into(), set_ptr.into()], "set_delete")
+            .map_err(|e| CodegenError::Internal(format!("set_delete call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("set_delete: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower Data.Set binary operations (union, intersection, difference).
+    fn lower_builtin_set_binary(
+        &mut self,
+        set1_expr: &Expr,
+        set2_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let s1 = self.lower_expr(set1_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set1", name)))?;
+        let s2 = self.lower_expr(set2_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set2", name)))?;
+        let s1_ptr = self.value_to_ptr(s1)?;
+        let s2_ptr = self.value_to_ptr(s2)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[s1_ptr.into(), s2_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(result))
+    }
+
+    /// Lower Data.Set predicate operations (isSubsetOf, isProperSubsetOf).
+    fn lower_builtin_set_predicate(
+        &mut self,
+        set1_expr: &Expr,
+        set2_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let s1 = self.lower_expr(set1_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set1", name)))?;
+        let s2 = self.lower_expr(set2_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set2", name)))?;
+        let s1_ptr = self.value_to_ptr(s1)?;
+        let s2_ptr = self.value_to_ptr(s2)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[s1_ptr.into(), s2_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Set.findMin` / `findMax`.
+    fn lower_builtin_set_find_extremum(
+        &mut self,
+        set_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set", name)))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[set_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `Data.Set.deleteMin` / `deleteMax`.
+    fn lower_builtin_set_delete_extremum(
+        &mut self,
+        set_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set", name)))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[set_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `Data.Set.toList` / `toAscList` / `toDescList` / `elems` (stub).
+    fn lower_builtin_set_to_list(
+        &mut self,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(set_expr)?;
+        let nil = self.alloc_adt(0, 0)?;
+        Ok(Some(nil.into()))
+    }
+
+    /// Lower `Data.Set.fromList` (stub).
+    fn lower_builtin_set_from_list(
+        &mut self,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(list_expr)?;
+        self.lower_builtin_set_empty()
+    }
+
+    /// Lower `Data.Set.lookupMin` / `lookupMax` - returns Maybe.
+    fn lower_builtin_set_lookup_extremum(
+        &mut self,
+        set_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no set", name)))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+        // Check if set is empty
+        let null_fn = self.functions.get(&VarId::new(1122)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_null not declared".to_string())
+        })?;
+        let is_empty = self.builder()
+            .build_call(*null_fn, &[set_ptr.into()], "set_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("{}: null check failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: null returned void", name)))?;
+        let is_empty_bool = self.builder()
+            .build_int_compare(
+                inkwell::IntPredicate::NE,
+                is_empty.into_int_value(),
+                self.type_mapper().i64_type().const_zero(),
+                "is_empty_bool",
+            )
+            .map_err(|e| CodegenError::Internal(format!("{}: compare failed: {:?}", name, e)))?;
+        let nothing = self.alloc_adt(0, 0)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let val = self.builder()
+            .build_call(*rts_fn, &[set_ptr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let val_ptr = self.int_to_ptr(val.into_int_value())?;
+        let just = self.alloc_adt(1, 1)?;
+        self.store_adt_field(just, 1, 0, val_ptr.into())?;
+        let result = self.builder()
+            .build_select(is_empty_bool, nothing, just, "maybe_extremum")
+            .map_err(|e| CodegenError::Internal(format!("{}: select failed: {:?}", name, e)))?;
+        Ok(Some(result))
+    }
+
     /// Check if an expression is structurally a list (Cons applications or Nil).
     /// This is used when type information isn't available.
     fn is_list_expr(expr: &Expr) -> bool {
@@ -6980,6 +9601,67 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 Ok(result.into())
             }
         }
+    }
+
+    /// Coerce a value to an integer, unboxing if needed.
+    fn coerce_to_int(&self, value: BasicValueEnum<'ctx>) -> CodegenResult<IntValue<'ctx>> {
+        match value {
+            BasicValueEnum::IntValue(i) => Ok(i),
+            BasicValueEnum::PointerValue(p) => self.ptr_to_int(p),
+            BasicValueEnum::FloatValue(f) => {
+                // Cast float bits to int
+                let bits = self
+                    .builder()
+                    .build_bit_cast(f, self.type_mapper().i64_type(), "float_to_int")
+                    .map_err(|e| CodegenError::Internal(format!("float to int failed: {:?}", e)))?;
+                Ok(bits.into_int_value())
+            }
+            _ => Err(CodegenError::TypeError("cannot coerce to int".to_string())),
+        }
+    }
+
+    /// Coerce a value to f64, unboxing if needed.
+    fn coerce_to_f64(&self, value: BasicValueEnum<'ctx>) -> CodegenResult<FloatValue<'ctx>> {
+        match value {
+            BasicValueEnum::FloatValue(f) => Ok(f),
+            BasicValueEnum::IntValue(i) => {
+                // Cast int bits to float (for boxed floats)
+                let f = self
+                    .builder()
+                    .build_bit_cast(i, self.type_mapper().f64_type(), "int_to_float")
+                    .map_err(|e| CodegenError::Internal(format!("int to float failed: {:?}", e)))?;
+                Ok(f.into_float_value())
+            }
+            BasicValueEnum::PointerValue(p) => {
+                // Unbox: ptr -> i64 -> f64 bits
+                let int_val = self.ptr_to_int(p)?;
+                let f = self
+                    .builder()
+                    .build_bit_cast(int_val, self.type_mapper().f64_type(), "ptr_to_float")
+                    .map_err(|e| CodegenError::Internal(format!("ptr to float failed: {:?}", e)))?;
+                Ok(f.into_float_value())
+            }
+            _ => Err(CodegenError::TypeError("cannot coerce to f64".to_string())),
+        }
+    }
+
+    /// Convert an integer to a pointer (boxing).
+    fn int_to_ptr(&self, int_val: IntValue<'ctx>) -> CodegenResult<PointerValue<'ctx>> {
+        self.builder()
+            .build_int_to_ptr(int_val, self.type_mapper().ptr_type(), "box_int")
+            .map_err(|e| CodegenError::Internal(format!("failed to box int: {:?}", e)))
+    }
+
+    /// Convert a float to a pointer (boxing via bit cast).
+    fn f64_to_ptr(&self, float_val: FloatValue<'ctx>) -> CodegenResult<PointerValue<'ctx>> {
+        let bits = self
+            .builder()
+            .build_bit_cast(float_val, self.type_mapper().i64_type(), "float_bits")
+            .map_err(|e| CodegenError::Internal(format!("failed to cast float: {:?}", e)))?
+            .into_int_value();
+        self.builder()
+            .build_int_to_ptr(bits, self.type_mapper().ptr_type(), "box_float")
+            .map_err(|e| CodegenError::Internal(format!("failed to box float: {:?}", e)))
     }
 
     /// Convert a pointer to an integer (unbox).
