@@ -30,4 +30,6 @@
 #![warn(missing_docs)]
 #![allow(unsafe_code)] // SIMD requires unsafe
 
+pub mod bytearray;
 pub mod simd;
+pub mod text;

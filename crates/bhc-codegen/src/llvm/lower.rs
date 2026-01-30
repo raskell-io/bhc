@@ -727,6 +727,115 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // bhc_string_unwords(list_ptr) -> ptr
         let string_unwords = self.module.llvm_module().add_function("bhc_string_unwords", ptr_type.fn_type(&[ptr_type.into()], false), None);
         self.functions.insert(VarId::new(1179), string_unwords);
+
+        // ---- Text RTS functions (VarId 1200-1227) ----
+        // bhc_text_empty() -> ptr
+        let text_empty = self.module.llvm_module().add_function("bhc_text_empty", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1200), text_empty);
+        // bhc_text_singleton(i64) -> ptr
+        let text_singleton = self.module.llvm_module().add_function("bhc_text_singleton", ptr_type.fn_type(&[i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1201), text_singleton);
+        // bhc_text_null(ptr) -> i64
+        let text_null = self.module.llvm_module().add_function("bhc_text_null", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1202), text_null);
+        // bhc_text_length(ptr) -> i64
+        let text_length = self.module.llvm_module().add_function("bhc_text_length", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1203), text_length);
+        // bhc_text_eq(ptr, ptr) -> i64
+        let text_eq = self.module.llvm_module().add_function("bhc_text_eq", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1204), text_eq);
+        // bhc_text_compare(ptr, ptr) -> i64
+        let text_compare = self.module.llvm_module().add_function("bhc_text_compare", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1205), text_compare);
+        // bhc_text_head(ptr) -> i64
+        let text_head = self.module.llvm_module().add_function("bhc_text_head", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1206), text_head);
+        // bhc_text_last(ptr) -> i64
+        let text_last = self.module.llvm_module().add_function("bhc_text_last", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1207), text_last);
+        // bhc_text_tail(ptr) -> ptr
+        let text_tail = self.module.llvm_module().add_function("bhc_text_tail", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1208), text_tail);
+        // bhc_text_init(ptr) -> ptr
+        let text_init = self.module.llvm_module().add_function("bhc_text_init", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1209), text_init);
+        // bhc_text_append(ptr, ptr) -> ptr
+        let text_append = self.module.llvm_module().add_function("bhc_text_append", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1210), text_append);
+        // bhc_text_reverse(ptr) -> ptr
+        let text_reverse = self.module.llvm_module().add_function("bhc_text_reverse", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1211), text_reverse);
+        // bhc_text_take(i64, ptr) -> ptr
+        let text_take = self.module.llvm_module().add_function("bhc_text_take", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1212), text_take);
+        // bhc_text_take_end(i64, ptr) -> ptr
+        let text_take_end = self.module.llvm_module().add_function("bhc_text_take_end", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1213), text_take_end);
+        // bhc_text_drop(i64, ptr) -> ptr
+        let text_drop = self.module.llvm_module().add_function("bhc_text_drop", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1214), text_drop);
+        // bhc_text_drop_end(i64, ptr) -> ptr
+        let text_drop_end = self.module.llvm_module().add_function("bhc_text_drop_end", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1215), text_drop_end);
+        // bhc_text_is_prefix_of(ptr, ptr) -> i64
+        let text_is_prefix = self.module.llvm_module().add_function("bhc_text_is_prefix_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1216), text_is_prefix);
+        // bhc_text_is_suffix_of(ptr, ptr) -> i64
+        let text_is_suffix = self.module.llvm_module().add_function("bhc_text_is_suffix_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1217), text_is_suffix);
+        // bhc_text_is_infix_of(ptr, ptr) -> i64
+        let text_is_infix = self.module.llvm_module().add_function("bhc_text_is_infix_of", i64_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1218), text_is_infix);
+        // bhc_text_to_lower(ptr) -> ptr
+        let text_to_lower = self.module.llvm_module().add_function("bhc_text_to_lower", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1219), text_to_lower);
+        // bhc_text_to_upper(ptr) -> ptr
+        let text_to_upper = self.module.llvm_module().add_function("bhc_text_to_upper", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1220), text_to_upper);
+        // bhc_text_to_case_fold(ptr) -> ptr
+        let text_case_fold = self.module.llvm_module().add_function("bhc_text_to_case_fold", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1221), text_case_fold);
+        // bhc_text_to_title(ptr) -> ptr
+        let text_to_title = self.module.llvm_module().add_function("bhc_text_to_title", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1222), text_to_title);
+        // bhc_text_pack(ptr) -> ptr  (list -> Text)
+        let text_pack = self.module.llvm_module().add_function("bhc_text_pack", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1223), text_pack);
+        // bhc_text_char_count(ptr) -> i64  (for unpack iteration)
+        let text_char_count = self.module.llvm_module().add_function("bhc_text_char_count", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1224), text_char_count);
+        // bhc_text_char_at(ptr, i64) -> i64  (for unpack iteration)
+        let text_char_at = self.module.llvm_module().add_function("bhc_text_char_at", i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1225), text_char_at);
+        // bhc_text_map(fn_ptr, env_ptr, text_ptr) -> ptr
+        let text_map = self.module.llvm_module().add_function("bhc_text_map", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1226), text_map);
+
+        // ---- ByteArray RTS functions (VarId 1250-1258) ----
+        // bhc_bytearray_malloc(i64) -> ptr
+        let ba_malloc = self.module.llvm_module().add_function("bhc_bytearray_malloc", ptr_type.fn_type(&[i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1250), ba_malloc);
+        // bhc_bytearray_contents(ptr) -> ptr
+        let ba_contents = self.module.llvm_module().add_function("bhc_bytearray_contents", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1251), ba_contents);
+        // bhc_bytearray_index(ptr, i64) -> i64
+        let ba_index = self.module.llvm_module().add_function("bhc_bytearray_index", i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1252), ba_index);
+        // bhc_bytearray_copy(ptr, ptr, i64, i64) -> void
+        let ba_copy = self.module.llvm_module().add_function("bhc_bytearray_copy", void_type.fn_type(&[ptr_type.into(), ptr_type.into(), i64_type.into(), i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1253), ba_copy);
+        // bhc_ptr_plus(ptr, i64) -> ptr
+        let ba_ptr_plus = self.module.llvm_module().add_function("bhc_ptr_plus", ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1254), ba_ptr_plus);
+        // bhc_poke_byte(ptr, i64, i64) -> void
+        let ba_poke = self.module.llvm_module().add_function("bhc_poke_byte", void_type.fn_type(&[ptr_type.into(), i64_type.into(), i64_type.into()], false), None);
+        self.functions.insert(VarId::new(1255), ba_poke);
+        // bhc_cstring_length(ptr) -> i64
+        let ba_strlen = self.module.llvm_module().add_function("bhc_cstring_length", i64_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1256), ba_strlen);
+        // bhc_peek_array(i64, ptr) -> ptr
+        let ba_peek = self.module.llvm_module().add_function("bhc_peek_array", ptr_type.fn_type(&[i64_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1257), ba_peek);
     }
 
     // ========================================================================
@@ -1793,6 +1902,44 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 }
                 "Data.IntSet.toList" => self.lower_builtin_set_to_list(args[0]),
                 "Data.IntSet.fromList" => self.lower_builtin_set_from_list(args[0]),
+
+                // Data.Text operations
+                "Data.Text.empty" => self.lower_builtin_text_nullary(1200, "text_empty"),
+                "Data.Text.singleton" => self.lower_builtin_text_unary_int_to_ptr(args[0], 1201, "text_singleton"),
+                "Data.Text.null" => self.lower_builtin_text_unary_ptr_to_int(args[0], 1202, "text_null"),
+                "Data.Text.length" => self.lower_builtin_text_unary_ptr_to_int(args[0], 1203, "text_length"),
+                "Data.Text.eq" | "Data.Text.==" => self.lower_builtin_text_binary_ptr_to_int(args[0], args[1], 1204, "text_eq"),
+                "Data.Text.compare" => self.lower_builtin_text_binary_ptr_to_int(args[0], args[1], 1205, "text_compare"),
+                "Data.Text.head" => self.lower_builtin_text_unary_ptr_to_int(args[0], 1206, "text_head"),
+                "Data.Text.last" => self.lower_builtin_text_unary_ptr_to_int(args[0], 1207, "text_last"),
+                "Data.Text.tail" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1208, "text_tail"),
+                "Data.Text.init" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1209, "text_init"),
+                "Data.Text.append" | "Data.Text.<>" => self.lower_builtin_text_binary_ptr_to_ptr(args[0], args[1], 1210, "text_append"),
+                "Data.Text.reverse" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1211, "text_reverse"),
+                "Data.Text.take" => self.lower_builtin_text_int_ptr_to_ptr(args[0], args[1], 1212, "text_take"),
+                "Data.Text.takeEnd" => self.lower_builtin_text_int_ptr_to_ptr(args[0], args[1], 1213, "text_take_end"),
+                "Data.Text.drop" => self.lower_builtin_text_int_ptr_to_ptr(args[0], args[1], 1214, "text_drop"),
+                "Data.Text.dropEnd" => self.lower_builtin_text_int_ptr_to_ptr(args[0], args[1], 1215, "text_drop_end"),
+                "Data.Text.isPrefixOf" => self.lower_builtin_text_binary_ptr_to_int(args[0], args[1], 1216, "text_is_prefix_of"),
+                "Data.Text.isSuffixOf" => self.lower_builtin_text_binary_ptr_to_int(args[0], args[1], 1217, "text_is_suffix_of"),
+                "Data.Text.isInfixOf" => self.lower_builtin_text_binary_ptr_to_int(args[0], args[1], 1218, "text_is_infix_of"),
+                "Data.Text.toLower" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1219, "text_to_lower"),
+                "Data.Text.toUpper" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1220, "text_to_upper"),
+                "Data.Text.toCaseFold" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1221, "text_to_case_fold"),
+                "Data.Text.toTitle" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1222, "text_to_title"),
+                "Data.Text.pack" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1223, "text_pack"),
+                "Data.Text.unpack" => self.lower_builtin_text_unpack(args[0]),
+                "Data.Text.map" => self.lower_builtin_text_map(args[0], args[1]),
+
+                // ByteArray operations (used by Data.ByteString internals)
+                "Data.ByteString.bhc_bytearray_malloc" => self.lower_builtin_text_unary_int_to_ptr(args[0], 1250, "ba_malloc"),
+                "Data.ByteString.bhc_bytearray_contents" => self.lower_builtin_text_unary_ptr_to_ptr(args[0], 1251, "ba_contents"),
+                "Data.ByteString.bhc_bytearray_index" => self.lower_builtin_text_ptr_int_to_int(args[0], args[1], 1252, "ba_index"),
+                "Data.ByteString.bhc_bytearray_copy" => self.lower_builtin_ba_copy(args[0], args[1], args[2], args[3]),
+                "Data.ByteString.bhc_ptr_plus" => self.lower_builtin_text_ptr_int_to_ptr(args[0], args[1], 1254, "ba_ptr_plus"),
+                "Data.ByteString.bhc_poke_byte" => self.lower_builtin_ba_poke(args[0], args[1], args[2]),
+                "Data.ByteString.bhc_cstring_length" => self.lower_builtin_text_unary_ptr_to_int(args[0], 1256, "ba_strlen"),
+                "Data.ByteString.bhc_peek_array" => self.lower_builtin_text_int_ptr_to_ptr(args[0], args[1], 1257, "ba_peek_array"),
 
             _ => {
                 // Check for field selector pattern: $sel_N
@@ -12782,6 +12929,404 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let result = self.builder()
             .build_select(is_empty_bool, nothing, just, "maybe_extremum")
             .map_err(|e| CodegenError::Internal(format!("{}: select failed: {:?}", name, e)))?;
+        Ok(Some(result))
+    }
+
+    // ========================================================================
+    // Text / ByteArray handler methods
+    // ========================================================================
+
+    /// Text nullary: () -> ptr (e.g. text_empty)
+    fn lower_builtin_text_nullary(
+        &mut self,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// Text unary: (ptr) -> ptr (e.g. text_tail, text_reverse)
+    fn lower_builtin_text_unary_ptr_to_ptr(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no value", label)))?;
+        let ptr = self.value_to_ptr(val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[ptr.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// Text unary: (ptr) -> i64 (e.g. text_null, text_length, text_head)
+    fn lower_builtin_text_unary_ptr_to_int(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no value", label)))?;
+        let ptr = self.value_to_ptr(val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[ptr.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Text unary: (i64) -> ptr (e.g. text_singleton)
+    fn lower_builtin_text_unary_int_to_ptr(
+        &mut self,
+        expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no value", label)))?;
+        let int_val = self.coerce_to_int(val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[int_val.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// Text binary: (ptr, ptr) -> ptr (e.g. text_append)
+    fn lower_builtin_text_binary_ptr_to_ptr(
+        &mut self,
+        expr_a: &Expr,
+        expr_b: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a = self.lower_expr(expr_a)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no a", label)))?;
+        let b = self.lower_expr(expr_b)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no b", label)))?;
+        let a_ptr = self.value_to_ptr(a)?;
+        let b_ptr = self.value_to_ptr(b)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[a_ptr.into(), b_ptr.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// Text binary: (ptr, ptr) -> i64 (e.g. text_eq, text_compare)
+    fn lower_builtin_text_binary_ptr_to_int(
+        &mut self,
+        expr_a: &Expr,
+        expr_b: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a = self.lower_expr(expr_a)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no a", label)))?;
+        let b = self.lower_expr(expr_b)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no b", label)))?;
+        let a_ptr = self.value_to_ptr(a)?;
+        let b_ptr = self.value_to_ptr(b)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[a_ptr.into(), b_ptr.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Text: (i64, ptr) -> ptr (e.g. text_take, text_drop)
+    fn lower_builtin_text_int_ptr_to_ptr(
+        &mut self,
+        int_expr: &Expr,
+        ptr_expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let n = self.lower_expr(int_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no int", label)))?;
+        let t = self.lower_expr(ptr_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no ptr", label)))?;
+        let n_int = self.coerce_to_int(n)?;
+        let t_ptr = self.value_to_ptr(t)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[n_int.into(), t_ptr.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// ByteArray: (ptr, i64) -> i64 (e.g. ba_index)
+    fn lower_builtin_text_ptr_int_to_int(
+        &mut self,
+        ptr_expr: &Expr,
+        int_expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let p = self.lower_expr(ptr_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no ptr", label)))?;
+        let n = self.lower_expr(int_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no int", label)))?;
+        let p_ptr = self.value_to_ptr(p)?;
+        let n_int = self.coerce_to_int(n)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[p_ptr.into(), n_int.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// ByteArray: (ptr, i64) -> ptr (e.g. ba_ptr_plus)
+    fn lower_builtin_text_ptr_int_to_ptr(
+        &mut self,
+        ptr_expr: &Expr,
+        int_expr: &Expr,
+        rts_id: usize,
+        label: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let p = self.lower_expr(ptr_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no ptr", label)))?;
+        let n = self.lower_expr(int_expr)?
+            .ok_or_else(|| CodegenError::Internal(format!("{}: no int", label)))?;
+        let p_ptr = self.value_to_ptr(p)?;
+        let n_int = self.coerce_to_int(n)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{}: RTS function {} not declared", label, rts_id))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[p_ptr.into(), n_int.into()], label)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+        Ok(Some(result))
+    }
+
+    /// ByteArray copy: (ptr, ptr, i64, i64) -> void
+    fn lower_builtin_ba_copy(
+        &mut self,
+        dst_expr: &Expr,
+        src_expr: &Expr,
+        offset_expr: &Expr,
+        len_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let dst = self.lower_expr(dst_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_copy: no dst".to_string()))?;
+        let src = self.lower_expr(src_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_copy: no src".to_string()))?;
+        let off = self.lower_expr(offset_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_copy: no offset".to_string()))?;
+        let len = self.lower_expr(len_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_copy: no len".to_string()))?;
+        let dst_ptr = self.value_to_ptr(dst)?;
+        let src_ptr = self.value_to_ptr(src)?;
+        let off_int = self.coerce_to_int(off)?;
+        let len_int = self.coerce_to_int(len)?;
+        let rts_fn = self.functions.get(&VarId::new(1253)).ok_or_else(|| {
+            CodegenError::Internal("bhc_bytearray_copy not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*rts_fn, &[dst_ptr.into(), src_ptr.into(), off_int.into(), len_int.into()], "ba_copy")
+            .map_err(|e| CodegenError::Internal(format!("ba_copy call failed: {:?}", e)))?;
+        // void return — return unit (null ptr)
+        let unit = self.type_mapper().ptr_type().const_null();
+        Ok(Some(unit.into()))
+    }
+
+    /// ByteArray poke: (ptr, i64, i64) -> void
+    fn lower_builtin_ba_poke(
+        &mut self,
+        ptr_expr: &Expr,
+        offset_expr: &Expr,
+        value_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let p = self.lower_expr(ptr_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_poke: no ptr".to_string()))?;
+        let off = self.lower_expr(offset_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_poke: no offset".to_string()))?;
+        let val = self.lower_expr(value_expr)?
+            .ok_or_else(|| CodegenError::Internal("ba_poke: no value".to_string()))?;
+        let p_ptr = self.value_to_ptr(p)?;
+        let off_int = self.coerce_to_int(off)?;
+        let val_int = self.coerce_to_int(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1255)).ok_or_else(|| {
+            CodegenError::Internal("bhc_poke_byte not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*rts_fn, &[p_ptr.into(), off_int.into(), val_int.into()], "ba_poke")
+            .map_err(|e| CodegenError::Internal(format!("ba_poke call failed: {:?}", e)))?;
+        let unit = self.type_mapper().ptr_type().const_null();
+        Ok(Some(unit.into()))
+    }
+
+    /// Text unpack: builds a BHC cons-list from a Text using char_count + char_at iteration.
+    ///
+    /// This uses the same pattern as `map_keys` codegen:
+    /// 1. Call bhc_text_char_count to get N
+    /// 2. Loop from N-1 down to 0, calling bhc_text_char_at(text, i)
+    /// 3. Build cons-list in reverse (so we end up with correct order)
+    fn lower_builtin_text_unpack(
+        &mut self,
+        text_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let text_val = self.lower_expr(text_expr)?
+            .ok_or_else(|| CodegenError::Internal("text_unpack: no text".to_string()))?;
+        let text_ptr = self.value_to_ptr(text_val)?;
+
+        // Get char count
+        let count_fn = self.functions.get(&VarId::new(1224)).ok_or_else(|| {
+            CodegenError::Internal("bhc_text_char_count not declared".to_string())
+        })?;
+        let count_val = self.builder()
+            .build_call(*count_fn, &[text_ptr.into()], "char_count")
+            .map_err(|e| CodegenError::Internal(format!("char_count call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("char_count: returned void".to_string()))?
+            .into_int_value();
+
+        let char_at_fn = self.functions.get(&VarId::new(1225)).ok_or_else(|| {
+            CodegenError::Internal("bhc_text_char_at not declared".to_string())
+        })?;
+
+        let tm = self.type_mapper();
+        let i64_type = tm.i64_type();
+        let ptr_type = tm.ptr_type();
+
+        // Build Nil (empty list) as starting accumulator
+        let nil = self.alloc_adt(0, 0)?;
+
+        // Create loop blocks
+        let current_fn = self
+            .builder()
+            .get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("text_unpack: no current function".to_string()))?;
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "unpack_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "unpack_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "unpack_exit");
+
+        // Initial: i = count - 1, acc = nil
+        let one = i64_type.const_int(1, false);
+        let init_i = self.builder()
+            .build_int_sub(count_val, one, "init_i")
+            .map_err(|e| CodegenError::Internal(format!("text_unpack sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("text_unpack br: {:?}", e)))?;
+
+        // Loop header: phi for i and acc
+        self.builder().position_at_end(loop_header);
+        let phi_i = self.builder()
+            .build_phi(i64_type, "i")
+            .map_err(|e| CodegenError::Internal(format!("text_unpack phi_i: {:?}", e)))?;
+        let phi_acc = self.builder()
+            .build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("text_unpack phi_acc: {:?}", e)))?;
+
+        let zero = i64_type.const_int(0, false);
+        let cond = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, phi_i.as_basic_value().into_int_value(), zero, "cond")
+            .map_err(|e| CodegenError::Internal(format!("text_unpack cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(cond, loop_body, loop_exit)
+            .map_err(|e| CodegenError::Internal(format!("text_unpack cbr: {:?}", e)))?;
+
+        // Loop body: char = char_at(text, i); cons = Cons(char, acc); i = i - 1
+        self.builder().position_at_end(loop_body);
+        let i_val = phi_i.as_basic_value().into_int_value();
+        let char_val = self.builder()
+            .build_call(*char_at_fn, &[text_ptr.into(), i_val.into()], "char_at")
+            .map_err(|e| CodegenError::Internal(format!("char_at call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("char_at: returned void".to_string()))?;
+
+        // Alloc Cons node: tag=1, arity=2
+        let cons = self.alloc_adt(1, 2)?;
+        let char_ptr = self.int_to_ptr(char_val.into_int_value())?;
+        self.store_adt_field(cons, 2, 0, char_ptr.into())?;
+        let acc_val = phi_acc.as_basic_value().into_pointer_value();
+        self.store_adt_field(cons, 2, 1, acc_val.into())?;
+
+        let next_i = self.builder()
+            .build_int_sub(i_val, one, "next_i")
+            .map_err(|e| CodegenError::Internal(format!("text_unpack dec: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("text_unpack loop_br: {:?}", e)))?;
+
+        // Wire phi nodes
+        let pre_header = loop_header.get_previous_basic_block()
+            .ok_or_else(|| CodegenError::Internal("text_unpack: no pre-header block".to_string()))?;
+        phi_i.add_incoming(&[(&init_i, pre_header), (&next_i, loop_body)]);
+        phi_acc.add_incoming(&[(&nil, pre_header), (&cons, loop_body)]);
+
+        // Exit: return accumulated list
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(phi_acc.as_basic_value()))
+    }
+
+    /// Text map: (Char -> Char) -> Text -> Text
+    ///
+    /// The closure is dispatched via the RTS `bhc_text_map(fn_ptr, env_ptr, text_ptr)`.
+    /// The Haskell closure is represented as an ADT with fn_ptr at field 0 and env at field 1.
+    fn lower_builtin_text_map(
+        &mut self,
+        func_expr: &Expr,
+        text_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func = self.lower_expr(func_expr)?
+            .ok_or_else(|| CodegenError::Internal("text_map: no func".to_string()))?;
+        let text = self.lower_expr(text_expr)?
+            .ok_or_else(|| CodegenError::Internal("text_map: no text".to_string()))?;
+        let func_ptr = self.value_to_ptr(func)?;
+        let text_ptr = self.value_to_ptr(text)?;
+
+        // For closure dispatch, pass the closure pointer as both fn_ptr and env_ptr.
+        // The RTS function will interpret the closure accordingly.
+        let rts_fn = self.functions.get(&VarId::new(1226)).ok_or_else(|| {
+            CodegenError::Internal("bhc_text_map not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[func_ptr.into(), func_ptr.into(), text_ptr.into()], "text_map")
+            .map_err(|e| CodegenError::Internal(format!("text_map call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("text_map: returned void".to_string()))?;
         Ok(Some(result))
     }
 
