@@ -998,8 +998,20 @@ foreign import ccall unsafe "bhc_cstring_length"
 foreign import ccall unsafe "bhc_peek_array"
     peekArray :: Int -> CString -> IO [Word8]
 
-foreign import ccall unsafe "bhc_with_array"
-    withArray :: [Word8] -> (CString -> IO a) -> IO a
+-- | Allocate a temporary array from a list of bytes and pass a pointer
+-- to the action. The array is freed when the action completes.
+withArray :: [Word8] -> (CString -> IO a) -> IO a
+withArray ws action = do
+    let len = P.length ws
+    arr <- mallocByteArray len
+    let ptr = byteArrayContents arr
+    pokeList ptr ws 0
+    action ptr
+  where
+    pokeList _ [] _ = return ()
+    pokeList p (x:xs) !i = do
+        pokeByteOff p i x
+        pokeList p xs (i + 1)
 
 -- Unsafe IO (for internal use)
 {-# NOINLINE unsafePerformIO #-}

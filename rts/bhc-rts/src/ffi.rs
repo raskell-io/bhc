@@ -9,6 +9,7 @@
 //! ensure stable symbol names for linking.
 
 use std::ffi::{c_char, c_int, CStr};
+use std::panic::AssertUnwindSafe;
 use std::ptr;
 
 use crate::{global, init_default, Profile, RuntimeConfig};
@@ -1326,6 +1327,170 @@ pub unsafe extern "C" fn bhc_free_string(s: *mut c_char) {
     }
 }
 
+// ============================================================================
+// Exception Handling
+// ============================================================================
+//
+// BHC exceptions use thread-local storage to communicate exception state
+// between bhc_throw and bhc_catch. This avoids unwinding across extern "C"
+// boundaries, which is undefined behavior.
+//
+// Protocol:
+//   1. bhc_catch saves the current exception state, calls the action.
+//   2. If bhc_throw is called, it stores the exception pointer in TLS
+//      and returns a sentinel null value.
+//   3. bhc_catch checks TLS after the action returns; if an exception
+//      was thrown, it invokes the handler.
+//
+// bhc_evaluate: Forces a value to WHNF (currently a no-op).
+// bhc_mask/bhc_unmask: Async exception masking stubs.
+// ============================================================================
+
+use std::cell::Cell;
+
+thread_local! {
+    /// Thread-local exception state. `None` means no exception is pending.
+    /// `Some(ptr)` means bhc_throw was called with the given exception pointer.
+    static BHC_EXCEPTION: Cell<Option<*mut u8>> = const { Cell::new(None) };
+}
+
+/// Sentinel return value used by bhc_throw to indicate an exception was thrown.
+/// bhc_catch checks for pending exceptions after the action returns.
+const BHC_EXCEPTION_SENTINEL: *mut u8 = ptr::null_mut();
+
+/// Throw a Haskell exception.
+///
+/// Stores the exception pointer in thread-local storage and aborts the
+/// current computation by returning a sentinel value. When called from
+/// within a bhc_catch scope, the catch handler will be invoked.
+///
+/// # Arguments
+///
+/// * `exception_ptr` - Pointer to the Haskell exception value on the heap.
+///
+/// # Safety
+///
+/// `exception_ptr` must be a valid pointer to a heap-allocated Haskell value.
+/// This function diverges (never returns normally to the caller) by using
+/// longjmp-style control flow via the RTS.
+#[no_mangle]
+pub extern "C" fn bhc_throw(exception_ptr: *mut u8) -> *mut u8 {
+    BHC_EXCEPTION.with(|cell| {
+        cell.set(Some(exception_ptr));
+    });
+    BHC_EXCEPTION_SENTINEL
+}
+
+/// Catch a Haskell exception.
+///
+/// Runs `action_fn(action_env)`. If the action (or any function it calls)
+/// invokes `bhc_throw`, the exception is caught and `handler_fn` is called
+/// with the exception pointer.
+///
+/// # Arguments
+///
+/// * `action_fn` - Function pointer for the IO action to run.
+/// * `action_env` - Environment/closure pointer for the action.
+/// * `handler_fn` - Function pointer for the exception handler.
+/// * `handler_env` - Environment/closure pointer for the handler.
+///
+/// # Returns
+///
+/// The result of either the action or the handler.
+///
+/// # Safety
+///
+/// All function pointers and environment pointers must be valid.
+#[no_mangle]
+pub extern "C" fn bhc_catch(
+    action_fn: extern "C" fn(*mut u8) -> *mut u8,
+    action_env: *mut u8,
+    handler_fn: extern "C" fn(*mut u8, *mut u8) -> *mut u8,
+    handler_env: *mut u8,
+) -> *mut u8 {
+    // Save any pre-existing exception state
+    let saved = BHC_EXCEPTION.with(|cell| cell.replace(None));
+
+    // Run the action
+    let result = action_fn(action_env);
+
+    // Check if an exception was thrown during the action
+    let thrown = BHC_EXCEPTION.with(|cell| cell.replace(None));
+
+    match thrown {
+        Some(exc_ptr) => {
+            // Exception was thrown — invoke the handler
+            handler_fn(handler_env, exc_ptr)
+        }
+        None => {
+            // No exception — restore saved state and return result
+            if saved.is_some() {
+                BHC_EXCEPTION.with(|cell| cell.set(saved));
+            }
+            result
+        }
+    }
+}
+
+/// Force a value to Weak Head Normal Form.
+///
+/// Currently a no-op since BHC eagerly evaluates to WHNF.
+/// This exists for `Control.Exception.evaluate` support.
+///
+/// # Arguments
+///
+/// * `val` - Pointer to the value to evaluate.
+///
+/// # Returns
+///
+/// The same pointer (value is already in WHNF).
+#[no_mangle]
+pub extern "C" fn bhc_evaluate(val: *mut u8) -> *mut u8 {
+    val
+}
+
+/// Mask asynchronous exceptions (stub).
+///
+/// Currently just runs the action without masking, since BHC
+/// does not yet support asynchronous exceptions.
+///
+/// # Arguments
+///
+/// * `action_fn` - Function pointer for the IO action.
+/// * `action_env` - Environment/closure pointer.
+///
+/// # Returns
+///
+/// The result of the action.
+#[no_mangle]
+pub extern "C" fn bhc_mask(
+    action_fn: extern "C" fn(*mut u8) -> *mut u8,
+    action_env: *mut u8,
+) -> *mut u8 {
+    action_fn(action_env)
+}
+
+/// Unmask asynchronous exceptions (stub).
+///
+/// Currently just runs the action, since BHC does not yet
+/// support asynchronous exceptions.
+///
+/// # Arguments
+///
+/// * `action_fn` - Function pointer for the IO action.
+/// * `action_env` - Environment/closure pointer.
+///
+/// # Returns
+///
+/// The result of the action.
+#[no_mangle]
+pub extern "C" fn bhc_unmask(
+    action_fn: extern "C" fn(*mut u8) -> *mut u8,
+    action_env: *mut u8,
+) -> *mut u8 {
+    action_fn(action_env)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1454,6 +1619,57 @@ mod tests {
         let cstr = unsafe { std::ffi::CStr::from_ptr(s) };
         assert_eq!(cstr.to_str().unwrap(), "42");
         unsafe { bhc_free_string(s) };
+    }
+
+    // Tests for exception handling
+    #[test]
+    fn test_bhc_evaluate() {
+        let val = 42usize as *mut u8;
+        let result = bhc_evaluate(val);
+        assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_bhc_catch_no_exception() {
+        extern "C" fn action(_env: *mut u8) -> *mut u8 {
+            42usize as *mut u8
+        }
+        extern "C" fn handler(_env: *mut u8, _exc: *mut u8) -> *mut u8 {
+            99usize as *mut u8
+        }
+        let result = bhc_catch(action, ptr::null_mut(), handler, ptr::null_mut());
+        assert_eq!(result as usize, 42);
+    }
+
+    #[test]
+    fn test_bhc_catch_with_exception() {
+        extern "C" fn action(_env: *mut u8) -> *mut u8 {
+            bhc_throw(77usize as *mut u8)
+        }
+        extern "C" fn handler(_env: *mut u8, exc: *mut u8) -> *mut u8 {
+            // Return the exception pointer as the result
+            exc
+        }
+        let result = bhc_catch(action, ptr::null_mut(), handler, ptr::null_mut());
+        assert_eq!(result as usize, 77);
+    }
+
+    #[test]
+    fn test_bhc_mask_runs_action() {
+        extern "C" fn action(_env: *mut u8) -> *mut u8 {
+            123usize as *mut u8
+        }
+        let result = bhc_mask(action, ptr::null_mut());
+        assert_eq!(result as usize, 123);
+    }
+
+    #[test]
+    fn test_bhc_unmask_runs_action() {
+        extern "C" fn action(_env: *mut u8) -> *mut u8 {
+            456usize as *mut u8
+        }
+        let result = bhc_unmask(action, ptr::null_mut());
+        assert_eq!(result as usize, 456);
     }
 
     #[test]

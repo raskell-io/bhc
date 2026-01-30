@@ -59,6 +59,7 @@ module BHC.System.Process (
 ) where
 
 import BHC.Prelude
+import BHC.Control.Exception (SomeException, catch, throw)
 import BHC.System.Exit (ExitCode(..))
 
 -- | Process identifier.
@@ -279,19 +280,9 @@ foreign import ccall "bhc_run_interactive_command"
 withCreateProcess :: CreateProcess -> ((Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle) -> IO a) -> IO a
 withCreateProcess cp action = do
     handles <- createProcess cp
-    result <- action handles `catch` \e -> cleanupProcess handles >> throw e
+    result <- action handles `catch` \e -> cleanupProcess handles >> throw (e :: SomeException)
     cleanupProcess handles
     return result
-  where
-    catch :: IO a -> (SomeException -> IO a) -> IO a
-    catch = catchException
-    throw :: SomeException -> IO a
-    throw = throwException
-
-foreign import ccall "bhc_catch" catchException :: IO a -> (SomeException -> IO a) -> IO a
-foreign import ccall "bhc_throw" throwException :: SomeException -> IO a
-
-data SomeException = SomeException String
 
 -- | Format a command for display.
 showCommandForUser :: FilePath -> [String] -> String

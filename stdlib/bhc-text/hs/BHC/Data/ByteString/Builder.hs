@@ -462,16 +462,10 @@ stringUtf8 = foldMap charUtf8
 -- Internal helpers
 -- ============================================================
 
--- | Convert a 'Float' to its bit representation.
-floatToWord32 :: Float -> Word32
-floatToWord32 f = unsafeCoerce f
-  where
-    unsafeCoerce :: Float -> Word32
-    unsafeCoerce = error "floatToWord32: implemented via compiler magic"
+-- | Convert a 'Float' to its IEEE 754 bit representation.
+foreign import ccall unsafe "bhc_float_to_word32"
+    floatToWord32 :: Float -> Word32
 
--- | Convert a 'Double' to its bit representation.
-doubleToWord64 :: Double -> Word64
-doubleToWord64 d = unsafeCoerce d
-  where
-    unsafeCoerce :: Double -> Word64
-    unsafeCoerce = error "doubleToWord64: implemented via compiler magic"
+-- | Convert a 'Double' to its IEEE 754 bit representation.
+foreign import ccall unsafe "bhc_double_to_word64"
+    doubleToWord64 :: Double -> Word64

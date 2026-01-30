@@ -173,6 +173,34 @@ pub extern "C" fn bhc_peek_array(count: i64, ptr: *mut u8) -> *mut u8 {
 }
 
 // ============================================================
+// Float/Double bitcast
+// ============================================================
+
+/// Reinterpret the bits of a `f32` as a `u32`.
+#[no_mangle]
+pub extern "C" fn bhc_float_to_word32(f: f32) -> u32 {
+    f.to_bits()
+}
+
+/// Reinterpret the bits of a `f64` as a `u64`.
+#[no_mangle]
+pub extern "C" fn bhc_double_to_word64(d: f64) -> u64 {
+    d.to_bits()
+}
+
+/// Reinterpret the bits of a `u32` as a `f32`.
+#[no_mangle]
+pub extern "C" fn bhc_word32_to_float(w: u32) -> f32 {
+    f32::from_bits(w)
+}
+
+/// Reinterpret the bits of a `u64` as a `f64`.
+#[no_mangle]
+pub extern "C" fn bhc_word64_to_double(w: u64) -> f64 {
+    f64::from_bits(w)
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
@@ -262,5 +290,33 @@ mod tests {
         // These should not crash:
         bhc_bytearray_copy(ptr::null_mut(), ptr::null_mut(), 0, 0);
         bhc_poke_byte(ptr::null_mut(), 0, 0);
+    }
+
+    #[test]
+    fn test_float_bitcast_roundtrip() {
+        let f: f32 = 3.14;
+        let w = bhc_float_to_word32(f);
+        let f2 = bhc_word32_to_float(w);
+        assert_eq!(f, f2);
+    }
+
+    #[test]
+    fn test_double_bitcast_roundtrip() {
+        let d: f64 = 2.718281828459045;
+        let w = bhc_double_to_word64(d);
+        let d2 = bhc_word64_to_double(w);
+        assert_eq!(d, d2);
+    }
+
+    #[test]
+    fn test_float_zero_bitcast() {
+        assert_eq!(bhc_float_to_word32(0.0_f32), 0);
+        assert_eq!(bhc_word32_to_float(0), 0.0_f32);
+    }
+
+    #[test]
+    fn test_double_zero_bitcast() {
+        assert_eq!(bhc_double_to_word64(0.0_f64), 0);
+        assert_eq!(bhc_word64_to_double(0), 0.0_f64);
     }
 }

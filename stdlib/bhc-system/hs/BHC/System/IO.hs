@@ -279,6 +279,12 @@ interact :: (String -> String) -> IO ()
 interact f = getContents >>= putStr . f
 
 -- Errors
+-- IOError and exception handling imported from Control.Exception
+import BHC.Control.Exception (
+    Exception(..), SomeException(..),
+    throw, catch, try,
+    )
+
 data IOError = IOError String
     deriving (Show, Eq)
 
@@ -289,15 +295,3 @@ ioError = throw
 
 userError :: String -> IOError
 userError = IOError
-
-catch :: Exception e => IO a -> (e -> IO a) -> IO a
-catch = catchException
-
-try :: Exception e => IO a -> IO (Either e a)
-try action = catch (fmap Right action) (return . Left)
-
--- Internal
-foreign import ccall "bhc_throw" throw :: Exception e => e -> a
-foreign import ccall "bhc_catch" catchException :: Exception e => IO a -> (e -> IO a) -> IO a
-
-class (Show e) => Exception e

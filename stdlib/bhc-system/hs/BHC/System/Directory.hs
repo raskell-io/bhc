@@ -85,6 +85,7 @@ module BHC.System.Directory (
 ) where
 
 import BHC.Prelude
+import BHC.Control.Exception (SomeException, catch, throw)
 import Data.Time.Clock (UTCTime)
 
 -- | File permissions.
@@ -175,19 +176,9 @@ withCurrentDirectory :: FilePath -> IO a -> IO a
 withCurrentDirectory dir action = do
     old <- getCurrentDirectory
     setCurrentDirectory dir
-    result <- action `catch` \e -> setCurrentDirectory old >> throw e
+    result <- action `catch` \e -> setCurrentDirectory old >> throw (e :: SomeException)
     setCurrentDirectory old
     return result
-  where
-    catch :: IO a -> (SomeException -> IO a) -> IO a
-    catch = catchException
-    throw :: SomeException -> IO a
-    throw = throwException
-
-foreign import ccall "bhc_catch" catchException :: IO a -> (SomeException -> IO a) -> IO a
-foreign import ccall "bhc_throw" throwException :: SomeException -> IO a
-
-data SomeException = SomeException String
 
 -- | Get the user's home directory.
 foreign import ccall "bhc_get_home_directory"
