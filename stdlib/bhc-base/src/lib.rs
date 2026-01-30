@@ -20,3 +20,5 @@
 #![allow(unsafe_code)]
 
 pub mod char; // Unicode primitives - actually needed
+pub mod list; // List RTS operations (sort, nub, group, etc.)
+pub mod string; // String RTS operations (lines, words, etc.)

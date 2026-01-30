@@ -693,6 +693,40 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // bhc_set_elem_at(set_ptr, index) -> i64
         let set_elem_at = self.module.llvm_module().add_function("bhc_set_elem_at", i64_type.fn_type(&[ptr_type.into(), i64_type.into()], false), None);
         self.functions.insert(VarId::new(1164), set_elem_at);
+
+        // ---- List RTS functions (VarId 1170-1175) ----
+        // bhc_list_sort(list_ptr) -> ptr
+        let list_sort = self.module.llvm_module().add_function("bhc_list_sort", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1170), list_sort);
+        // bhc_list_sort_by(closure_ptr, list_ptr) -> ptr
+        let list_sort_by = self.module.llvm_module().add_function("bhc_list_sort_by", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1171), list_sort_by);
+        // bhc_list_nub(list_ptr) -> ptr
+        let list_nub = self.module.llvm_module().add_function("bhc_list_nub", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1172), list_nub);
+        // bhc_list_group(list_ptr) -> ptr
+        let list_group = self.module.llvm_module().add_function("bhc_list_group", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1173), list_group);
+        // bhc_list_intercalate(sep_ptr, list_ptr) -> ptr
+        let list_intercalate = self.module.llvm_module().add_function("bhc_list_intercalate", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1174), list_intercalate);
+        // bhc_list_transpose(list_ptr) -> ptr
+        let list_transpose = self.module.llvm_module().add_function("bhc_list_transpose", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1175), list_transpose);
+
+        // ---- String RTS functions (VarId 1176-1179) ----
+        // bhc_string_lines(str_ptr) -> ptr
+        let string_lines = self.module.llvm_module().add_function("bhc_string_lines", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1176), string_lines);
+        // bhc_string_unlines(list_ptr) -> ptr
+        let string_unlines = self.module.llvm_module().add_function("bhc_string_unlines", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1177), string_unlines);
+        // bhc_string_words(str_ptr) -> ptr
+        let string_words = self.module.llvm_module().add_function("bhc_string_words", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1178), string_words);
+        // bhc_string_unwords(list_ptr) -> ptr
+        let string_unwords = self.module.llvm_module().add_function("bhc_string_unwords", ptr_type.fn_type(&[ptr_type.into()], false), None);
+        self.functions.insert(VarId::new(1179), string_unwords);
     }
 
     // ========================================================================
@@ -1634,13 +1668,18 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 "Data.Map.filter" => self.lower_builtin_map_filter(args[0], args[1]),
                 "Data.Map.foldr" => self.lower_builtin_map_foldr(args[0], args[1], args[2]),
                 "Data.Map.foldl" => self.lower_builtin_map_foldl(args[0], args[1], args[2]),
-                "Data.Map.insertWith" | "Data.Map.adjust" | "Data.Map.update" | "Data.Map.alter"
-                | "Data.Map.unionWith" | "Data.Map.unionWithKey" | "Data.Map.unions"
-                | "Data.Map.intersectionWith" | "Data.Map.differenceWith"
-                | "Data.Map.mapWithKey" | "Data.Map.mapKeys"
-                | "Data.Map.filterWithKey"
-                | "Data.Map.foldrWithKey" | "Data.Map.foldlWithKey"
-                | "Data.Map.fromListWith" => {
+                "Data.Map.mapWithKey" => self.lower_builtin_map_map_with_key(args[0], args[1]),
+                "Data.Map.filterWithKey" => self.lower_builtin_map_filter_with_key(args[0], args[1]),
+                "Data.Map.foldlWithKey" | "Data.Map.foldlWithKey'" => self.lower_builtin_map_foldl_with_key(args[0], args[1], args[2]),
+                "Data.Map.foldrWithKey" => self.lower_builtin_map_foldr_with_key(args[0], args[1], args[2]),
+                "Data.Map.unionWith" | "Data.Map.unionWithKey" => self.lower_builtin_map_union_with(args[0], args[1], args[2]),
+                "Data.Map.intersectionWith" => self.lower_builtin_map_intersection_with(args[0], args[1], args[2]),
+                "Data.Map.differenceWith" => self.lower_builtin_map_difference_with(args[0], args[1], args[2]),
+                "Data.Map.insertWith" => self.lower_builtin_map_insert_with(args[0], args[1], args[2], args[3]),
+                "Data.Map.adjust" => self.lower_builtin_map_adjust(args[0], args[1], args[2]),
+                "Data.Map.mapKeys" => self.lower_builtin_map_map_keys(args[0], args[1]),
+                "Data.Map.fromListWith" => self.lower_builtin_map_from_list_with(args[0], args[1]),
+                "Data.Map.update" | "Data.Map.alter" | "Data.Map.unions" => {
                     let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
                     self.lower_builtin_container_ho_stub(&arg_exprs, name)
                 }
@@ -1711,12 +1750,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 "Data.IntMap.union" => self.lower_builtin_map_union(args[0], args[1]),
                 "Data.IntMap.intersection" => self.lower_builtin_map_intersection(args[0], args[1]),
                 "Data.IntMap.difference" => self.lower_builtin_map_difference(args[0], args[1]),
-                "Data.IntMap.insertWith" | "Data.IntMap.adjust" | "Data.IntMap.unionWith"
-                | "Data.IntMap.map" | "Data.IntMap.mapWithKey" | "Data.IntMap.filter"
-                | "Data.IntMap.foldr" | "Data.IntMap.foldlWithKey" => {
-                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
-                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
-                }
+                "Data.IntMap.map" => self.lower_builtin_map_map(args[0], args[1]),
+                "Data.IntMap.filter" => self.lower_builtin_map_filter(args[0], args[1]),
+                "Data.IntMap.foldr" => self.lower_builtin_map_foldr(args[0], args[1], args[2]),
+                "Data.IntMap.mapWithKey" => self.lower_builtin_map_map_with_key(args[0], args[1]),
+                "Data.IntMap.foldlWithKey" | "Data.IntMap.foldlWithKey'" => self.lower_builtin_map_foldl_with_key(args[0], args[1], args[2]),
+                "Data.IntMap.insertWith" => self.lower_builtin_map_insert_with(args[0], args[1], args[2], args[3]),
+                "Data.IntMap.adjust" => self.lower_builtin_map_adjust(args[0], args[1], args[2]),
+                "Data.IntMap.unionWith" => self.lower_builtin_map_union_with(args[0], args[1], args[2]),
                 "Data.IntMap.keys" => self.lower_builtin_map_keys(args[0]),
                 "Data.IntMap.elems" => self.lower_builtin_map_elems(args[0]),
                 "Data.IntMap.toList" | "Data.IntMap.toAscList" => {
@@ -8712,36 +8753,106 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(final_phi.as_basic_value()))
     }
 
-    /// Lower `intercalate` (stub).
+    /// Lower `intercalate` — call RTS bhc_list_intercalate.
     fn lower_builtin_intercalate(&mut self, sep_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let _ = self.lower_expr(sep_expr)?;
-        self.lower_expr(list_expr)
+        let sep_val = self.lower_expr(sep_expr)?
+            .ok_or_else(|| CodegenError::Internal("intercalate: no sep".to_string()))?;
+        let sep_ptr = self.value_to_ptr(sep_val)?;
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("intercalate: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1174)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_intercalate not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[sep_ptr.into(), list_ptr.into()], "intercalate")
+            .map_err(|e| CodegenError::Internal(format!("intercalate call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("intercalate: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `transpose` (stub).
+    /// Lower `transpose` — call RTS bhc_list_transpose.
     fn lower_builtin_transpose(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("transpose: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1175)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_transpose not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "transpose")
+            .map_err(|e| CodegenError::Internal(format!("transpose call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("transpose: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `nub` (stub).
+    /// Lower `nub` — call RTS bhc_list_nub.
     fn lower_builtin_nub(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("nub: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1172)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_nub not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "nub")
+            .map_err(|e| CodegenError::Internal(format!("nub call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("nub: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `sort` (stub).
+    /// Lower `sort` — call RTS bhc_list_sort.
     fn lower_builtin_sort(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("sort: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1170)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_sort not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "sort")
+            .map_err(|e| CodegenError::Internal(format!("sort call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("sort: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `sortBy` (stub).
+    /// Lower `sortBy` — call RTS bhc_list_sort_by.
     fn lower_builtin_sort_by(&mut self, cmp_expr: &Expr, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let _ = self.lower_expr(cmp_expr)?;
-        self.lower_expr(list_expr)
+        let cmp_val = self.lower_expr(cmp_expr)?
+            .ok_or_else(|| CodegenError::Internal("sortBy: no cmp".to_string()))?;
+        let cmp_ptr = self.value_to_ptr(cmp_val)?;
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("sortBy: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1171)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_sort_by not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[cmp_ptr.into(), list_ptr.into()], "sort_by")
+            .map_err(|e| CodegenError::Internal(format!("sort_by call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("sort_by: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `group` (stub).
+    /// Lower `group` — call RTS bhc_list_group.
     fn lower_builtin_group(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("group: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1173)).ok_or_else(|| {
+            CodegenError::Internal("bhc_list_group not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "group")
+            .map_err(|e| CodegenError::Internal(format!("group call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("group: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
     /// Lower `delete` — remove first occurrence of value from list.
@@ -9085,30 +9196,68 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(nil.into()))
     }
 
-    /// Lower `lines` (stub).
+    /// Lower `lines` — call RTS bhc_string_lines.
     fn lower_builtin_lines(&mut self, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let str_val = self.lower_expr(str_expr)?.ok_or_else(|| CodegenError::Internal("lines: no string".to_string()))?;
+        let str_val = self.lower_expr(str_expr)?
+            .ok_or_else(|| CodegenError::Internal("lines: no string".to_string()))?;
         let str_ptr = self.value_to_ptr(str_val)?;
-        let nil = self.alloc_adt(0, 0)?;
-        let cons = self.alloc_adt(1, 2)?;
-        self.store_adt_field(cons, 2, 0, str_ptr.into())?;
-        self.store_adt_field(cons, 2, 1, nil.into())?;
-        Ok(Some(cons.into()))
+        let rts_fn = self.functions.get(&VarId::new(1176)).ok_or_else(|| {
+            CodegenError::Internal("bhc_string_lines not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[str_ptr.into()], "lines")
+            .map_err(|e| CodegenError::Internal(format!("lines call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("lines: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `unlines` (stub).
+    /// Lower `unlines` — call RTS bhc_string_unlines.
     fn lower_builtin_unlines(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("unlines: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1177)).ok_or_else(|| {
+            CodegenError::Internal("bhc_string_unlines not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "unlines")
+            .map_err(|e| CodegenError::Internal(format!("unlines call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("unlines: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `words` (stub).
+    /// Lower `words` — call RTS bhc_string_words.
     fn lower_builtin_words(&mut self, str_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_builtin_lines(str_expr)
+        let str_val = self.lower_expr(str_expr)?
+            .ok_or_else(|| CodegenError::Internal("words: no string".to_string()))?;
+        let str_ptr = self.value_to_ptr(str_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1178)).ok_or_else(|| {
+            CodegenError::Internal("bhc_string_words not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[str_ptr.into()], "words")
+            .map_err(|e| CodegenError::Internal(format!("words call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("words: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `unwords` (stub).
+    /// Lower `unwords` — call RTS bhc_string_unwords.
     fn lower_builtin_unwords(&mut self, list_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.lower_expr(list_expr)
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("unwords: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+        let rts_fn = self.functions.get(&VarId::new(1179)).ok_or_else(|| {
+            CodegenError::Internal("bhc_string_unwords not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[list_ptr.into()], "unwords")
+            .map_err(|e| CodegenError::Internal(format!("unwords call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("unwords: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
     /// Lower `zip3` (stub).
@@ -10423,11 +10572,1434 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
 
+    /// Lower `Data.Map.mapWithKey` -- applies closure(key, val) to each entry, building new map.
+    /// mapWithKey :: (k -> v -> v') -> Map k v -> Map k v'
+    fn lower_builtin_map_map_with_key(
+        &mut self,
+        fn_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_mapWithKey: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_mapWithKey: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Get element count
+        let count_fn = self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[map_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+
+        // Start with empty map
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Extract function pointer from closure; 2 args: key, val
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mmwk_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mmwk_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mmwk_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: get key and value, apply fn to (key, value), insert (key, new_val)
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map_ptr.into(), idx.into()], "key")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val = self.builder()
+            .build_call(val_at_fn, &[map_ptr.into(), idx.into()], "val")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Convert key i64 to ptr for closure call
+        let key_ptr = self.int_to_ptr(key_i64)?;
+
+        // Call closure: fn_ptr(closure, key_ptr, val)
+        let mapped_val = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), key_ptr.into(), val.into()], "mapped")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        let mapped_ptr = self.value_to_ptr(mapped_val)?;
+        let acc_ptr = acc_phi.as_basic_value().into_pointer_value();
+        let new_map = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), mapped_ptr.into(), acc_ptr.into()], "new_map")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&empty_map, entry_block), (&new_map, loop_body)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.filterWithKey` -- applies predicate(key, val), keeping matches.
+    /// filterWithKey :: (k -> v -> Bool) -> Map k v -> Map k v
+    fn lower_builtin_map_filter_with_key(
+        &mut self,
+        fn_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_filterWithKey: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_filterWithKey: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[map_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // 2-arg closure: (key, val)
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mfwk_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mfwk_body");
+        let loop_insert = self.llvm_context().append_basic_block(current_fn, "mfwk_insert");
+        let loop_skip = self.llvm_context().append_basic_block(current_fn, "mfwk_skip");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mfwk_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map_ptr.into(), idx.into()], "key")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val = self.builder()
+            .build_call(val_at_fn, &[map_ptr.into(), idx.into()], "val")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let key_ptr = self.int_to_ptr(key_i64)?;
+
+        // Call predicate: fn_ptr(closure, key_ptr, val) -> Bool (tag 0=False, 1=True)
+        let pred_result = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), key_ptr.into(), val.into()], "pred")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        // Check if predicate returned True (non-zero tag)
+        let pred_ptr = self.value_to_ptr(pred_result)?;
+        let pred_tag = self.extract_adt_tag(pred_ptr)?;
+        let is_true = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, pred_tag, tm.i64_type().const_zero(), "is_true")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_true, loop_insert, loop_skip)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Insert branch: add (key, val) to accumulator map
+        self.builder().position_at_end(loop_insert);
+        let val_ptr = self.value_to_ptr(val)?;
+        let acc_ptr_ins = acc_phi.as_basic_value().into_pointer_value();
+        let inserted = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), val_ptr.into(), acc_ptr_ins.into()], "inserted")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(loop_skip)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Skip/merge block
+        self.builder().position_at_end(loop_skip);
+        let merge_phi = self.builder().build_phi(ptr_type, "merge_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        merge_phi.add_incoming(&[(&inserted, loop_insert), (&acc_phi.as_basic_value(), loop_body)]);
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&empty_map, entry_block), (&merge_phi.as_basic_value(), loop_skip)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, loop_skip)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.foldlWithKey'` -- strict left fold with key.
+    /// foldlWithKey' :: (a -> k -> v -> a) -> a -> Map k v -> a
+    fn lower_builtin_map_foldl_with_key(
+        &mut self,
+        fn_expr: &Expr,
+        init_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldlWithKey: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let init_val = self.lower_expr(init_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldlWithKey: no init".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldlWithKey: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[map_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        // foldlWithKey takes 3 args: acc, key, val
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mflwk_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mflwk_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mflwk_exit");
+
+        let init_ptr = self.value_to_ptr(init_val)?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map_ptr.into(), idx.into()], "key")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val = self.builder()
+            .build_call(val_at_fn, &[map_ptr.into(), idx.into()], "val")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let key_ptr = self.int_to_ptr(key_i64)?;
+
+        // Call closure: fn_ptr(closure, acc, key_ptr, val)
+        let acc_val = acc_phi.as_basic_value();
+        let new_acc = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), acc_val.into(), key_ptr.into(), val.into()], "new_acc")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&init_ptr, entry_block), (&new_acc, loop_body)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.foldrWithKey` -- right fold with key.
+    /// foldrWithKey :: (k -> v -> a -> a) -> a -> Map k v -> a
+    fn lower_builtin_map_foldr_with_key(
+        &mut self,
+        fn_expr: &Expr,
+        init_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldrWithKey: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let init_val = self.lower_expr(init_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldrWithKey: no init".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_foldrWithKey: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[map_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        // foldrWithKey takes 3 args: key, val, acc
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        // Iterate backwards for right fold
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mfrwk_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mfrwk_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mfrwk_exit");
+
+        let start_idx = self.builder()
+            .build_int_sub(count, tm.i64_type().const_int(1, false), "start_idx")
+            .map_err(|e| CodegenError::Internal(format!("sub failed: {:?}", e)))?;
+
+        let init_ptr = self.value_to_ptr(init_val)?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, idx, tm.i64_type().const_zero(), "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map_ptr.into(), idx.into()], "key")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val = self.builder()
+            .build_call(val_at_fn, &[map_ptr.into(), idx.into()], "val")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let key_ptr = self.int_to_ptr(key_i64)?;
+
+        // Call closure: fn_ptr(closure, key_ptr, val, acc)
+        let acc_val = acc_phi.as_basic_value();
+        let new_acc = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), key_ptr.into(), val.into(), acc_val.into()], "new_acc")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        let new_idx = self.builder()
+            .build_int_sub(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("sub failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&init_ptr, entry_block), (&new_acc, loop_body)]);
+        idx_phi.add_incoming(&[(&start_idx, entry_block), (&new_idx, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.unionWith` -- union of two maps with combining function.
+    /// unionWith :: (v -> v -> v) -> Map k v -> Map k v -> Map k v
+    fn lower_builtin_map_union_with(
+        &mut self,
+        fn_expr: &Expr,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_unionWith: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map1_val = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_unionWith: no map1".to_string()))?;
+        let map1_ptr = self.value_to_ptr(map1_val)?;
+        let map2_val = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_unionWith: no map2".to_string()))?;
+        let map2_ptr = self.value_to_ptr(map2_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = *self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+
+        // Start with result = map1 (copy all of map1 first by iterating it)
+        // Actually, we can start by copying map1 entries into a fresh map,
+        // then iterate map2. But simpler: just start with map1 as the accumulator
+        // and iterate map2, since insert overwrites.
+        // However, unionWith prefers left values, so we need to check.
+
+        // Get count of map2
+        let count2 = self.builder()
+            .build_call(count_fn, &[map2_ptr.into()], "count2")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        // 2-arg closure: (v1, v2)
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "muw_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "muw_body");
+        let found_block = self.llvm_context().append_basic_block(current_fn, "muw_found");
+        let not_found_block = self.llvm_context().append_basic_block(current_fn, "muw_notfound");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "muw_merge");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "muw_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop header: iterate over map2
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count2, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: get key/val from map2, lookup in result (which starts as map1)
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map2_ptr.into(), idx.into()], "key2")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val2 = self.builder()
+            .build_call(val_at_fn, &[map2_ptr.into(), idx.into()], "val2")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Lookup key in accumulator (result map, initially map1)
+        let acc_ptr = acc_phi.as_basic_value().into_pointer_value();
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_i64.into(), acc_ptr.into()], "lookup")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_null, not_found_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Found: call closure(found_val, val2), insert result
+        self.builder().position_at_end(found_block);
+        let val2_ptr = self.value_to_ptr(val2)?;
+        let combined = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), found_val.into(), val2_ptr.into()], "combined")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+        let combined_ptr = self.value_to_ptr(combined)?;
+        let new_map_found = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), combined_ptr.into(), acc_ptr.into()], "ins_found")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Not found: just insert (key, val2)
+        self.builder().position_at_end(not_found_block);
+        let val2_ptr_nf = self.value_to_ptr(val2)?;
+        let new_map_nf = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), val2_ptr_nf.into(), acc_ptr.into()], "ins_nf")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge block
+        self.builder().position_at_end(merge_block);
+        let merge_phi = self.builder().build_phi(ptr_type, "merge_map")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        merge_phi.add_incoming(&[(&new_map_found, found_block), (&new_map_nf, not_found_block)]);
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&map1_ptr, entry_block), (&merge_phi.as_basic_value(), merge_block)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, merge_block)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.intersectionWith` -- intersection with combining function.
+    /// intersectionWith :: (a -> b -> c) -> Map k a -> Map k b -> Map k c
+    fn lower_builtin_map_intersection_with(
+        &mut self,
+        fn_expr: &Expr,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_intersectionWith: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map1_val = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_intersectionWith: no map1".to_string()))?;
+        let map1_ptr = self.value_to_ptr(map1_val)?;
+        let map2_val = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_intersectionWith: no map2".to_string()))?;
+        let map2_ptr = self.value_to_ptr(map2_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = *self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+
+        // Start with empty result
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Get count of map1
+        let count1 = self.builder()
+            .build_call(count_fn, &[map1_ptr.into()], "count1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "miw_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "miw_body");
+        let found_block = self.llvm_context().append_basic_block(current_fn, "miw_found");
+        let skip_block = self.llvm_context().append_basic_block(current_fn, "miw_skip");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "miw_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop header: iterate over map1
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count1, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: get key/val from map1, lookup in map2
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map1_ptr.into(), idx.into()], "key1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val1 = self.builder()
+            .build_call(val_at_fn, &[map1_ptr.into(), idx.into()], "val1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Lookup key in map2
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_i64.into(), map2_ptr.into()], "lookup2")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_null, skip_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Found: call closure(val1, found_val), insert into result
+        self.builder().position_at_end(found_block);
+        let val1_ptr = self.value_to_ptr(val1)?;
+        let combined = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), val1_ptr.into(), found_val.into()], "combined")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+        let combined_ptr = self.value_to_ptr(combined)?;
+        let acc_ptr_found = acc_phi.as_basic_value().into_pointer_value();
+        let new_map_found = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), combined_ptr.into(), acc_ptr_found.into()], "ins_found")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(skip_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Skip/merge block
+        self.builder().position_at_end(skip_block);
+        let merge_phi = self.builder().build_phi(ptr_type, "merge_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        merge_phi.add_incoming(&[(&new_map_found, found_block), (&acc_phi.as_basic_value(), loop_body)]);
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&empty_map, entry_block), (&merge_phi.as_basic_value(), skip_block)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, skip_block)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.differenceWith` -- difference with combining function.
+    /// differenceWith :: (a -> b -> Maybe a) -> Map k a -> Map k b -> Map k a
+    fn lower_builtin_map_difference_with(
+        &mut self,
+        fn_expr: &Expr,
+        map1_expr: &Expr,
+        map2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_differenceWith: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map1_val = self.lower_expr(map1_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_differenceWith: no map1".to_string()))?;
+        let map1_ptr = self.value_to_ptr(map1_val)?;
+        let map2_val = self.lower_expr(map2_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_differenceWith: no map2".to_string()))?;
+        let map2_ptr = self.value_to_ptr(map2_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = *self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+
+        // Start with empty result
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Get count of map1
+        let count1 = self.builder()
+            .build_call(count_fn, &[map1_ptr.into()], "count1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mdw_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mdw_body");
+        let found_block = self.llvm_context().append_basic_block(current_fn, "mdw_found");
+        let just_block = self.llvm_context().append_basic_block(current_fn, "mdw_just");
+        let not_found_block = self.llvm_context().append_basic_block(current_fn, "mdw_notfound");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "mdw_merge");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mdw_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop header: iterate over map1
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count1, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: get key/val from map1, lookup in map2
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map1_ptr.into(), idx.into()], "key1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val1 = self.builder()
+            .build_call(val_at_fn, &[map1_ptr.into(), idx.into()], "val1")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Lookup key in map2
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_i64.into(), map2_ptr.into()], "lookup2")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_null, not_found_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Found in map2: call closure(val1, val2) -> Maybe a
+        self.builder().position_at_end(found_block);
+        let val1_ptr = self.value_to_ptr(val1)?;
+        let maybe_result = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), val1_ptr.into(), found_val.into()], "maybe_result")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        // Check Maybe tag: 0 = Nothing, 1 = Just
+        let maybe_ptr = self.value_to_ptr(maybe_result)?;
+        let maybe_tag = self.extract_adt_tag(maybe_ptr)?;
+        let is_just = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, maybe_tag, tm.i64_type().const_zero(), "is_just")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_just, just_block, merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Just: extract value from Just, insert into result
+        self.builder().position_at_end(just_block);
+        let just_val = self.extract_adt_field(maybe_ptr, 1, 0)?;
+        let acc_ptr_just = acc_phi.as_basic_value().into_pointer_value();
+        let new_map_just = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), just_val.into(), acc_ptr_just.into()], "ins_just")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Not found in map2: insert (key, val1) directly
+        self.builder().position_at_end(not_found_block);
+        let val1_ptr_nf = self.value_to_ptr(val1)?;
+        let acc_ptr_nf = acc_phi.as_basic_value().into_pointer_value();
+        let new_map_nf = self.builder()
+            .build_call(insert_fn, &[key_i64.into(), val1_ptr_nf.into(), acc_ptr_nf.into()], "ins_nf")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge block: phi for the three incoming edges (just, nothing/found, not_found)
+        self.builder().position_at_end(merge_block);
+        let merge_phi = self.builder().build_phi(ptr_type, "merge_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        merge_phi.add_incoming(&[
+            (&new_map_just, just_block),
+            (&acc_phi.as_basic_value(), found_block),  // Nothing case: no change
+            (&new_map_nf, not_found_block),
+        ]);
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&empty_map, entry_block), (&merge_phi.as_basic_value(), merge_block)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, merge_block)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.insertWith` -- insert with combining function.
+    /// insertWith :: (v -> v -> v) -> k -> v -> Map k v -> Map k v
+    fn lower_builtin_map_insert_with(
+        &mut self,
+        fn_expr: &Expr,
+        key_expr: &Expr,
+        val_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insertWith: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let key_val = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insertWith: no key".to_string()))?;
+        let new_val = self.lower_expr(val_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insertWith: no value".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_insertWith: no map".to_string()))?;
+
+        let key_int = self.coerce_to_int(key_val)?;
+        let new_ptr = self.value_to_ptr(new_val)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+
+        // Lookup key in map
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_int.into(), map_ptr.into()], "lookup")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+
+        let found_block = self.llvm_context().append_basic_block(current_fn, "iw_found");
+        let not_found_block = self.llvm_context().append_basic_block(current_fn, "iw_notfound");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "iw_merge");
+
+        self.builder().build_conditional_branch(is_null, not_found_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Found: call closure(new_val, old_val), insert result
+        self.builder().position_at_end(found_block);
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let combined = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), new_ptr.into(), found_val.into()], "combined")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+        let combined_ptr = self.value_to_ptr(combined)?;
+        let new_map_found = self.builder()
+            .build_call(insert_fn, &[key_int.into(), combined_ptr.into(), map_ptr.into()], "ins_found")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Not found: insert (key, new_val) directly
+        self.builder().position_at_end(not_found_block);
+        let new_map_nf = self.builder()
+            .build_call(insert_fn, &[key_int.into(), new_ptr.into(), map_ptr.into()], "ins_nf")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge
+        self.builder().position_at_end(merge_block);
+        let result_phi = self.builder().build_phi(ptr_type, "result")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        result_phi.add_incoming(&[(&new_map_found, found_block), (&new_map_nf, not_found_block)]);
+
+        Ok(Some(result_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.adjust` -- adjust value at key with function.
+    /// adjust :: (v -> v) -> k -> Map k v -> Map k v
+    fn lower_builtin_map_adjust(
+        &mut self,
+        fn_expr: &Expr,
+        key_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_adjust: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let key_val = self.lower_expr(key_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_adjust: no key".to_string()))?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_adjust: no map".to_string()))?;
+
+        let key_int = self.coerce_to_int(key_val)?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let delete_fn = *self.functions.get(&VarId::new(1108)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_delete not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+
+        // Lookup key in map
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_int.into(), map_ptr.into()], "lookup")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+
+        let found_block = self.llvm_context().append_basic_block(current_fn, "adj_found");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "adj_merge");
+
+        self.builder().build_conditional_branch(is_null, merge_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+
+        // Found: call closure(old_val), delete key, insert (key, result)
+        self.builder().position_at_end(found_block);
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let adjusted = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), found_val.into()], "adjusted")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+        let adjusted_ptr = self.value_to_ptr(adjusted)?;
+
+        // Delete old key, then insert with new value
+        let deleted_map = self.builder()
+            .build_call(delete_fn, &[key_int.into(), map_ptr.into()], "deleted")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        let deleted_ptr = self.value_to_ptr(deleted_map)?;
+        let new_map = self.builder()
+            .build_call(insert_fn, &[key_int.into(), adjusted_ptr.into(), deleted_ptr.into()], "ins_adj")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge: if not found, return original map; if found, return adjusted map
+        self.builder().position_at_end(merge_block);
+        let result_phi = self.builder().build_phi(ptr_type, "result")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        result_phi.add_incoming(&[(&map_ptr, entry_block), (&new_map, found_block)]);
+
+        Ok(Some(result_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.mapKeys` -- apply function to all keys, building new map.
+    /// mapKeys :: (k -> k') -> Map k v -> Map k' v
+    fn lower_builtin_map_map_keys(
+        &mut self,
+        fn_expr: &Expr,
+        map_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_mapKeys: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let map_val = self.lower_expr(map_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_mapKeys: no map".to_string()))?;
+        let map_ptr = self.value_to_ptr(map_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = self.functions.get(&VarId::new(1160)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_keys_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[map_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let key_at_fn = *self.functions.get(&VarId::new(1161)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_key_at not declared".to_string())
+        })?;
+        let val_at_fn = *self.functions.get(&VarId::new(1162)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_value_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // 1-arg closure: (key) -> new_key
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mmk_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mmk_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mmk_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let key_i64 = self.builder()
+            .build_call(key_at_fn, &[map_ptr.into(), idx.into()], "key")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let val = self.builder()
+            .build_call(val_at_fn, &[map_ptr.into(), idx.into()], "val")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        // Convert key i64 to ptr, call closure(key_ptr) -> new_key_ptr
+        let key_ptr = self.int_to_ptr(key_i64)?;
+        let new_key = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), key_ptr.into()], "new_key")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        // Convert new key back to i64 for map insert
+        let new_key_int = self.coerce_to_int(new_key)?;
+        let val_ptr = self.value_to_ptr(val)?;
+        let acc_ptr = acc_phi.as_basic_value().into_pointer_value();
+        let new_map = self.builder()
+            .build_call(insert_fn, &[new_key_int.into(), val_ptr.into(), acc_ptr.into()], "new_map")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&empty_map, entry_block), (&new_map, loop_body)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Map.fromListWith` -- build map from list with combining function.
+    /// fromListWith :: (v -> v -> v) -> [(k,v)] -> Map k v
+    fn lower_builtin_map_from_list_with(
+        &mut self,
+        fn_expr: &Expr,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_fromListWith: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("map_fromListWith: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Start with empty map
+        let empty_fn = self.functions.get(&VarId::new(1100)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_empty not declared".to_string())
+        })?;
+        let empty_map = self.builder()
+            .build_call(*empty_fn, &[], "empty_map")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let insert_fn = *self.functions.get(&VarId::new(1107)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_insert not declared".to_string())
+        })?;
+        let lookup_fn = *self.functions.get(&VarId::new(1105)).ok_or_else(|| {
+            CodegenError::Internal("bhc_map_lookup not declared".to_string())
+        })?;
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "mflw_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "mflw_body");
+        let found_block = self.llvm_context().append_basic_block(current_fn, "mflw_found");
+        let not_found_block = self.llvm_context().append_basic_block(current_fn, "mflw_notfound");
+        let merge_block = self.llvm_context().append_basic_block(current_fn, "mflw_merge");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "mflw_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop header: traverse the list
+        self.builder().position_at_end(loop_header);
+        let map_phi = self.builder().build_phi(ptr_type, "map_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let cur_phi = self.builder().build_phi(ptr_type, "cur_list")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        // Check if current list is nil (tag == 0)
+        let cur_ptr = cur_phi.as_basic_value().into_pointer_value();
+        let tag = self.builder()
+            .build_load(tm.i64_type(), cur_ptr, "tag")
+            .map_err(|e| CodegenError::Internal(format!("load tag failed: {:?}", e)))?
+            .into_int_value();
+        let is_nil = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_nil")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_nil, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: extract (key, value) pair from head
+        self.builder().position_at_end(loop_body);
+        let head_ptr = self.extract_adt_field(cur_ptr, 2, 0)?;
+        let tail_ptr = self.extract_adt_field(cur_ptr, 2, 1)?;
+
+        // Pair is an ADT with (key, value)
+        let key_ptr = self.extract_adt_field(head_ptr, 2, 0)?;
+        let val_ptr = self.extract_adt_field(head_ptr, 2, 1)?;
+        let key_int = self.coerce_to_int(key_ptr.into())?;
+
+        // Lookup key in current map
+        let map_acc_ptr = map_phi.as_basic_value().into_pointer_value();
+        let found_val = self.builder()
+            .build_call(lookup_fn, &[key_int.into(), map_acc_ptr.into()], "lookup")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_pointer_value();
+
+        let is_null = self.builder()
+            .build_is_null(found_val, "is_null")
+            .map_err(|e| CodegenError::Internal(format!("is_null failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_null, not_found_block, found_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Found: call closure(new_val, old_val), insert combined
+        self.builder().position_at_end(found_block);
+        let combined = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), val_ptr.into(), found_val.into()], "combined")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+        let combined_ptr = self.value_to_ptr(combined)?;
+        let new_map_found = self.builder()
+            .build_call(insert_fn, &[key_int.into(), combined_ptr.into(), map_acc_ptr.into()], "ins_found")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Not found: insert (key, val) directly
+        self.builder().position_at_end(not_found_block);
+        let new_map_nf = self.builder()
+            .build_call(insert_fn, &[key_int.into(), val_ptr.into(), map_acc_ptr.into()], "ins_nf")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge
+        self.builder().position_at_end(merge_block);
+        let merge_phi = self.builder().build_phi(ptr_type, "merge_map")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        merge_phi.add_incoming(&[(&new_map_found, found_block), (&new_map_nf, not_found_block)]);
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        map_phi.add_incoming(&[(&empty_map, entry_block), (&merge_phi.as_basic_value(), merge_block)]);
+        cur_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, merge_block)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(map_phi.as_basic_value()))
+    }
+
     /// Lower container operations that need higher-order functions (stub).
-    /// Covers: insertWith, adjust, update, alter, unionWith, unionWithKey,
-    /// unions, intersectionWith, differenceWith, map, mapWithKey, mapKeys,
-    /// filter, filterWithKey, foldr, foldl, foldrWithKey, foldlWithKey,
-    /// fromListWith.
+    /// Covers: update, alter, unions (remaining unimplemented operations).
     fn lower_builtin_container_ho_stub(
         &mut self,
         args: &[&Expr],
