@@ -271,7 +271,14 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    match compiler.compile_files(utf8_paths.iter().map(|p| p.as_path())) {
+    // Use ordered compilation for multiple files (enables cross-module imports)
+    let compile_result = if utf8_paths.len() > 1 {
+        compiler.compile_files_ordered(utf8_paths.iter().map(|p| p.as_path()))
+    } else {
+        compiler.compile_files(utf8_paths.iter().map(|p| p.as_path()))
+    };
+
+    match compile_result {
         Ok(outputs) => {
             for output in &outputs {
                 tracing::info!("Generated: {}", output.path);

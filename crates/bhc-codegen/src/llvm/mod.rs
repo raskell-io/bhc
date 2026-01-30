@@ -18,7 +18,7 @@ mod types;
 
 pub use context::LlvmContext;
 pub use loop_lower::{lower_loop_ir, lower_loop_irs, LoopLowering};
-pub use lower::{lower_core_module, Lowering};
+pub use lower::{lower_core_module, lower_core_module_multimodule, CompiledSymbol, Lowering};
 pub use module::{LlvmModule, LlvmModuleExt};
 pub use types::TypeMapper;
 

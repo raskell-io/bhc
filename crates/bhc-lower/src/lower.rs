@@ -42,8 +42,21 @@ pub fn lower_module(
     module: &ast::Module,
     config: &LowerConfig,
 ) -> LowerResult<hir::Module> {
-    // Create a module cache for this lowering session
-    let mut cache = ModuleCache::new();
+    lower_module_with_cache(ctx, module, config, ModuleCache::new())
+}
+
+/// Lower an AST module to HIR with a pre-seeded module cache.
+///
+/// This is used during multi-module compilation: modules compiled earlier
+/// have their exports inserted into the cache so that later modules can
+/// resolve imports without loading from disk.
+pub fn lower_module_with_cache(
+    ctx: &mut LowerContext,
+    module: &ast::Module,
+    config: &LowerConfig,
+    cache: ModuleCache,
+) -> LowerResult<hir::Module> {
+    let mut cache = cache;
 
     // Determine if we should inject an implicit Prelude import.
     // Skip if:

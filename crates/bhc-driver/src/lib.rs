@@ -50,7 +50,10 @@ pub use report::ComprehensiveKernelReport;
 
 use bhc_ast::Module as AstModule;
 use bhc_codegen::{
-    llvm::{lower_core_module, LlvmBackend, LlvmModuleExt},
+    llvm::{
+        lower_core_module, lower_core_module_multimodule, CompiledSymbol, LlvmBackend,
+        LlvmModuleExt,
+    },
     CodegenConfig, CodegenOutputType,
 };
 use bhc_core::eval::{Env, EvalError, Evaluator, Value};
@@ -65,7 +68,7 @@ use bhc_loop_ir::{
     vectorize::{VectorizeConfig, VectorizePass, VectorizeReport},
     LoopId, TargetArch,
 };
-use bhc_lower::LowerContext;
+use bhc_lower::{LowerContext, ModuleCache, ModuleExports};
 use bhc_session::{Options, OutputType, Profile, Session, SessionRef};
 use bhc_span::FileId;
 use bhc_target::TargetSpec;
@@ -259,6 +262,24 @@ pub trait CompileCallbacks: Send + Sync {
 pub struct NoopCallbacks;
 
 impl CompileCallbacks for NoopCallbacks {}
+
+/// Info retained after compiling a module, used during multi-module compilation.
+#[derive(Clone, Debug)]
+pub struct CompiledModuleInfo {
+    /// The module name.
+    pub module_name: String,
+    /// Symbols exported by this module (with their mangled LLVM names).
+    pub symbols: Vec<CompiledSymbol>,
+    /// Module exports for feeding into the lowering context of later modules.
+    pub exports: ModuleExports,
+}
+
+/// Accumulates compilation artifacts across modules during multi-module compilation.
+#[derive(Default, Debug)]
+pub struct ModuleRegistry {
+    /// Compiled modules indexed by module name.
+    pub modules: FxHashMap<String, CompiledModuleInfo>,
+}
 
 /// The main compiler driver.
 pub struct Compiler {
@@ -905,6 +926,293 @@ impl Compiler {
         Ok(output_path)
     }
 
+    /// Compile a single module for multi-module compilation.
+    ///
+    /// Unlike `compile_unit()`, this method:
+    /// - Does NOT link — it only produces an object file
+    /// - Accepts a `ModuleRegistry` to share cross-module context
+    /// - Uses module-qualified names for symbols (e.g., `Helper.double`)
+    /// - Returns the object path and compiled module info for the registry
+    #[instrument(skip(self, unit, registry), fields(module = %unit.module_name))]
+    fn compile_unit_for_multimodule(
+        &self,
+        unit: CompilationUnit,
+        module_name: &str,
+        registry: &ModuleRegistry,
+    ) -> CompileResult<(std::path::PathBuf, CompiledModuleInfo)> {
+        info!(module = %unit.module_name, "starting multi-module compilation");
+
+        let file_id = FileId::new(0);
+
+        // Phase 1: Parse
+        self.callbacks
+            .on_phase_start(CompilePhase::Parse, &unit.module_name);
+        let ast = self.parse(&unit, file_id)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::Parse, &unit.module_name);
+
+        // Phase 2: Lower AST to HIR with registry context
+        self.callbacks
+            .on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
+        let (hir, lower_ctx) = self.lower_with_registry(&ast, registry)?;
+        debug!(module = %unit.module_name, items = hir.items.len(), "HIR lowering complete");
+
+        // Phase 2b: Type check HIR
+        let typed = self.type_check(&hir, file_id, &lower_ctx)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
+
+        // Phase 3: Lower to Core IR
+        self.callbacks
+            .on_phase_start(CompilePhase::CoreLower, &unit.module_name);
+        let core = self.core_lower(&hir, &lower_ctx, &typed)?;
+        debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
+        self.callbacks
+            .on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
+
+        // Phase 3.5: Escape analysis (if Embedded profile)
+        if self.session.profile().requires_escape_analysis() {
+            self.check_escape_analysis(&core)?;
+        }
+
+        // Phase 4: Code generation with multi-module support
+        self.callbacks
+            .on_phase_start(CompilePhase::Codegen, &unit.module_name);
+
+        // Collect imported symbols from all already-compiled modules
+        let imported_symbols: Vec<CompiledSymbol> = registry
+            .modules
+            .values()
+            .flat_map(|info| info.symbols.iter().cloned())
+            .collect();
+
+        let object_path =
+            self.codegen_multimodule(&unit.module_name, &core, module_name, &imported_symbols)?;
+
+        // Collect symbols exported by this module for later modules.
+        // All functions are mangled as Module.name (including Main.main).
+        let mut compiled_symbols = Vec::new();
+        for bind in &core.bindings {
+            match bind {
+                bhc_core::Bind::NonRec(var, expr) => {
+                    let param_count = count_lambda_params_static(expr);
+                    let llvm_name = format!("{}.{}", module_name, var.name.as_str());
+                    compiled_symbols.push(CompiledSymbol {
+                        name: var.name,
+                        llvm_name,
+                        param_count,
+                    });
+                }
+                bhc_core::Bind::Rec(bindings) => {
+                    for (var, expr) in bindings {
+                        let param_count = count_lambda_params_static(expr);
+                        let llvm_name = format!("{}.{}", module_name, var.name.as_str());
+                        compiled_symbols.push(CompiledSymbol {
+                            name: var.name,
+                            llvm_name,
+                            param_count,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Build ModuleExports for later modules' lowering
+        let mut exports = ModuleExports::new(Symbol::intern(module_name));
+        for bind in &core.bindings {
+            match bind {
+                bhc_core::Bind::NonRec(var, _) => {
+                    // Register the value in exports so later modules can resolve the import
+                    if let Some(def_info) = lower_ctx.defs.values().find(|d| d.name == var.name) {
+                        exports.values.insert(var.name, def_info.id);
+                    }
+                }
+                bhc_core::Bind::Rec(bindings) => {
+                    for (var, _) in bindings {
+                        if let Some(def_info) =
+                            lower_ctx.defs.values().find(|d| d.name == var.name)
+                        {
+                            exports.values.insert(var.name, def_info.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        debug!(module = %unit.module_name, object = %object_path.display(), "code generation complete");
+        self.callbacks
+            .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+
+        let compiled_info = CompiledModuleInfo {
+            module_name: module_name.to_string(),
+            symbols: compiled_symbols,
+            exports,
+        };
+
+        Ok((object_path, compiled_info))
+    }
+
+    /// Lower an AST module with cross-module context from the registry.
+    ///
+    /// Pre-seeds the module cache with exports from already-compiled modules
+    /// so that import resolution can find them without loading from disk.
+    fn lower_with_registry(
+        &self,
+        ast: &bhc_ast::Module,
+        registry: &ModuleRegistry,
+    ) -> CompileResult<(HirModule, LowerContext)> {
+        let mut ctx = LowerContext::with_builtins();
+
+        let mut search_paths = self.session.options.import_paths.clone();
+        if let Some(ref stdlib_path) = self.session.options.stdlib_path {
+            search_paths.push(stdlib_path.clone());
+        }
+        if let Ok(env_path) = std::env::var("BHC_STDLIB_PATH") {
+            let env_path = Utf8PathBuf::from(env_path);
+            if !search_paths.contains(&env_path) {
+                search_paths.push(env_path);
+            }
+        }
+
+        // Pre-seed module cache with already-compiled modules.
+        // IMPORTANT: We must remap DefIds from the exporting module to fresh IDs
+        // in the importing context to avoid collisions with local definitions.
+        // Each module's lowering starts DefIds from the same base, so raw DefIds
+        // from one module will collide with another's.
+        let mut cache = ModuleCache::new();
+        for (name, info) in &registry.modules {
+            let sym = Symbol::intern(name);
+            let mut remapped_exports = info.exports.clone();
+            // Remap value DefIds to fresh IDs that won't collide
+            let mut new_values = FxHashMap::default();
+            for (&val_name, &_old_def_id) in &remapped_exports.values {
+                let fresh_id = ctx.fresh_def_id();
+                // Register in the defs map so HIR-to-Core can find the def info
+                ctx.define(
+                    fresh_id,
+                    val_name,
+                    bhc_lower::DefKind::Value,
+                    bhc_span::Span::default(),
+                );
+                new_values.insert(val_name, fresh_id);
+            }
+            remapped_exports.values = new_values;
+            cache.insert(sym, remapped_exports);
+        }
+
+        let config = bhc_lower::LowerConfig {
+            include_builtins: true,
+            warn_unused: self.session.options.warn_all,
+            search_paths,
+        };
+
+        let hir = bhc_lower::lower_module_with_cache(&mut ctx, ast, &config, cache)?;
+
+        if ctx.has_errors() {
+            let errors = ctx.take_errors();
+            return Err(bhc_lower::LowerError::Multiple(errors).into());
+        }
+
+        Ok((hir, ctx))
+    }
+
+    /// Generate code with multi-module support (module-qualified symbol names).
+    fn codegen_multimodule(
+        &self,
+        display_name: &str,
+        core: &CoreModule,
+        module_name: &str,
+        imported_symbols: &[CompiledSymbol],
+    ) -> CompileResult<std::path::PathBuf> {
+        debug!(
+            "generating code for module: {} (multi-module)",
+            display_name
+        );
+
+        let _backend = LlvmBackend::new();
+
+        let target = self.get_target_spec();
+        let codegen_config = CodegenConfig::for_target(target)
+            .with_opt_level(self.session.options.opt_level)
+            .with_debug_info(self.session.options.debug_info)
+            .with_pic(true);
+
+        let output_type = CodegenOutputType::from(self.session.options.output_type);
+        let extension = match output_type {
+            CodegenOutputType::Object => "o",
+            CodegenOutputType::Assembly => "s",
+            CodegenOutputType::LlvmIr => "ll",
+            CodegenOutputType::LlvmBitcode => "bc",
+        };
+
+        let unique_id = std::process::id();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let output_dir = std::env::temp_dir().join(format!("bhc-{}-{}", unique_id, timestamp));
+        std::fs::create_dir_all(&output_dir).map_err(|e| {
+            CompileError::CodegenError(format!("failed to create output dir: {}", e))
+        })?;
+
+        let output_path = output_dir.join(format!("{}.{}", display_name, extension));
+
+        let ctx = bhc_codegen::LlvmContext::new(codegen_config)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        let mut module = ctx
+            .create_module(display_name)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Use multi-module lowering with name mangling and extern declarations
+        lower_core_module_multimodule(&ctx, &module, core, module_name, imported_symbols)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        // Create entry point if this module has a main function.
+        // In multi-module mode, Main.main is mangled to "Main.main",
+        // so we look for that name to avoid colliding with the C "main" wrapper.
+        let main_fn_name = format!("{}.main", module_name);
+        if let Some(haskell_main) = module.get_function(&main_fn_name) {
+            module
+                .create_entry_point(haskell_main)
+                .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+        }
+
+        module
+            .verify()
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        module
+            .optimize(&ctx, self.session.options.opt_level)
+            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+
+        match output_type {
+            CodegenOutputType::Object => {
+                module
+                    .emit_object(&ctx, &output_path)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+            CodegenOutputType::Assembly => {
+                module
+                    .emit_assembly(&ctx, &output_path)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+            CodegenOutputType::LlvmIr | CodegenOutputType::LlvmBitcode => {
+                module
+                    .write_to_file(&output_path, output_type)
+                    .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+            }
+        }
+
+        debug!(
+            module = %display_name,
+            path = %output_path.display(),
+            "multi-module code generation complete"
+        );
+
+        Ok(output_path)
+    }
+
     /// Link object files into an executable.
     fn link(&self, objects: &[std::path::PathBuf], output: &Utf8Path) -> CompileResult<()> {
         debug!("linking to: {}", output);
@@ -1430,15 +1738,48 @@ impl Compiler {
         // Phase 2: Build dependency graph and topological sort
         let ordered = Self::topological_sort(&module_info)?;
 
-        // Phase 3: Compile in dependency order
-        let mut outputs = Vec::new();
-        for idx in ordered {
-            let path = &module_info[idx].0;
-            let output = self.compile_file(path)?;
-            outputs.push(output);
+        // Phase 3: Compile each module in dependency order with cross-module context
+        let mut registry = ModuleRegistry::default();
+        let mut object_paths = Vec::new();
+
+        for idx in &ordered {
+            let (ref path, ref mod_name, _) = module_info[*idx];
+            let unit = CompilationUnit::from_path(path.clone())?;
+
+            let (obj_path, compiled_info) =
+                self.compile_unit_for_multimodule(unit, mod_name, &registry)?;
+            registry
+                .modules
+                .insert(mod_name.clone(), compiled_info);
+            object_paths.push(obj_path);
         }
 
-        Ok(outputs)
+        // Phase 4: Single link step at the end
+        let output_path = if let Some(ref path) = self.session.options.output_path {
+            path.clone()
+        } else {
+            // Derive output name from the last module (usually Main)
+            let last_idx = ordered.last().copied().unwrap_or(0);
+            self.session.output_path(&module_info[last_idx].1)
+        };
+
+        if self.session.options.output_type == OutputType::Executable
+            || self.session.options.output_type == OutputType::DynamicLib
+            || self.session.options.output_type == OutputType::StaticLib
+        {
+            self.callbacks
+                .on_phase_start(CompilePhase::Link, "multimodule");
+            self.link(&object_paths, &output_path)?;
+            self.callbacks
+                .on_phase_complete(CompilePhase::Link, "multimodule");
+        }
+
+        info!(output = %output_path, modules = ordered.len(), "multi-module compilation complete");
+
+        Ok(vec![CompileOutput {
+            path: output_path,
+            output_type: self.session.options.output_type,
+        }])
     }
 
     /// Compute a topological ordering of modules based on import dependencies.
@@ -1498,6 +1839,17 @@ impl Compiler {
 
         Ok(result)
     }
+}
+
+/// Count the number of leading lambda parameters in an expression (free function).
+fn count_lambda_params_static(expr: &Expr) -> usize {
+    let mut count = 0;
+    let mut current = expr;
+    while let Expr::Lam(_, body, _) = current {
+        count += 1;
+        current = body.as_ref();
+    }
+    count
 }
 
 /// Builder for configuring and creating a compiler.

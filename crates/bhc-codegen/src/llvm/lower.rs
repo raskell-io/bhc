@@ -74,6 +74,17 @@ pub struct ConstructorMeta {
     pub arity: u32,
 }
 
+/// A symbol exported by an already-compiled module, used for cross-module linking.
+#[derive(Clone, Debug)]
+pub struct CompiledSymbol {
+    /// The source-level name (interned).
+    pub name: Symbol,
+    /// The LLVM symbol name (module-qualified).
+    pub llvm_name: String,
+    /// Number of parameters the function takes.
+    pub param_count: usize,
+}
+
 /// State for lowering Core IR to LLVM IR.
 ///
 /// The struct has two lifetimes:
@@ -96,6 +107,10 @@ pub struct Lowering<'ctx, 'm> {
     /// Whether we're currently lowering an expression in tail position.
     /// Used for tail call optimization.
     in_tail_position: bool,
+    /// Optional module name for symbol mangling in multi-module compilation.
+    module_name: Option<String>,
+    /// External functions imported from other compiled modules.
+    external_functions: FxHashMap<Symbol, FunctionValue<'ctx>>,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -109,9 +124,76 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             closure_counter: 0,
             constructor_metadata: FxHashMap::default(),
             in_tail_position: false,
+            module_name: None,
+            external_functions: FxHashMap::default(),
         };
         lowering.declare_rts_functions();
         lowering
+    }
+
+    /// Create a new lowering context for multi-module compilation.
+    ///
+    /// Accepts a module name for symbol mangling and a list of imported symbols
+    /// from already-compiled modules to declare as external.
+    pub fn new_multimodule(
+        ctx: &'ctx LlvmContext,
+        module: &'m LlvmModule<'ctx>,
+        module_name: &str,
+        imported_symbols: &[CompiledSymbol],
+    ) -> CodegenResult<Self> {
+        let mut lowering = Self {
+            llvm_ctx: ctx.llvm_context(),
+            module,
+            env: FxHashMap::default(),
+            functions: FxHashMap::default(),
+            closure_counter: 0,
+            constructor_metadata: FxHashMap::default(),
+            in_tail_position: false,
+            module_name: Some(module_name.to_string()),
+            external_functions: FxHashMap::default(),
+        };
+        lowering.declare_rts_functions();
+        lowering.declare_external_symbols(imported_symbols)?;
+        Ok(lowering)
+    }
+
+    /// Mangle a function name with the module name for multi-module compilation.
+    ///
+    /// In multi-module mode, function names are qualified as `Module.name` to avoid
+    /// collisions. The entry point wrapper (C `main`) is created separately by the
+    /// driver, so the Haskell `main` gets mangled to `Main.main` like any other function.
+    fn mangle_name(&self, name: &str) -> String {
+        if let Some(ref mod_name) = self.module_name {
+            format!("{}.{}", mod_name, name)
+        } else {
+            name.to_string()
+        }
+    }
+
+    /// Declare external symbols from already-compiled modules.
+    ///
+    /// For each imported symbol, we add a function declaration (extern) to the
+    /// current LLVM module so that references to cross-module functions can be
+    /// resolved at link time.
+    fn declare_external_symbols(
+        &mut self,
+        symbols: &[CompiledSymbol],
+    ) -> CodegenResult<()> {
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        for sym in symbols {
+            // All BHC functions use uniform calling convention with an env/closure
+            // pointer as the first parameter. param_count from CompiledSymbol counts
+            // only the Haskell-level params (lambdas), so we add 1 for the env pointer.
+            let total_params = sym.param_count + 1;
+            let param_types: Vec<inkwell::types::BasicMetadataTypeEnum> = (0..total_params)
+                .map(|_| ptr_type.into())
+                .collect();
+            let fn_type = ptr_type.fn_type(&param_types, false);
+            let fn_val = self.module.add_function(&sym.llvm_name, fn_type);
+            self.external_functions.insert(sym.name, fn_val);
+        }
+        Ok(())
     }
 
     /// Register a constructor's metadata for later use.
@@ -14139,15 +14221,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         } else {
             self.lower_function_type(&var.ty)?
         };
-        let name = var.name.as_str();
-        Ok(self.module.add_function(name, fn_type))
+        let name = self.mangle_name(var.name.as_str());
+        Ok(self.module.add_function(&name, fn_type))
     }
 
     /// Declare a function from a Core variable.
     fn declare_function(&self, var: &Var) -> CodegenResult<FunctionValue<'ctx>> {
         let fn_type = self.lower_function_type(&var.ty)?;
-        let name = var.name.as_str();
-        Ok(self.module.add_function(name, fn_type))
+        let name = self.mangle_name(var.name.as_str());
+        Ok(self.module.add_function(&name, fn_type))
     }
 
     /// Lower a binding to LLVM IR.
@@ -14271,6 +14353,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 } else if let Some(arity) = self.builtin_info(name) {
                     // Builtin used as a value - create a wrapper closure
                     self.create_builtin_closure(name, arity)
+                } else if let Some(&fn_val) = self.external_functions.get(&var.name) {
+                    // Cross-module imported function
+                    let fn_ptr = fn_val.as_global_value().as_pointer_value();
+                    Ok(Some(fn_ptr.into()))
                 } else {
                     Err(CodegenError::Internal(format!(
                         "unbound variable: {}",
@@ -15940,6 +16026,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 // Check if this is a closure in the environment
                 if let Some(closure_val) = self.env.get(&var.id).copied() {
                     return self.lower_closure_call(closure_val, &args);
+                }
+
+                // Check if this is an imported (external) function from another module
+                if let Some(&fn_val) = self.external_functions.get(&var.name) {
+                    return self.lower_direct_call(fn_val, &args);
                 }
 
                 Err(CodegenError::Internal(format!(
@@ -18108,6 +18199,23 @@ pub fn lower_core_module<'ctx, 'm>(
     core_module: &CoreModule,
 ) -> CodegenResult<()> {
     let mut lowering = Lowering::new(ctx, module);
+    lowering.lower_module(core_module)
+}
+
+/// Lower a Core module to an LLVM module with multi-module support.
+///
+/// This variant accepts a module name for symbol mangling and a list of imported
+/// symbols from already-compiled modules. Functions are declared with
+/// module-qualified names (e.g., `Helper.double`) and extern declarations are
+/// added for cross-module references.
+pub fn lower_core_module_multimodule<'ctx, 'm>(
+    ctx: &'ctx LlvmContext,
+    module: &'m LlvmModule<'ctx>,
+    core_module: &CoreModule,
+    module_name: &str,
+    imported_symbols: &[CompiledSymbol],
+) -> CodegenResult<()> {
+    let mut lowering = Lowering::new_multimodule(ctx, module, module_name, imported_symbols)?;
     lowering.lower_module(core_module)
 }
 
