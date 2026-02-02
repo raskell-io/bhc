@@ -534,8 +534,19 @@ impl Compiler {
             // Add WASI imports for system interface
             wasm_module.add_wasi_imports();
 
-            // Add runtime functions (allocator, print, _start)
-            wasm_module.add_runtime_functions();
+            // Add runtime functions (allocator, print_i32, print_str, print_str_ln)
+            let runtime_indices = wasm_module.add_runtime_functions();
+
+            // Lower Core IR to WASM functions
+            let main_idx = bhc_wasm::core_lower::lower_core_module(
+                &core,
+                &mut wasm_module,
+                &runtime_indices,
+            )
+            .map_err(|e| CompileError::CodegenError(format!("Core IR to WASM failed: {}", e)))?;
+
+            // Add _start entry point (calls main, then proc_exit)
+            wasm_module.add_start_function(main_idx, runtime_indices.proc_exit_idx);
 
             // Lower Loop IR kernels to WASM functions (if Numeric profile produced them)
             if !loop_irs_for_wasm.is_empty() {

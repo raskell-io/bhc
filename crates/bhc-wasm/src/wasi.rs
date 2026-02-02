@@ -214,7 +214,7 @@ pub fn generate_print_i32(fd_write_idx: u32) -> WasmFunc {
     // Store '0' at position 15
     func.emit(WasmInstr::LocalGet(ptr_local));
     func.emit(WasmInstr::I32Const(48)); // '0'
-    func.emit(WasmInstr::I32Store(1, 0));
+    func.emit(WasmInstr::I32Store8(0, 0));
     func.emit(WasmInstr::I32Const(1));
     func.emit(WasmInstr::LocalSet(len_local));
     func.emit(WasmInstr::Else);
@@ -231,10 +231,10 @@ pub fn generate_print_i32(fd_write_idx: u32) -> WasmFunc {
     func.emit(WasmInstr::I32Add);
     func.emit(WasmInstr::LocalSet(digit_local));
 
-    // Store digit
+    // Store digit (single byte)
     func.emit(WasmInstr::LocalGet(ptr_local));
     func.emit(WasmInstr::LocalGet(digit_local));
-    func.emit(WasmInstr::I32Store(1, 0));
+    func.emit(WasmInstr::I32Store8(0, 0));
 
     // num = num / 10
     func.emit(WasmInstr::LocalGet(num_local));
@@ -279,7 +279,7 @@ pub fn generate_print_i32(fd_write_idx: u32) -> WasmFunc {
     func.emit(WasmInstr::I32Sub);
     func.emit(WasmInstr::LocalTee(ptr_local));
     func.emit(WasmInstr::I32Const(45)); // '-'
-    func.emit(WasmInstr::I32Store(1, 0));
+    func.emit(WasmInstr::I32Store8(0, 0));
     func.emit(WasmInstr::LocalGet(len_local));
     func.emit(WasmInstr::I32Const(1));
     func.emit(WasmInstr::I32Add);
@@ -308,7 +308,7 @@ pub fn generate_print_i32(fd_write_idx: u32) -> WasmFunc {
     // Print newline
     func.emit(WasmInstr::I32Const(0));
     func.emit(WasmInstr::I32Const(10)); // '\n'
-    func.emit(WasmInstr::I32Store(1, 0));
+    func.emit(WasmInstr::I32Store8(0, 0));
     func.emit(WasmInstr::I32Const(16));
     func.emit(WasmInstr::I32Const(0));
     func.emit(WasmInstr::I32Store(4, 0));
@@ -361,6 +361,64 @@ pub fn generate_print_str(fd_write_idx: u32) -> WasmFunc {
 
     func
 }
+
+/// Generate a print_str_ln function that prints a string followed by a newline.
+///
+/// Takes a pointer and length, prints the string then a `\n` to stdout.
+/// The newline byte is stored in a data segment at `newline_offset`.
+pub fn generate_print_str_ln(fd_write_idx: u32, newline_offset: u32) -> WasmFunc {
+    let mut func = WasmFunc::new(WasmFuncType::new(
+        vec![WasmType::I32, WasmType::I32], // ptr, len
+        vec![],
+    ));
+    func.name = Some("print_str_ln".to_string());
+    func.exported = true;
+
+    // --- Print the string ---
+    // Set up iovec at memory offset 16: iovec.buf = param 0 (ptr)
+    func.emit(WasmInstr::I32Const(16));
+    func.emit(WasmInstr::LocalGet(0)); // ptr
+    func.emit(WasmInstr::I32Store(4, 0));
+
+    // iovec.len = param 1 (len)
+    func.emit(WasmInstr::I32Const(20));
+    func.emit(WasmInstr::LocalGet(1)); // len
+    func.emit(WasmInstr::I32Store(4, 0));
+
+    // Call fd_write(stdout, iovec_ptr, 1, nwritten_ptr)
+    func.emit(WasmInstr::I32Const(STDOUT_FD));
+    func.emit(WasmInstr::I32Const(16));
+    func.emit(WasmInstr::I32Const(1));
+    func.emit(WasmInstr::I32Const(24));
+    func.emit(WasmInstr::Call(fd_write_idx));
+    func.emit(WasmInstr::Drop);
+
+    // --- Print newline ---
+    // Set up iovec: iovec.buf = newline_offset
+    func.emit(WasmInstr::I32Const(16));
+    func.emit(WasmInstr::I32Const(newline_offset as i32));
+    func.emit(WasmInstr::I32Store(4, 0));
+
+    // iovec.len = 1
+    func.emit(WasmInstr::I32Const(20));
+    func.emit(WasmInstr::I32Const(1));
+    func.emit(WasmInstr::I32Store(4, 0));
+
+    // Call fd_write(stdout, iovec_ptr, 1, nwritten_ptr)
+    func.emit(WasmInstr::I32Const(STDOUT_FD));
+    func.emit(WasmInstr::I32Const(16));
+    func.emit(WasmInstr::I32Const(1));
+    func.emit(WasmInstr::I32Const(24));
+    func.emit(WasmInstr::Call(fd_write_idx));
+    func.emit(WasmInstr::Drop);
+
+    func.emit(WasmInstr::End);
+
+    func
+}
+
+/// Offset where the newline byte is stored in the data segment.
+pub const NEWLINE_DATA_OFFSET: u32 = 1020;
 
 /// Generate the _start function that calls main.
 ///

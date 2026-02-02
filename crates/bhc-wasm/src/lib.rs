@@ -72,6 +72,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 pub mod codegen;
+pub mod core_lower;
 pub mod lower;
 pub mod runtime;
 pub mod wasi;
@@ -80,7 +81,7 @@ use bhc_codegen::{CodegenBackend, CodegenConfig, CodegenError, CodegenResult};
 use bhc_target::{Arch, TargetSpec};
 use thiserror::Error;
 
-pub use codegen::{WasmCodegenContext, WasmModule};
+pub use codegen::{RuntimeIndices, WasmCodegenContext, WasmModule};
 
 /// Errors that can occur during WASM operations.
 #[derive(Debug, Error)]

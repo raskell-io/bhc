@@ -19,6 +19,7 @@ bhc-session = { workspace = true }
 bhc-loop-ir = { workspace = true }
 bhc-intern = { workspace = true }
 bhc-tensor-ir = { workspace = true }
+bhc-core = { workspace = true }
 
 # External dependencies
 thiserror = { workspace = true }

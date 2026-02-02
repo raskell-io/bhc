@@ -70,6 +70,27 @@ impl WasmFuncType {
     }
 }
 
+/// Indices of runtime functions added by `WasmModule::add_runtime_functions`.
+///
+/// Used by the Core IR lowerer to emit calls to the correct function indices.
+#[derive(Clone, Debug)]
+pub struct RuntimeIndices {
+    /// Index of the WASI `fd_write` import.
+    pub fd_write_idx: u32,
+    /// Index of the WASI `proc_exit` import.
+    pub proc_exit_idx: u32,
+    /// Index of the `alloc` function.
+    pub alloc_idx: u32,
+    /// Index of the `print_i32` function.
+    pub print_i32_idx: u32,
+    /// Index of the `print_str` function.
+    pub print_str_idx: u32,
+    /// Index of the `print_str_ln` function.
+    pub print_str_ln_idx: u32,
+    /// Offset of the newline byte in the data segment.
+    pub newline_offset: u32,
+}
+
 /// A WASM import.
 #[derive(Clone, Debug)]
 pub struct WasmImport {
@@ -490,6 +511,16 @@ impl WasmModule {
         self.data_segments.push((offset, data));
     }
 
+    /// Get the next function index that would be assigned by `add_function`.
+    #[must_use]
+    pub fn next_function_index(&self) -> u32 {
+        self.imports
+            .iter()
+            .filter(|i| matches!(i.kind, WasmImportKind::Func(_)))
+            .count() as u32
+            + self.functions.len() as u32
+    }
+
     /// Add WASI imports for system interface support.
     ///
     /// This adds the standard WASI imports needed for IO and process control:
@@ -507,18 +538,16 @@ impl WasmModule {
     /// This adds:
     /// - `alloc`: Bump allocator for linear memory
     /// - `print_i32`: Print an i32 to stdout
-    /// - `_start`: Entry point that calls main
+    /// - `print_str`: Print a string to stdout
+    /// - `print_str_ln`: Print a string + newline to stdout
+    ///
+    /// Returns `RuntimeIndices` with the function indices for use by
+    /// Core IR lowering. The caller must add `main` and `_start` after
+    /// lowering user code.
     ///
     /// Note: This must be called AFTER `add_wasi_imports()` for correct function indices.
-    pub fn add_runtime_functions(&mut self) {
+    pub fn add_runtime_functions(&mut self) -> RuntimeIndices {
         use crate::wasi;
-
-        // Count imported functions to determine function indices
-        let num_imports = self
-            .imports
-            .iter()
-            .filter(|i| matches!(i.kind, WasmImportKind::Func(_)))
-            .count() as u32;
 
         // WASI import indices (these are the first functions)
         let fd_write_idx = wasi::FD_WRITE_IDX;
@@ -532,20 +561,43 @@ impl WasmModule {
             init: WasmInstr::I32Const(65536), // Start heap at 64KB
         });
 
+        // Add a newline byte in the data segment
+        let newline_offset = wasi::NEWLINE_DATA_OFFSET;
+        self.add_data_segment(newline_offset, vec![b'\n']);
+
         // Add allocator function (first defined function)
         let alloc_func = wasi::generate_alloc_function(heap_ptr_idx);
-        let _alloc_idx = self.add_function(alloc_func);
+        let alloc_idx = self.add_function(alloc_func);
 
         // Add print_i32 function
         let print_func = wasi::generate_print_i32(fd_write_idx);
-        let _print_i32_idx = self.add_function(print_func);
+        let print_i32_idx = self.add_function(print_func);
 
-        // Add a placeholder main function
-        let main_func = wasi::generate_placeholder_main();
-        let main_idx = self.add_function(main_func);
+        // Add print_str function
+        let print_str_func = wasi::generate_print_str(fd_write_idx);
+        let print_str_idx = self.add_function(print_str_func);
 
-        // Add _start function (entry point) - must be last so we know main's index
-        let start_func = wasi::generate_start_function(main_idx, proc_exit_idx);
+        // Add print_str_ln function
+        let print_str_ln_func = wasi::generate_print_str_ln(fd_write_idx, newline_offset);
+        let print_str_ln_idx = self.add_function(print_str_ln_func);
+
+        RuntimeIndices {
+            fd_write_idx,
+            proc_exit_idx,
+            alloc_idx,
+            print_i32_idx,
+            print_str_idx,
+            print_str_ln_idx,
+            newline_offset,
+        }
+    }
+
+    /// Add the `_start` entry point that calls `main` and exits.
+    ///
+    /// Call this after adding the user's `main` function via Core IR lowering.
+    pub fn add_start_function(&mut self, main_func_idx: u32, proc_exit_idx: u32) {
+        use crate::wasi;
+        let start_func = wasi::generate_start_function(main_func_idx, proc_exit_idx);
         self.add_function(start_func);
     }
 
