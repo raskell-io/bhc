@@ -1020,6 +1020,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // bhc_lookupEnv(*i8) -> *i8
         let lookup_env = self.module.llvm_module().add_function("bhc_lookupEnv", ptr_to_ptr, None);
         self.functions.insert(VarId::new(1314), lookup_env);
+        // bhc_get_args() -> *i8 (returns cons-list of C strings)
+        let get_args = self.module.llvm_module().add_function("bhc_get_args", void_to_ptr, None);
+        self.functions.insert(VarId::new(1315), get_args);
+        // bhc_get_prog_name() -> *i8
+        let get_prog_name = self.module.llvm_module().add_function("bhc_get_prog_name", void_to_ptr, None);
+        self.functions.insert(VarId::new(1316), get_prog_name);
+        // bhc_get_current_directory() -> *i8
+        let get_cur_dir = self.module.llvm_module().add_function("bhc_get_current_directory", void_to_ptr, None);
+        self.functions.insert(VarId::new(1317), get_cur_dir);
     }
 
     // ========================================================================
@@ -1553,6 +1562,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "exitSuccess" => Some(0),
             "exitFailure" => Some(0),
             "exitWith" => Some(1),
+            "hGetContents" => Some(1),
+            "getCurrentDirectory" => Some(0),
+            "createDirectory" => Some(1),
+            "listDirectory" => Some(1),
 
             // Monadic / higher-order operations
             "fmap" => Some(2),
@@ -1879,6 +1892,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "exitSuccess" => self.lower_builtin_exit_success(),
             "exitFailure" => self.lower_builtin_exit_failure(),
             "exitWith" => self.lower_builtin_exit_with(args[0]),
+            "hGetContents" => self.lower_builtin_hgetcontents(args[0]),
+            "getCurrentDirectory" => self.lower_builtin_get_current_directory(),
+            "createDirectory" => self.lower_builtin_create_directory(args[0]),
+            "listDirectory" => self.lower_builtin_list_directory(args[0]),
 
             // Higher-order / Monadic operations
             "fmap" | "<$>" => self.lower_builtin_fmap(args[0], args[1]),
@@ -7379,22 +7396,34 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(self.int_to_ptr(extended)?.into()))
     }
 
-    /// Lower `removeFile` (stub).
+    /// Lower `removeFile`.
     fn lower_builtin_remove_file(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let _ = self.lower_expr(path_expr)?;
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("removeFile: no path".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("removeFile expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1312)).ok_or_else(|| CodegenError::Internal("bhc_remove_file not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[path_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("removeFile call failed: {:?}", e)))?;
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
     }
 
-    /// Lower `getArgs` (stub: returns empty list).
+    /// Lower `getArgs`: returns list of command-line arguments.
     fn lower_builtin_get_args(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let nil = self.alloc_adt(0, 0)?;
-        Ok(Some(nil.into()))
+        let rts_fn = self.functions.get(&VarId::new(1315)).ok_or_else(|| CodegenError::Internal("bhc_get_args not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[], "get_args")
+            .map_err(|e| CodegenError::Internal(format!("getArgs call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getArgs: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
-    /// Lower `getProgName`.
+    /// Lower `getProgName`: returns program name.
     fn lower_builtin_get_prog_name(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let s = self.module.add_global_string("prog_name", "bhc");
-        Ok(Some(s.into()))
+        let rts_fn = self.functions.get(&VarId::new(1316)).ok_or_else(|| CodegenError::Internal("bhc_get_prog_name not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[], "get_prog_name")
+            .map_err(|e| CodegenError::Internal(format!("getProgName call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getProgName: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
     /// Lower `getEnv`.
@@ -7440,6 +7469,50 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         self.builder().build_call(*rts_fn, &[code_i32.into()], "").map_err(|e| CodegenError::Internal(format!("exitWith failed: {:?}", e)))?;
         self.builder().build_unreachable().map_err(|e| CodegenError::Internal(format!("unreachable failed: {:?}", e)))?;
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `hGetContents`: read all remaining contents from a handle.
+    fn lower_builtin_hgetcontents(&mut self, handle_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let handle_val = self.lower_expr(handle_expr)?.ok_or_else(|| CodegenError::Internal("hGetContents: no handle".to_string()))?;
+        let handle_ptr = match handle_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("hGetContents expects handle".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1300)).ok_or_else(|| CodegenError::Internal("bhc_hGetContents not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[handle_ptr.into()], "hgetcontents")
+            .map_err(|e| CodegenError::Internal(format!("hGetContents call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("hGetContents: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `getCurrentDirectory`.
+    fn lower_builtin_get_current_directory(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1317)).ok_or_else(|| CodegenError::Internal("bhc_get_current_directory not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[], "getcwd")
+            .map_err(|e| CodegenError::Internal(format!("getCurrentDirectory call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getCurrentDirectory: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `createDirectory`.
+    fn lower_builtin_create_directory(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("createDirectory: no path".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("createDirectory expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1311)).ok_or_else(|| CodegenError::Internal("bhc_create_directory not declared".to_string()))?;
+        self.builder().build_call(*rts_fn, &[path_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("createDirectory call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `listDirectory`.
+    fn lower_builtin_list_directory(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("listDirectory: no path".to_string()))?;
+        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("listDirectory expects string".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1313)).ok_or_else(|| CodegenError::Internal("bhc_list_directory not declared".to_string()))?;
+        let result = self.builder().build_call(*rts_fn, &[path_ptr.into()], "listdir")
+            .map_err(|e| CodegenError::Internal(format!("listDirectory call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("listDirectory: returned void".to_string()))?;
+        Ok(Some(result))
     }
 
     /// Lower `show` (default: treat as integer).
