@@ -611,13 +611,44 @@ fn inspect_ir_from_source(
         return Ok(());
     }
 
-    // Tensor and Loop IR stages require further lowering not yet wired
-    println!(
-        "{}",
-        format!("Stage {:?} not yet supported for .hs compilation", stage).yellow()
-    );
+    // 4. Lower Core → Tensor IR
+    let tensor_ops = bhc_tensor_ir::lower::lower_module(&core);
+    let mut fusion_ctx = bhc_tensor_ir::fusion::FusionContext::new(true);
+    let kernels = bhc_tensor_ir::fusion::fuse_ops(&mut fusion_ctx, tensor_ops);
+
+    if stage == IrStage::Tensor {
+        println!("{}", "Tensor IR (post-fusion)".bold().green());
+        println!("{}", "─".repeat(60).dimmed());
+        if kernels.is_empty() {
+            println!("  (no tensor operations — try --profile=numeric)");
+        }
+        for kernel in &kernels {
+            let s = format!("{:#?}", kernel);
+            print_filtered(&s, function);
+        }
+        return Ok(());
+    }
+
+    // 5. Lower Tensor IR → Loop IR
+    let loop_config = bhc_loop_ir::lower::LowerConfig::default();
+    let loop_irs = bhc_loop_ir::lower::lower_kernels(&kernels, loop_config)
+        .map_err(|e| anyhow::anyhow!("Loop IR lowering error: {e}"))?;
+
+    if stage == IrStage::Loop {
+        println!("{}", "Loop IR".bold().green());
+        println!("{}", "─".repeat(60).dimmed());
+        if loop_irs.is_empty() {
+            println!("  (no loop operations — try --profile=numeric)");
+        }
+        for ir in &loop_irs {
+            let s = format!("{:#?}", ir);
+            print_filtered(&s, function);
+        }
+        return Ok(());
+    }
+
     if verbose {
-        println!("Core IR is the furthest stage available from source compilation.");
+        println!("All IR stages complete.");
     }
 
     Ok(())

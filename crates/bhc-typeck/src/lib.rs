@@ -52,7 +52,7 @@
 #![allow(clippy::module_name_repetitions)]
 
 mod binding_groups;
-mod builtins;
+pub mod builtins;
 mod context;
 mod diagnostics;
 mod env;

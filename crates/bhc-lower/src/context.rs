@@ -218,6 +218,7 @@ impl LowerContext {
             "IO",
             "Maybe",
             "Either",
+            "Ordering",
             // Additional standard library types
             "NonEmpty",
             "ExitCode",
@@ -251,6 +252,9 @@ impl LowerContext {
             ("Just", "Maybe", 1),    // DefId 12
             ("Left", "Either", 1),   // DefId 13
             ("Right", "Either", 1),  // DefId 14
+            ("LT", "Ordering", 0),   // Ordering constructors
+            ("EQ", "Ordering", 0),
+            ("GT", "Ordering", 0),
             ("[]", "List", 0),       // DefId 15 - list nil
             (":", "List", 2),        // DefId 16 - list cons
             ("()", "Unit", 0),       // DefId 17 - unit

@@ -1013,6 +1013,100 @@ impl Evaluator {
         prims.insert(Symbol::intern("True"), Value::bool(true));
         prims.insert(Symbol::intern("False"), Value::bool(false));
         prims.insert(Symbol::intern("otherwise"), Value::bool(true));
+
+        // Maybe constructors
+        prims.insert(
+            Symbol::intern("Nothing"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("Nothing"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Maybe"), bhc_types::Kind::star_to_star()),
+                    tag: 0,
+                    arity: 0,
+                },
+                args: vec![],
+            }),
+        );
+        prims.insert(
+            Symbol::intern("Just"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("Just"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Maybe"), bhc_types::Kind::star_to_star()),
+                    tag: 1,
+                    arity: 1,
+                },
+                args: vec![],
+            }),
+        );
+
+        // Either constructors
+        let either_kind = bhc_types::Kind::Arrow(
+            Box::new(bhc_types::Kind::Star),
+            Box::new(bhc_types::Kind::star_to_star()),
+        );
+        prims.insert(
+            Symbol::intern("Left"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("Left"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Either"), either_kind.clone()),
+                    tag: 0,
+                    arity: 1,
+                },
+                args: vec![],
+            }),
+        );
+        prims.insert(
+            Symbol::intern("Right"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("Right"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Either"), either_kind),
+                    tag: 1,
+                    arity: 1,
+                },
+                args: vec![],
+            }),
+        );
+
+        // Ordering constructors
+        prims.insert(
+            Symbol::intern("LT"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("LT"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Ordering"), bhc_types::Kind::Star),
+                    tag: 0,
+                    arity: 0,
+                },
+                args: vec![],
+            }),
+        );
+        prims.insert(
+            Symbol::intern("EQ"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("EQ"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Ordering"), bhc_types::Kind::Star),
+                    tag: 1,
+                    arity: 0,
+                },
+                args: vec![],
+            }),
+        );
+        prims.insert(
+            Symbol::intern("GT"),
+            Value::Data(DataValue {
+                con: crate::DataCon {
+                    name: Symbol::intern("GT"),
+                    ty_con: bhc_types::TyCon::new(Symbol::intern("Ordering"), bhc_types::Kind::Star),
+                    tag: 2,
+                    arity: 0,
+                },
+                args: vec![],
+            }),
+        );
     }
 
     /// Evaluates an expression to a value.

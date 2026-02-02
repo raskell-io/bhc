@@ -99,6 +99,10 @@ struct ReplState {
     bindings: Vec<(String, Ty, Value, Option<bhc_core::VarId>)>,
     /// Last inferred type from the type checker (for display purposes).
     last_inferred_type: Option<Ty>,
+    /// Types loaded from compiled modules: (name, type)
+    loaded_types: Vec<(String, Ty)>,
+    /// Names of bindings that came from loaded files (vs REPL input)
+    loaded_binding_names: Vec<String>,
 }
 
 /// REPL configuration options
@@ -146,6 +150,8 @@ impl ReplState {
             binding_counter: 0,
             bindings: Vec::new(),
             last_inferred_type: None,
+            loaded_types: Vec::new(),
+            loaded_binding_names: Vec::new(),
         }
     }
 
@@ -728,6 +734,15 @@ fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String>
 
     // 2. Lower AST -> HIR
     let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
+
+    // Register previously defined bindings (from REPL and :load) so they resolve
+    for (name, _, _, _) in &state.bindings {
+        let sym = bhc_intern::Symbol::intern(name);
+        let def_id = lower_ctx.fresh_def_id();
+        lower_ctx.define(def_id, sym, bhc_lower::DefKind::Value, bhc_span::Span::default());
+        lower_ctx.bind_value(sym, def_id);
+    }
+
     let config = bhc_lower::LowerConfig {
         include_builtins: true,
         warn_unused: false,
@@ -899,51 +914,147 @@ fn show_type(state: &mut ReplState, expr: &str) {
     }
 }
 
-fn show_kind(state: &mut ReplState, type_str: &str) {
-    // Parse and show kind of type
-    println!("{} :: *", type_str);
-    let _ = state; // Use state for actual kind inference
+fn format_kind(kind: &bhc_types::Kind) -> String {
+    match kind {
+        bhc_types::Kind::Star => "*".to_string(),
+        bhc_types::Kind::Constraint => "Constraint".to_string(),
+        bhc_types::Kind::Var(n) => format!("k{n}"),
+        bhc_types::Kind::Nat => "Nat".to_string(),
+        bhc_types::Kind::List(inner) => format!("[{}]", format_kind(inner)),
+        bhc_types::Kind::Arrow(a, b) => {
+            let left = match a.as_ref() {
+                bhc_types::Kind::Arrow(_, _) => format!("({})", format_kind(a)),
+                _ => format_kind(a),
+            };
+            format!("{} -> {}", left, format_kind(b))
+        }
+    }
 }
 
-fn show_info(state: &mut ReplState, name: &str) {
-    // Look up name in context and show info
-    println!("-- Defined at <unknown>");
+fn show_kind(_state: &mut ReplState, type_str: &str) {
+    let builtins = bhc_typeck::builtins::Builtins::new();
+    let name = type_str.trim();
 
-    // Check bindings
-    for (n, ty, _, _) in &state.bindings {
-        if n == name {
-            println!("{} :: {}", name, format_type(ty));
+    // Check all known type constructors
+    let all_cons: Vec<&bhc_types::TyCon> = vec![
+        &builtins.int_con,
+        &builtins.float_con,
+        &builtins.char_con,
+        &builtins.bool_con,
+        &builtins.string_con,
+        &builtins.list_con,
+        &builtins.maybe_con,
+        &builtins.either_con,
+        &builtins.io_con,
+        &builtins.tensor_con,
+        &builtins.dyn_tensor_con,
+        &builtins.shape_witness_con,
+    ];
+
+    // Also accept common aliases
+    let lookup_name = match name {
+        "List" | "[]" => "[]",
+        other => other,
+    };
+
+    for con in all_cons {
+        if con.name.as_str() == lookup_name {
+            println!("{} :: {}", name, format_kind(&con.kind));
             return;
         }
     }
 
-    // Check standard library
+    // Check additional well-known types
     match name {
-        "map" => {
-            println!("map :: (a -> b) -> [a] -> [b]");
-            println!("  -- Defined in 'Prelude'");
+        "Integer" | "Double" | "Word" | "Ordering" => {
+            println!("{} :: *", name);
         }
-        "filter" => {
-            println!("filter :: (a -> Bool) -> [a] -> [a]");
-            println!("  -- Defined in 'Prelude'");
+        "(,)" | "Tuple2" => {
+            println!("{} :: * -> * -> *", name);
         }
-        "foldr" => {
-            println!("foldr :: (a -> b -> b) -> b -> [a] -> b");
-            println!("  -- Defined in 'Prelude'");
-        }
-        "foldl" => {
-            println!("foldl :: (b -> a -> b) -> b -> [a] -> b");
-            println!("  -- Defined in 'Prelude'");
-        }
-        "foldl'" => {
-            println!("foldl' :: (b -> a -> b) -> b -> [a] -> b");
-            println!("  -- Defined in 'Data.List'");
-            println!("  -- Strict left fold");
+        "(,,)" | "Tuple3" => {
+            println!("{} :: * -> * -> * -> *", name);
         }
         _ => {
-            println!("'{}' is not in scope", name);
+            println!("'{}' is not in scope as a type constructor", name);
         }
     }
+}
+
+fn show_info(state: &mut ReplState, name: &str) {
+    // 1. Check REPL bindings
+    for (n, ty, _, _) in &state.bindings {
+        if n == name {
+            println!("{} :: {}", name, format_type(ty));
+            println!("  -- Defined at <repl>");
+            return;
+        }
+    }
+
+    // 2. Check loaded module types
+    for (n, ty) in &state.loaded_types {
+        if n == name {
+            println!("{} :: {}", name, format_type(ty));
+            println!("  -- Defined in loaded module");
+            return;
+        }
+    }
+
+    // 3. Try type-checking the name as an expression
+    let file_id = state
+        .source_map
+        .add_file("<repl>".to_string(), name.to_string());
+
+    let (parsed, _) = parse_expr(name, file_id);
+    if let Some(ast_expr) = parsed {
+        let module = wrap_expr_as_module(&ast_expr);
+        let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
+        let config = bhc_lower::LowerConfig {
+            include_builtins: true,
+            warn_unused: false,
+            search_paths: vec![],
+        };
+
+        if let Ok(hir) = bhc_lower::lower_module(&mut lower_ctx, &module, &config) {
+            if let Ok(typed_module) =
+                bhc_typeck::type_check_module_with_defs(&hir, file_id, Some(&lower_ctx.defs))
+            {
+                for (def_id, scheme) in &typed_module.def_schemes {
+                    if let Some(info) = lower_ctx.defs.get(def_id) {
+                        if info.name.as_str() == "it" {
+                            println!("{} :: {}", name, scheme.ty);
+                            println!("  -- Defined in 'Prelude'");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Check type constructors for :info on types
+    let builtins = bhc_typeck::builtins::Builtins::new();
+    let type_cons: Vec<(&str, &bhc_types::TyCon)> = vec![
+        ("Int", &builtins.int_con),
+        ("Float", &builtins.float_con),
+        ("Char", &builtins.char_con),
+        ("Bool", &builtins.bool_con),
+        ("String", &builtins.string_con),
+        ("Maybe", &builtins.maybe_con),
+        ("Either", &builtins.either_con),
+        ("IO", &builtins.io_con),
+        ("Tensor", &builtins.tensor_con),
+    ];
+
+    for (type_name, con) in type_cons {
+        if type_name == name {
+            println!("type {} :: {}", name, format_kind(&con.kind));
+            println!("  -- Defined in 'Prelude'");
+            return;
+        }
+    }
+
+    println!("'{}' is not in scope", name);
 }
 
 fn load_file(state: &mut ReplState, path: &PathBuf) -> Result<(), ReplError> {
@@ -973,10 +1084,133 @@ fn load_file(state: &mut ReplState, path: &PathBuf) -> Result<(), ReplError> {
         }
     }
 
-    if module.is_some() {
-        state.loaded_files.push(path.clone());
-        println!("Ok, module loaded.");
+    let Some(module) = module else {
+        return Err(ReplError::Parse("Failed to parse module".into()));
+    };
+
+    let module_name = module
+        .name
+        .as_ref()
+        .map(|n| n.parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("."))
+        .unwrap_or_else(|| "Main".to_string());
+
+    // 1. Lower AST → HIR
+    let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
+    let config = bhc_lower::LowerConfig {
+        include_builtins: true,
+        warn_unused: false,
+        search_paths: vec![],
+    };
+    let hir = bhc_lower::lower_module(&mut lower_ctx, &module, &config)
+        .map_err(|e| ReplError::Parse(format!("Lowering error: {e}")))?;
+
+    // 2. Type check (best-effort)
+    let typed = bhc_typeck::type_check_module_with_defs(&hir, file_id, Some(&lower_ctx.defs));
+
+    // 3. Build def map for Core lowering
+    let def_map: bhc_hir_to_core::DefMap = lower_ctx
+        .defs
+        .iter()
+        .map(|(def_id, def_info)| {
+            (
+                *def_id,
+                bhc_hir_to_core::DefInfo {
+                    id: *def_id,
+                    name: def_info.name,
+                },
+            )
+        })
+        .collect();
+
+    // 4. Lower HIR → Core
+    let core = bhc_hir_to_core::lower_module_with_defs(&hir, Some(&def_map), None)
+        .map_err(|e| ReplError::Parse(format!("Core lowering error: {e}")))?;
+
+    // 5. Extract type information from typed module
+    if let Ok(ref typed_module) = typed {
+        for (def_id, scheme) in &typed_module.def_schemes {
+            if let Some(info) = lower_ctx.defs.get(def_id) {
+                let name = info.name.as_str().to_string();
+                state.loaded_types.push((name, scheme.ty.clone()));
+            }
+        }
     }
+
+    // 6. Evaluate each binding and store in the evaluator
+    let env = bhc_core::eval::Env::new();
+    let mut def_count = 0;
+
+    for bind in &core.bindings {
+        match bind {
+            bhc_core::Bind::NonRec(var, expr) => {
+                let name = var.name.as_str().to_string();
+                match state.evaluator.eval(expr, &env) {
+                    Ok(value) => {
+                        // Consume any IO output produced during evaluation
+                        let io_output = state.evaluator.take_io_output();
+                        if !io_output.is_empty() {
+                            print!("{io_output}");
+                        }
+
+                        let sym = bhc_intern::Symbol::intern(&name);
+                        state.evaluator.set_named_binding(sym, value.clone());
+
+                        let ty = state
+                            .loaded_types
+                            .iter()
+                            .find(|(n, _)| n == &name)
+                            .map(|(_, t)| t.clone())
+                            .unwrap_or_else(|| Ty::Error);
+
+                        state
+                            .bindings
+                            .push((name.clone(), ty, value, None));
+                        state.loaded_binding_names.push(name);
+                        def_count += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("  Warning: could not evaluate '{}': {}", name, e);
+                    }
+                }
+            }
+            bhc_core::Bind::Rec(bindings) => {
+                for (var, expr) in bindings {
+                    let name = var.name.as_str().to_string();
+                    match state.evaluator.eval(expr, &env) {
+                        Ok(value) => {
+                            let io_output = state.evaluator.take_io_output();
+                            if !io_output.is_empty() {
+                                print!("{io_output}");
+                            }
+
+                            let sym = bhc_intern::Symbol::intern(&name);
+                            state.evaluator.set_named_binding(sym, value.clone());
+
+                            let ty = state
+                                .loaded_types
+                                .iter()
+                                .find(|(n, _)| n == &name)
+                                .map(|(_, t)| t.clone())
+                                .unwrap_or_else(|| Ty::Error);
+
+                            state
+                                .bindings
+                                .push((name.clone(), ty, value, None));
+                            state.loaded_binding_names.push(name);
+                            def_count += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("  Warning: could not evaluate '{}': {}", name, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    state.loaded_files.push(path.clone());
+    state.modules_in_scope.insert(module_name.clone());
+    println!("Ok, {} definitions loaded from module {}.", def_count, module_name);
 
     Ok(())
 }
@@ -989,6 +1223,11 @@ fn reload_modules(state: &mut ReplState) {
 
     println!("Reloading...");
     let files: Vec<PathBuf> = state.loaded_files.clone();
+
+    // Clear bindings that came from loaded files
+    let loaded_names: HashSet<String> = state.loaded_binding_names.drain(..).collect();
+    state.bindings.retain(|(name, _, _, _)| !loaded_names.contains(name));
+    state.loaded_types.clear();
     state.loaded_files.clear();
 
     for file in files {
@@ -1001,39 +1240,63 @@ fn reload_modules(state: &mut ReplState) {
 fn browse_module(state: &ReplState, module: Option<&str>) {
     let module_name = module.unwrap_or("Prelude");
 
-    if !state.modules_in_scope.contains(module_name) {
+    // Show REPL-defined and loaded bindings when no module specified or browsing a loaded module
+    let has_real_data = !state.bindings.is_empty() || !state.loaded_types.is_empty();
+
+    if module.is_none() && has_real_data {
+        // Show all known bindings
+        if !state.bindings.is_empty() {
+            println!("-- REPL bindings -------");
+            for (name, ty, _, _) in &state.bindings {
+                let ty_str = format_type(ty);
+                println!("{} :: {}", name, ty_str);
+            }
+        }
+
+        // Show loaded types not already shown as bindings
+        let binding_names: HashSet<&str> = state.bindings.iter().map(|(n, _, _, _)| n.as_str()).collect();
+        let extra_types: Vec<_> = state
+            .loaded_types
+            .iter()
+            .filter(|(n, _)| !binding_names.contains(n.as_str()))
+            .collect();
+        if !extra_types.is_empty() {
+            println!("-- Loaded definitions -------");
+            for (name, ty) in extra_types {
+                println!("{} :: {}", name, format_type(ty));
+            }
+        }
+        println!();
+    }
+
+    if !state.modules_in_scope.contains(module_name) && module.is_some() {
         println!("Module '{}' is not in scope", module_name);
         return;
     }
 
-    println!("-- {} -------", module_name);
-
-    match module_name {
-        "Prelude" => {
-            println!("(++) :: [a] -> [a] -> [a]");
-            println!("map :: (a -> b) -> [a] -> [b]");
-            println!("filter :: (a -> Bool) -> [a] -> [a]");
-            println!("foldr :: (a -> b -> b) -> b -> [a] -> b");
-            println!("foldl :: (b -> a -> b) -> b -> [a] -> b");
-            println!("head :: [a] -> a");
-            println!("tail :: [a] -> [a]");
-            println!("null :: [a] -> Bool");
-            println!("length :: [a] -> Int");
-            println!("sum :: Num a => [a] -> a");
-            println!("product :: Num a => [a] -> a");
-            println!("print :: Show a => a -> IO ()");
-            println!("putStrLn :: String -> IO ()");
-        }
-        "Data.List" => {
-            println!("sort :: Ord a => [a] -> [a]");
-            println!("nub :: Eq a => [a] -> [a]");
-            println!("group :: Eq a => [a] -> [[a]]");
-            println!("intersperse :: a -> [a] -> [a]");
-            println!("intercalate :: [a] -> [[a]] -> [a]");
-        }
-        _ => {
-            println!("(no exports)");
-        }
+    // Fallback Prelude listing for reference
+    if module_name == "Prelude" {
+        println!("-- {} -------", module_name);
+        println!("(++) :: [a] -> [a] -> [a]");
+        println!("map :: (a -> b) -> [a] -> [b]");
+        println!("filter :: (a -> Bool) -> [a] -> [a]");
+        println!("foldr :: (a -> b -> b) -> b -> [a] -> b");
+        println!("foldl :: (b -> a -> b) -> b -> [a] -> b");
+        println!("head :: [a] -> a");
+        println!("tail :: [a] -> [a]");
+        println!("null :: [a] -> Bool");
+        println!("length :: [a] -> Int");
+        println!("sum :: Num a => [a] -> a");
+        println!("product :: Num a => [a] -> a");
+        println!("print :: Show a => a -> IO ()");
+        println!("putStrLn :: String -> IO ()");
+    } else if module_name == "Data.List" {
+        println!("-- {} -------", module_name);
+        println!("sort :: Ord a => [a] -> [a]");
+        println!("nub :: Eq a => [a] -> [a]");
+        println!("group :: Eq a => [a] -> [[a]]");
+        println!("intersperse :: a -> [a] -> [a]");
+        println!("intercalate :: [a] -> [[a]] -> [a]");
     }
 }
 
