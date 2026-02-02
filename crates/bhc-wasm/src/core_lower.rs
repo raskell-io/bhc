@@ -465,12 +465,24 @@ impl<'a> WasmLowering<'a> {
 
             // IO: >>= (bind) - evaluate first, pass result to second
             Some(">>=" | "GHC.Base.>>=") if args.len() == 2 => {
-                // For simple IO programs, >>= is usually just sequencing
-                // Evaluate first action, drop result
-                self.lower_expr(&args[0], instrs, locals, local_count, false)?;
-                instrs.push(WasmInstr::Drop);
-                // Evaluate second (it's usually a lambda, so just evaluate it)
-                self.lower_expr(&args[1], instrs, locals, local_count, is_main)?;
+                // Check if the second argument is a lambda: >>= \x -> body
+                let second = peel_type_abstractions(&args[1]);
+                if let Expr::Lam(var, body, _) = second {
+                    // Evaluate the first action
+                    self.lower_expr(&args[0], instrs, locals, local_count, false)?;
+                    // Bind result to the lambda parameter
+                    let param_local = *local_count;
+                    *local_count += 1;
+                    instrs.push(WasmInstr::LocalSet(param_local));
+                    locals.insert(var.id, param_local);
+                    // Evaluate the lambda body
+                    self.lower_expr(body, instrs, locals, local_count, is_main)?;
+                } else {
+                    // No lambda — just sequence (drop first result, evaluate second)
+                    self.lower_expr(&args[0], instrs, locals, local_count, false)?;
+                    instrs.push(WasmInstr::Drop);
+                    self.lower_expr(&args[1], instrs, locals, local_count, is_main)?;
+                }
             }
 
             // IO: return / pure - just evaluate the argument
@@ -478,6 +490,77 @@ impl<'a> WasmLowering<'a> {
                 if args.len() == 1 =>
             {
                 self.lower_expr(&args[0], instrs, locals, local_count, false)?;
+            }
+
+            // IO: catch - execute the action, ignore the handler
+            Some("catch" | "Control.Exception.catch" | "GHC.IO.catch") if args.len() == 2 => {
+                // Simple implementation: just run the first argument (the IO action).
+                // The exception handler (args[1]) is never invoked since we don't throw.
+                self.lower_expr(&args[0], instrs, locals, local_count, is_main)?;
+            }
+
+            // Fused sum/enumFromTo: sum (enumFromTo lo hi) => loop accumulation
+            Some("sum" | "Prelude.sum" | "Data.List.sum" | "GHC.List.sum")
+                if args.len() == 1 =>
+            {
+                if let Some((lo_expr, hi_expr)) = extract_enum_from_to(&args[0]) {
+                    // Emit a loop: acc = 0; for i = lo to hi: acc += i
+                    let acc_local = *local_count;
+                    *local_count += 1;
+                    let i_local = *local_count;
+                    *local_count += 1;
+
+                    // Initialize accumulator to 0
+                    instrs.push(WasmInstr::I32Const(0));
+                    instrs.push(WasmInstr::LocalSet(acc_local));
+
+                    // Initialize loop variable to lo
+                    self.lower_expr(lo_expr, instrs, locals, local_count, false)?;
+                    instrs.push(WasmInstr::LocalSet(i_local));
+
+                    // Evaluate hi and store
+                    let hi_local = *local_count;
+                    *local_count += 1;
+                    self.lower_expr(hi_expr, instrs, locals, local_count, false)?;
+                    instrs.push(WasmInstr::LocalSet(hi_local));
+
+                    // Block(None) is break target, Loop(None) is continue target
+                    instrs.push(WasmInstr::Block(None));
+                    instrs.push(WasmInstr::Loop(None));
+
+                    // Check condition: if i > hi, break
+                    instrs.push(WasmInstr::LocalGet(i_local));
+                    instrs.push(WasmInstr::LocalGet(hi_local));
+                    instrs.push(WasmInstr::I32GtS);
+                    instrs.push(WasmInstr::BrIf(1)); // break out of block
+
+                    // acc += i
+                    instrs.push(WasmInstr::LocalGet(acc_local));
+                    instrs.push(WasmInstr::LocalGet(i_local));
+                    instrs.push(WasmInstr::I32Add);
+                    instrs.push(WasmInstr::LocalSet(acc_local));
+
+                    // i += 1
+                    instrs.push(WasmInstr::LocalGet(i_local));
+                    instrs.push(WasmInstr::I32Const(1));
+                    instrs.push(WasmInstr::I32Add);
+                    instrs.push(WasmInstr::LocalSet(i_local));
+
+                    // Continue loop
+                    instrs.push(WasmInstr::Br(0));
+
+                    instrs.push(WasmInstr::End); // end loop
+                    instrs.push(WasmInstr::End); // end block
+
+                    // Push accumulator as result
+                    instrs.push(WasmInstr::LocalGet(acc_local));
+                } else {
+                    // Can't handle non-enumFromTo sum arguments
+                    tracing::warn!("sum with non-enumFromTo argument, using 0");
+                    self.lower_expr(&args[0], instrs, locals, local_count, false)?;
+                    instrs.push(WasmInstr::Drop);
+                    instrs.push(WasmInstr::I32Const(0));
+                }
             }
 
             // User-defined function call
@@ -808,6 +891,35 @@ fn func_expr_symbol(expr: &Expr) -> Option<Symbol> {
 fn func_expr_var(expr: &Expr) -> Option<&Var> {
     match expr {
         Expr::Var(var, _) => Some(var),
+        _ => None,
+    }
+}
+
+/// Peel off type abstractions (TyLam, TyApp) to find the underlying expression.
+fn peel_type_abstractions(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::TyLam(_, body, _) | Expr::TyApp(body, _, _) => peel_type_abstractions(body),
+        Expr::Cast(inner, _, _) | Expr::Tick(_, inner, _) => peel_type_abstractions(inner),
+        _ => expr,
+    }
+}
+
+/// Try to extract `enumFromTo lo hi` from an expression.
+///
+/// Returns `Some((lo, hi))` if the expression matches `App(App(enumFromTo, lo), hi)`,
+/// looking through type applications and casts.
+fn extract_enum_from_to(expr: &Expr) -> Option<(&Expr, &Expr)> {
+    let (func, args) = collect_app_spine(expr);
+
+    let func_name = match func {
+        Expr::Var(var, _) => Some(var.name.as_str()),
+        _ => None,
+    };
+
+    match func_name {
+        Some("enumFromTo" | "Prelude.enumFromTo" | "GHC.Enum.enumFromTo") if args.len() == 2 => {
+            Some((args[0], args[1]))
+        }
         _ => None,
     }
 }

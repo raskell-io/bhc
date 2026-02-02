@@ -591,8 +591,13 @@ fn eval_input(state: &mut ReplState, input: &str) {
                         .bindings
                         .push((name.clone(), ty.clone(), value.clone()));
 
-                    // Print result
-                    print_value(&value);
+                    // Print IO output if any, otherwise print the value
+                    let io_output = state.evaluator.take_io_output();
+                    if !io_output.is_empty() {
+                        print!("{io_output}");
+                    } else {
+                        print_value(&value);
+                    }
 
                     // Print type if enabled
                     if state.options.show_types {
@@ -622,10 +627,105 @@ fn infer_type(state: &mut ReplState, _expr: &AstExpr) -> Result<Ty, String> {
     Ok(state.type_ctx.fresh_ty())
 }
 
-fn evaluate_expr(state: &mut ReplState, _expr: &AstExpr) -> Result<Value, String> {
-    // Lower AST -> HIR -> Core -> Evaluate
-    // For now, return a placeholder value
-    Ok(Value::Int(42))
+fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String> {
+    // 1. Wrap expression in a synthetic module: module REPL where { it = <expr> }
+    let module = wrap_expr_as_module(expr);
+
+    // 2. Lower AST -> HIR
+    let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
+    let config = bhc_lower::LowerConfig {
+        include_builtins: true,
+        warn_unused: false,
+        search_paths: vec![],
+    };
+    let hir = bhc_lower::lower_module(&mut lower_ctx, &module, &config)
+        .map_err(|e| format!("Lowering error: {e}"))?;
+
+    // 3. Lower HIR -> Core
+    let def_map: bhc_hir_to_core::DefMap = lower_ctx
+        .defs
+        .iter()
+        .map(|(def_id, def_info)| {
+            (
+                *def_id,
+                bhc_hir_to_core::DefInfo {
+                    id: *def_id,
+                    name: def_info.name,
+                },
+            )
+        })
+        .collect();
+    let core = bhc_hir_to_core::lower_module_with_defs(&hir, Some(&def_map), None)
+        .map_err(|e| format!("Core lowering error: {e}"))?;
+
+    // 4. Find the "it" binding
+    let it_expr = find_it_binding(&core)
+        .ok_or_else(|| "Failed to find 'it' binding in lowered Core".to_string())?;
+
+    // 5. Evaluate
+    let env = bhc_core::eval::Env::new();
+    let result = state
+        .evaluator
+        .eval(it_expr, &env)
+        .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
+}
+
+/// Wrap an AST expression in a synthetic module for lowering.
+///
+/// Creates: `module REPL where { it = <expr> }`
+fn wrap_expr_as_module(expr: &AstExpr) -> bhc_ast::Module {
+    use bhc_ast::{Clause, Decl, FunBind, ModuleName, Rhs};
+    use bhc_intern::Ident;
+    use bhc_span::Span;
+
+    let span = expr.span();
+    let it_ident = Ident::new(bhc_intern::Symbol::intern("it"));
+    let clause = Clause {
+        pats: vec![],
+        rhs: Rhs::Simple(expr.clone(), span),
+        wheres: vec![],
+        span,
+    };
+    let fun_bind = FunBind {
+        doc: None,
+        name: it_ident,
+        clauses: vec![clause],
+        span,
+    };
+    bhc_ast::Module {
+        doc: None,
+        pragmas: vec![],
+        name: Some(ModuleName {
+            parts: vec![bhc_intern::Symbol::intern("REPL")],
+            span: Span::DUMMY,
+        }),
+        exports: None,
+        imports: vec![],
+        decls: vec![Decl::FunBind(fun_bind)],
+        span,
+    }
+}
+
+/// Find the "it" binding in a Core module.
+fn find_it_binding(core: &bhc_core::CoreModule) -> Option<&bhc_core::Expr> {
+    for bind in &core.bindings {
+        match bind {
+            bhc_core::Bind::NonRec(var, expr) if var.name.as_str() == "it" => {
+                return Some(expr);
+            }
+            bhc_core::Bind::Rec(bindings) => {
+                for (var, expr) in bindings {
+                    if var.name.as_str() == "it" {
+                        return Some(expr);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn show_type(state: &mut ReplState, expr: &str) {

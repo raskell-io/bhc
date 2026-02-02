@@ -47,6 +47,13 @@ fn test_tier1_let_binding_wasm() {
     run_wasm_test("tier1_simple/let_binding", Profile::Default);
 }
 
+// Tier 1: list range (fused sum/enumFromTo)
+
+#[test]
+fn test_tier1_list_range_wasm() {
+    run_wasm_test("tier1_simple/list_range", Profile::Default);
+}
+
 // =============================================================================
 // Tier 2: Function Tests
 // =============================================================================
@@ -88,6 +95,16 @@ fn test_tier2_mutual_recursion_wasm() {
 #[test]
 fn test_tier3_print_sequence_wasm() {
     run_wasm_test("tier3_io/print_sequence", Profile::Default);
+}
+
+#[test]
+fn test_tier3_multi_bind_wasm() {
+    run_wasm_test("tier3_io/multi_bind", Profile::Default);
+}
+
+#[test]
+fn test_tier3_catch_test_wasm() {
+    run_wasm_test("tier3_io/catch_test", Profile::Default);
 }
 
 // =============================================================================
