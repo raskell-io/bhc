@@ -217,6 +217,12 @@ pub fn generate_print_i32(fd_write_idx: u32) -> WasmFunc {
     func.emit(WasmInstr::I32Store8(0, 0));
     func.emit(WasmInstr::I32Const(1));
     func.emit(WasmInstr::LocalSet(len_local));
+    // Decrement ptr to maintain invariant: ptr points one before first digit
+    // (the post-loop adjustment at the end adds 1 back)
+    func.emit(WasmInstr::LocalGet(ptr_local));
+    func.emit(WasmInstr::I32Const(1));
+    func.emit(WasmInstr::I32Sub);
+    func.emit(WasmInstr::LocalSet(ptr_local));
     func.emit(WasmInstr::Else);
 
     // Convert digits loop

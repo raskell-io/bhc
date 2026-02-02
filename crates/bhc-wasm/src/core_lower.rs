@@ -564,12 +564,28 @@ impl<'a> WasmLowering<'a> {
             .iter()
             .filter(|a| matches!(a.con, AltCon::Lit(_)))
             .collect();
+        let datacon_alts: Vec<_> = alts
+            .iter()
+            .filter(|a| matches!(a.con, AltCon::DataCon(_)))
+            .collect();
 
         // Generate if-else chain for literal alternatives
         if !lit_alts.is_empty() {
             self.lower_case_lit_chain(
                 scrut_local,
                 &lit_alts,
+                default_alt,
+                instrs,
+                locals,
+                local_count,
+                is_main,
+            )?;
+        } else if !datacon_alts.is_empty() {
+            // DataCon alternatives: match on constructor tag.
+            // This handles if-expressions (True/False) and other ADTs.
+            self.lower_case_datacon_chain(
+                scrut_local,
+                &datacon_alts,
                 default_alt,
                 instrs,
                 locals,
@@ -647,6 +663,64 @@ impl<'a> WasmLowering<'a> {
 
         // Close all the if-else blocks
         for _ in lit_alts {
+            instrs.push(WasmInstr::End);
+        }
+
+        Ok(())
+    }
+
+    /// Lower a case expression with data constructor alternatives using if-else chain.
+    ///
+    /// Data constructors are matched by their tag (u32). This handles if-expressions
+    /// (True tag=1, False tag=0) and other ADT patterns.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_case_datacon_chain(
+        &mut self,
+        scrut_local: u32,
+        datacon_alts: &[&bhc_core::Alt],
+        default_alt: Option<&bhc_core::Alt>,
+        instrs: &mut Vec<WasmInstr>,
+        locals: &mut FxHashMap<VarId, u32>,
+        local_count: &mut u32,
+        is_main: bool,
+    ) -> WasmResult<()> {
+        for (i, alt) in datacon_alts.iter().enumerate() {
+            let tag = match &alt.con {
+                AltCon::DataCon(dc) => dc.tag as i32,
+                _ => 0,
+            };
+
+            // Compare scrutinee with constructor tag
+            instrs.push(WasmInstr::LocalGet(scrut_local));
+            instrs.push(WasmInstr::I32Const(tag));
+            instrs.push(WasmInstr::I32Eq);
+            instrs.push(WasmInstr::If(Some(WasmType::I32)));
+
+            // Bind scrutinee to binders if present (for field access)
+            if let Some(binder) = alt.binders.first() {
+                locals.insert(binder.id, scrut_local);
+            }
+
+            // RHS
+            self.lower_expr(&alt.rhs, instrs, locals, local_count, is_main)?;
+
+            instrs.push(WasmInstr::Else);
+
+            // Last alternative: emit default or fallback
+            if i == datacon_alts.len() - 1 {
+                if let Some(def) = default_alt {
+                    if let Some(binder) = def.binders.first() {
+                        locals.insert(binder.id, scrut_local);
+                    }
+                    self.lower_expr(&def.rhs, instrs, locals, local_count, is_main)?;
+                } else {
+                    instrs.push(WasmInstr::I32Const(0));
+                }
+            }
+        }
+
+        // Close all the if-else blocks
+        for _ in datacon_alts {
             instrs.push(WasmInstr::End);
         }
 

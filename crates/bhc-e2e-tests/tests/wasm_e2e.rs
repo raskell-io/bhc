@@ -40,6 +40,13 @@ fn test_tier1_arithmetic_wasm() {
     run_wasm_test("tier1_simple/arithmetic", Profile::Default);
 }
 
+// Tier 1: let bindings
+
+#[test]
+fn test_tier1_let_binding_wasm() {
+    run_wasm_test("tier1_simple/let_binding", Profile::Default);
+}
+
 // =============================================================================
 // Tier 2: Function Tests
 // =============================================================================
@@ -47,6 +54,31 @@ fn test_tier1_arithmetic_wasm() {
 #[test]
 fn test_tier2_fibonacci_wasm() {
     run_wasm_test("tier2_functions/fibonacci", Profile::Default);
+}
+
+#[test]
+fn test_tier2_factorial_wasm() {
+    run_wasm_test("tier2_functions/factorial", Profile::Default);
+}
+
+#[test]
+fn test_tier2_guards_wasm() {
+    run_wasm_test("tier2_functions/guards", Profile::Default);
+}
+
+#[test]
+fn test_tier2_pattern_match_wasm() {
+    run_wasm_test("tier2_functions/pattern_match", Profile::Default);
+}
+
+#[test]
+fn test_tier2_where_bindings_wasm() {
+    run_wasm_test("tier2_functions/where_bindings", Profile::Default);
+}
+
+#[test]
+fn test_tier2_mutual_recursion_wasm() {
+    run_wasm_test("tier2_functions/mutual_recursion", Profile::Default);
 }
 
 // =============================================================================
@@ -72,12 +104,21 @@ fn test_tier1_arithmetic_wasm_edge() {
     run_wasm_test("tier1_simple/arithmetic", Profile::Edge);
 }
 
+#[test]
+fn test_tier1_let_binding_wasm_edge() {
+    run_wasm_test("tier1_simple/let_binding", Profile::Edge);
+}
+
+#[test]
+fn test_tier2_factorial_wasm_edge() {
+    run_wasm_test("tier2_functions/factorial", Profile::Edge);
+}
+
 // =============================================================================
 // Numeric Profile Tests (SIMD, fusion)
 // =============================================================================
 
 #[test]
-#[ignore = "Numeric profile WASM compilation not yet implemented"]
 fn test_tier1_arithmetic_wasm_numeric() {
     run_wasm_test("tier1_simple/arithmetic", Profile::Numeric);
 }
