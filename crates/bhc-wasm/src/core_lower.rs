@@ -18,6 +18,35 @@ use rustc_hash::FxHashMap;
 use crate::codegen::{RuntimeIndices, WasmFunc, WasmFuncType};
 use crate::{WasmInstr, WasmModule, WasmResult, WasmType};
 
+/// Well-known data constructor info: (tag, arity).
+struct ConInfo {
+    tag: u32,
+    arity: u32,
+}
+
+/// Build a map of well-known constructors to their tag and arity.
+fn well_known_constructors() -> FxHashMap<&'static str, ConInfo> {
+    let mut m = FxHashMap::default();
+    // Bool
+    m.insert("False", ConInfo { tag: 0, arity: 0 });
+    m.insert("True", ConInfo { tag: 1, arity: 0 });
+    // Unit
+    m.insert("()", ConInfo { tag: 0, arity: 0 });
+    // Maybe
+    m.insert("Nothing", ConInfo { tag: 0, arity: 0 });
+    m.insert("Just", ConInfo { tag: 1, arity: 1 });
+    // Either
+    m.insert("Left", ConInfo { tag: 0, arity: 1 });
+    m.insert("Right", ConInfo { tag: 1, arity: 1 });
+    // List
+    m.insert("[]", ConInfo { tag: 0, arity: 0 });
+    m.insert(":", ConInfo { tag: 1, arity: 2 });
+    // Tuples
+    m.insert("(,)", ConInfo { tag: 0, arity: 2 });
+    m.insert("(,,)", ConInfo { tag: 0, arity: 3 });
+    m
+}
+
 /// Starting offset for user string data in linear memory.
 ///
 /// Placed after the WASI scratch area and runtime data segments.
@@ -90,6 +119,8 @@ struct WasmLowering<'a> {
     next_data_offset: u32,
     /// Counter for pre-registering function indices.
     next_func_idx: u32,
+    /// Well-known constructor map: name -> (tag, arity).
+    con_map: FxHashMap<&'static str, ConInfo>,
 }
 
 impl<'a> WasmLowering<'a> {
@@ -104,6 +135,7 @@ impl<'a> WasmLowering<'a> {
             string_pool: FxHashMap::default(),
             next_data_offset: STRING_DATA_BASE,
             next_func_idx,
+            con_map: well_known_constructors(),
         }
     }
 
@@ -218,8 +250,11 @@ impl<'a> WasmLowering<'a> {
 
             Expr::Var(var, _) => {
                 let name = var.name.as_str();
-                // Check if it's a local variable
-                if let Some(&local_idx) = locals.get(&var.id) {
+                // Check if it's a nullary constructor
+                if let Some((tag, 0)) = self.lookup_constructor(name) {
+                    instrs.push(WasmInstr::I32Const(tag as i32));
+                } else if let Some(&local_idx) = locals.get(&var.id) {
+                    // Check if it's a local variable
                     instrs.push(WasmInstr::LocalGet(local_idx));
                 } else if let Some(&func_idx) = self.func_map.get(&var.name) {
                     // It's a reference to a top-level function (as a value).
@@ -330,6 +365,52 @@ impl<'a> WasmLowering<'a> {
         Ok(())
     }
 
+    /// Look up a name in the well-known constructor map, or in AltCon info
+    /// from the Core module. Returns `(tag, arity)` if found.
+    fn lookup_constructor(&self, name: &str) -> Option<(u32, u32)> {
+        self.con_map.get(name).map(|ci| (ci.tag, ci.arity))
+    }
+
+    /// Emit instructions to allocate and populate a heap object for a
+    /// data constructor: `[tag | field0 | field1 | ...]`
+    ///
+    /// Each slot is 4 bytes (i32). Returns the pointer on the stack.
+    fn emit_adt_construction(
+        &mut self,
+        tag: u32,
+        args: &[&Expr],
+        instrs: &mut Vec<WasmInstr>,
+        locals: &mut FxHashMap<VarId, u32>,
+        local_count: &mut u32,
+    ) -> WasmResult<()> {
+        let total_slots = 1 + args.len() as u32; // tag + fields
+        let size = total_slots * 4;
+
+        // Call alloc(size) -> ptr
+        instrs.push(WasmInstr::I32Const(size as i32));
+        instrs.push(WasmInstr::Call(self.runtime.alloc_idx));
+
+        // Save ptr in a local
+        let ptr_local = *local_count;
+        *local_count += 1;
+        instrs.push(WasmInstr::LocalTee(ptr_local));
+
+        // Store tag at offset 0
+        instrs.push(WasmInstr::I32Const(tag as i32));
+        instrs.push(WasmInstr::I32Store(2, 0));
+
+        // Store each field at offset (i+1)*4
+        for (i, arg) in args.iter().enumerate() {
+            instrs.push(WasmInstr::LocalGet(ptr_local));
+            self.lower_expr(arg, instrs, locals, local_count, false)?;
+            instrs.push(WasmInstr::I32Store(2, ((i + 1) * 4) as u32));
+        }
+
+        // Push ptr as the result value
+        instrs.push(WasmInstr::LocalGet(ptr_local));
+        Ok(())
+    }
+
     /// Lower a function application chain.
     ///
     /// This is the core dispatch logic. We collect the function and all its
@@ -350,6 +431,21 @@ impl<'a> WasmLowering<'a> {
             Expr::Var(var, _) => Some(var.name.as_str()),
             _ => None,
         };
+
+        // Check if this is a constructor application
+        if let Some(name) = func_name {
+            if let Some((tag, arity)) = self.lookup_constructor(name) {
+                if arity == 0 {
+                    // Nullary constructor: just push the tag value
+                    instrs.push(WasmInstr::I32Const(tag as i32));
+                    return Ok(());
+                }
+                if args.len() == arity as usize {
+                    // Saturated constructor application: allocate heap object
+                    return self.emit_adt_construction(tag, &args, instrs, locals, local_count);
+                }
+            }
+        }
 
         match func_name {
             // Arithmetic primitives
@@ -754,8 +850,10 @@ impl<'a> WasmLowering<'a> {
 
     /// Lower a case expression with data constructor alternatives using if-else chain.
     ///
-    /// Data constructors are matched by their tag (u32). This handles if-expressions
-    /// (True tag=1, False tag=0) and other ADT patterns.
+    /// Data constructors are matched by their tag (u32). For nullary constructors
+    /// (like `True`/`False`), the scrutinee is the tag value directly. For
+    /// constructors with fields, the scrutinee is a heap pointer and the tag
+    /// is at offset 0, with fields at offsets 4, 8, 12, etc.
     #[allow(clippy::too_many_arguments)]
     fn lower_case_datacon_chain(
         &mut self,
@@ -767,21 +865,50 @@ impl<'a> WasmLowering<'a> {
         local_count: &mut u32,
         is_main: bool,
     ) -> WasmResult<()> {
+        // Determine if any alternative has field binders — if so, the
+        // scrutinee is a heap pointer and we need to load the tag from memory.
+        let has_fields = datacon_alts.iter().any(|alt| !alt.binders.is_empty())
+            || datacon_alts.iter().any(|alt| {
+                if let AltCon::DataCon(dc) = &alt.con {
+                    dc.arity > 0
+                } else {
+                    false
+                }
+            });
+
+        // If the scrutinee is a heap pointer, load the tag into a separate local.
+        let tag_local = if has_fields {
+            let tl = *local_count;
+            *local_count += 1;
+            instrs.push(WasmInstr::LocalGet(scrut_local));
+            instrs.push(WasmInstr::I32Load(2, 0)); // load tag from offset 0
+            instrs.push(WasmInstr::LocalSet(tl));
+            tl
+        } else {
+            // Nullary constructors: scrutinee IS the tag
+            scrut_local
+        };
+
         for (i, alt) in datacon_alts.iter().enumerate() {
             let tag = match &alt.con {
                 AltCon::DataCon(dc) => dc.tag as i32,
                 _ => 0,
             };
 
-            // Compare scrutinee with constructor tag
-            instrs.push(WasmInstr::LocalGet(scrut_local));
+            // Compare tag with constructor tag
+            instrs.push(WasmInstr::LocalGet(tag_local));
             instrs.push(WasmInstr::I32Const(tag));
             instrs.push(WasmInstr::I32Eq);
             instrs.push(WasmInstr::If(Some(WasmType::I32)));
 
-            // Bind scrutinee to binders if present (for field access)
-            if let Some(binder) = alt.binders.first() {
-                locals.insert(binder.id, scrut_local);
+            // Extract field binders from the heap object
+            for (fi, binder) in alt.binders.iter().enumerate() {
+                let field_local = *local_count;
+                *local_count += 1;
+                instrs.push(WasmInstr::LocalGet(scrut_local));
+                instrs.push(WasmInstr::I32Load(2, ((fi + 1) * 4) as u32));
+                instrs.push(WasmInstr::LocalSet(field_local));
+                locals.insert(binder.id, field_local);
             }
 
             // RHS

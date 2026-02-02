@@ -95,8 +95,10 @@ struct ReplState {
     options: ReplOptions,
     /// Binding counter for let expressions
     binding_counter: u32,
-    /// User-defined bindings
-    bindings: Vec<(String, Ty, Value)>,
+    /// User-defined bindings: (name, type, value, var_id)
+    bindings: Vec<(String, Ty, Value, Option<bhc_core::VarId>)>,
+    /// Last inferred type from the type checker (for display purposes).
+    last_inferred_type: Option<Ty>,
 }
 
 /// REPL configuration options
@@ -143,6 +145,7 @@ impl ReplState {
             options,
             binding_counter: 0,
             bindings: Vec::new(),
+            last_inferred_type: None,
         }
     }
 
@@ -602,7 +605,7 @@ fn eval_input(state: &mut ReplState, input: &str) {
             let name = state.next_binding_name();
             state
                 .bindings
-                .push((name.clone(), ty.clone(), value.clone()));
+                .push((name.clone(), ty.clone(), value.clone(), None));
 
             // Print IO output if any, otherwise print the value
             let io_output = state.evaluator.take_io_output();
@@ -614,7 +617,13 @@ fn eval_input(state: &mut ReplState, input: &str) {
 
             // Print type if enabled
             if state.options.show_types {
-                println!("  :: {}", type_from_value(&value));
+                let ty_str = if let Some(ref ty) = state.last_inferred_type {
+                    format!("{ty}")
+                } else {
+                    type_from_value(&value)
+                };
+                println!("  :: {}", ty_str);
+                state.last_inferred_type = None;
             }
 
             // Print timing if enabled
@@ -662,9 +671,14 @@ fn eval_let_binding(state: &mut ReplState, name: &str, expr_str: &str) {
 
             let type_str = type_from_value(&value);
             println!("{} :: {} = {:?}", name, type_str, value);
+
+            // Store in the evaluator's named bindings for persistence
+            let sym = bhc_intern::Symbol::intern(name);
+            state.evaluator.set_named_binding(sym, value.clone());
+
             state
                 .bindings
-                .push((name.to_string(), ty, value));
+                .push((name.to_string(), ty, value, None));
         }
         Err(e) => {
             eprintln!("Evaluation error: {}", e);
@@ -722,7 +736,23 @@ fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String>
     let hir = bhc_lower::lower_module(&mut lower_ctx, &module, &config)
         .map_err(|e| format!("Lowering error: {e}"))?;
 
-    // 3. Lower HIR -> Core
+    // 2b. Type check (best-effort; errors are non-fatal for evaluation)
+    let file_id = FileId(0);
+    let typed = bhc_typeck::type_check_module_with_defs(&hir, file_id, Some(&lower_ctx.defs));
+    if let Ok(ref typed_module) = typed {
+        // Try to find the "it" DefId and extract its type scheme
+        for (def_id, scheme) in &typed_module.def_schemes {
+            if let Some(info) = lower_ctx.defs.get(def_id) {
+                if info.name.as_str() == "it" {
+                    // Store the inferred type for display
+                    state.last_inferred_type = Some(scheme.ty.clone());
+                    break;
+                }
+            }
+        }
+    }
+
+    // 2c. Build def map for Core lowering
     let def_map: bhc_hir_to_core::DefMap = lower_ctx
         .defs
         .iter()
@@ -736,6 +766,8 @@ fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String>
             )
         })
         .collect();
+
+    // 3. Lower HIR -> Core
     let core = bhc_hir_to_core::lower_module_with_defs(&hir, Some(&def_map), None)
         .map_err(|e| format!("Core lowering error: {e}"))?;
 
@@ -822,14 +854,47 @@ fn show_type(state: &mut ReplState, expr: &str) {
         return;
     }
 
-    if let Some(ast_expr) = parsed {
-        match infer_type(state, &ast_expr) {
-            Ok(ty) => {
-                println!("{} :: {}", expr, format_type(&ty));
+    let Some(ast_expr) = parsed else {
+        return;
+    };
+
+    // Build a synthetic module for type checking
+    let module = wrap_expr_as_module(&ast_expr);
+    let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
+    let config = bhc_lower::LowerConfig {
+        include_builtins: true,
+        warn_unused: false,
+        search_paths: vec![],
+    };
+
+    let hir = match bhc_lower::lower_module(&mut lower_ctx, &module, &config) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Lowering error: {e}");
+            return;
+        }
+    };
+
+    match bhc_typeck::type_check_module_with_defs(&hir, file_id, Some(&lower_ctx.defs)) {
+        Ok(typed_module) => {
+            // Find the "it" binding's type
+            for (def_id, scheme) in &typed_module.def_schemes {
+                if let Some(info) = lower_ctx.defs.get(def_id) {
+                    if info.name.as_str() == "it" {
+                        println!("{} :: {}", expr, scheme.ty);
+                        return;
+                    }
+                }
             }
-            Err(e) => {
-                eprintln!("Type error: {}", e);
+            // Fallback if "it" not found in typed module
+            match infer_type(state, &ast_expr) {
+                Ok(ty) => println!("{} :: {}", expr, format_type(&ty)),
+                Err(e) => eprintln!("Type error: {}", e),
             }
+        }
+        Err(diagnostics) => {
+            let renderer = DiagnosticRenderer::new(&state.source_map);
+            renderer.render_all(&diagnostics);
         }
     }
 }
@@ -845,7 +910,7 @@ fn show_info(state: &mut ReplState, name: &str) {
     println!("-- Defined at <unknown>");
 
     // Check bindings
-    for (n, ty, _) in &state.bindings {
+    for (n, ty, _, _) in &state.bindings {
         if n == name {
             println!("{} :: {}", name, format_type(ty));
             return;
@@ -1129,7 +1194,7 @@ fn run_shell_command(cmd: &str) {
 }
 
 fn format_type(ty: &Ty) -> String {
-    format!("{:?}", ty)
+    format!("{ty}")
 }
 
 fn print_value(value: &Value) {

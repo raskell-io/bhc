@@ -22,6 +22,8 @@ bhc-loop-ir = { workspace = true }
 bhc-parser = { workspace = true }
 bhc-lower = { workspace = true }
 bhc-hir-to-core = { workspace = true }
+bhc-typeck = { workspace = true }
+bhc-types = { workspace = true }
 
 clap = { workspace = true }
 anyhow = { workspace = true }

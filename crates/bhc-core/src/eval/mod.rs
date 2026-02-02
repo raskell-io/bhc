@@ -116,6 +116,10 @@ pub struct Evaluator {
     rec_env_stack: RefCell<Vec<Env>>,
     /// Captured IO output from print/putStrLn/putStr operations.
     io_output: RefCell<String>,
+    /// Name-based binding map for REPL persistence.
+    /// When the REPL evaluates `let x = 5`, it stores `("x", Value::Int(5))`.
+    /// Subsequent evaluations can reference `x` even though they have different VarIds.
+    named_bindings: RefCell<HashMap<Symbol, Value>>,
 }
 
 impl Evaluator {
@@ -133,6 +137,7 @@ impl Evaluator {
             module_env: RefCell::new(None),
             rec_env_stack: RefCell::new(Vec::new()),
             io_output: RefCell::new(String::new()),
+            named_bindings: RefCell::new(HashMap::new()),
         }
     }
 
@@ -188,6 +193,20 @@ impl Evaluator {
     /// Clears the module-level environment.
     pub fn clear_module_env(&self) {
         *self.module_env.borrow_mut() = None;
+    }
+
+    /// Stores a named binding for REPL persistence.
+    ///
+    /// Named bindings are looked up by `Symbol` (name) rather than `VarId`,
+    /// allowing values from previous evaluations (with different VarIds)
+    /// to be referenced by name in subsequent expressions.
+    pub fn set_named_binding(&self, name: Symbol, value: Value) {
+        self.named_bindings.borrow_mut().insert(name, value);
+    }
+
+    /// Looks up a named binding by symbol.
+    pub fn get_named_binding(&self, name: Symbol) -> Option<Value> {
+        self.named_bindings.borrow().get(&name).cloned()
     }
 
     /// Returns the captured IO output from print/putStrLn/putStr operations.
@@ -1145,6 +1164,11 @@ impl Evaluator {
                     args: vec![],
                 }));
             }
+        }
+
+        // Check named bindings (REPL persistence)
+        if let Some(value) = self.named_bindings.borrow().get(&var.name) {
+            return Ok(value.clone());
         }
 
         Err(EvalError::UnboundVariable(var.name.to_string()))

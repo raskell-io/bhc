@@ -568,7 +568,23 @@ fn inspect_ir_from_source(
         return Ok(());
     }
 
-    // 3. Lower HIR → Core
+    // 2b. Type check (optional, non-fatal)
+    let typed_module =
+        bhc_typeck::type_check_module_with_defs(&hir, file_id, Some(&lower_ctx.defs));
+    if let Ok(ref typed) = typed_module {
+        if verbose && !typed.def_schemes.is_empty() {
+            println!("{}", "Type Signatures".bold().green());
+            println!("{}", "─".repeat(60).dimmed());
+            for (def_id, scheme) in &typed.def_schemes {
+                if let Some(info) = lower_ctx.defs.get(def_id) {
+                    println!("  {} :: {}", info.name, scheme.ty);
+                }
+            }
+            println!();
+        }
+    }
+
+    // 2c. Build def map for Core lowering
     let def_map: bhc_hir_to_core::DefMap = lower_ctx
         .defs
         .iter()
@@ -582,13 +598,15 @@ fn inspect_ir_from_source(
             )
         })
         .collect();
+
+    // 3. Lower HIR → Core
     let core = bhc_hir_to_core::lower_module_with_defs(&hir, Some(&def_map), None)
         .map_err(|e| anyhow::anyhow!("Core lowering error: {e}"))?;
 
     if stage == IrStage::Core {
         println!("{}", "Core IR".bold().green());
         println!("{}", "─".repeat(60).dimmed());
-        let core_str = format!("{:#?}", core);
+        let core_str = format!("{core}");
         print_filtered(&core_str, function);
         return Ok(());
     }

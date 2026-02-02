@@ -63,6 +63,7 @@
 
 pub mod escape;
 pub mod eval;
+pub mod pretty;
 pub mod uarray;
 
 use bhc_index::Idx;
