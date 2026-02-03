@@ -1118,11 +1118,11 @@ impl Compiler {
         for (name, info) in &registry.modules {
             let sym = Symbol::intern(name);
             let mut remapped_exports = info.exports.clone();
+
             // Remap value DefIds to fresh IDs that won't collide
             let mut new_values = FxHashMap::default();
             for (&val_name, &_old_def_id) in &remapped_exports.values {
                 let fresh_id = ctx.fresh_def_id();
-                // Register in the defs map so HIR-to-Core can find the def info
                 ctx.define(
                     fresh_id,
                     val_name,
@@ -1132,6 +1132,40 @@ impl Compiler {
                 new_values.insert(val_name, fresh_id);
             }
             remapped_exports.values = new_values;
+
+            // Remap type DefIds
+            let mut new_types = FxHashMap::default();
+            for (&type_name, &_old_def_id) in &remapped_exports.types {
+                let fresh_id = ctx.fresh_def_id();
+                ctx.define(
+                    fresh_id,
+                    type_name,
+                    bhc_lower::DefKind::Type,
+                    bhc_span::Span::default(),
+                );
+                new_types.insert(type_name, fresh_id);
+            }
+            remapped_exports.types = new_types;
+
+            // Remap constructor DefIds
+            let mut new_constructors = FxHashMap::default();
+            for (&con_name, con_info) in &remapped_exports.constructors {
+                let fresh_id = ctx.fresh_def_id();
+                ctx.define_constructor_with_type(
+                    fresh_id,
+                    con_name,
+                    bhc_span::Span::default(),
+                    con_info.arity,
+                    con_info.type_con_name,
+                    con_info.type_param_count,
+                    con_info.field_names.clone(),
+                );
+                let mut new_info = con_info.clone();
+                new_info.def_id = fresh_id;
+                new_constructors.insert(con_name, new_info);
+            }
+            remapped_exports.constructors = new_constructors;
+
             cache.insert(sym, remapped_exports);
         }
 
@@ -1815,6 +1849,141 @@ impl Compiler {
             path: output_path,
             output_type: self.session.options.output_type,
         }])
+    }
+
+    /// Compile a source file, automatically discovering imported modules.
+    ///
+    /// Parses the entry file, recursively discovers all imported modules
+    /// from search paths, and compiles everything in dependency order.
+    #[instrument(skip(self, entry_path))]
+    pub fn compile_with_discovery(
+        &self,
+        entry_path: impl AsRef<Utf8Path>,
+    ) -> CompileResult<Vec<CompileOutput>> {
+        let entry_path = entry_path.as_ref().to_path_buf();
+
+        // Build search paths: entry file's directory + configured paths
+        let mut search_paths: Vec<Utf8PathBuf> = Vec::new();
+        if let Some(parent) = entry_path.parent() {
+            search_paths.push(parent.to_path_buf());
+        }
+        search_paths.extend(self.session.options.import_paths.iter().cloned());
+        if let Some(ref stdlib_path) = self.session.options.stdlib_path {
+            if !search_paths.contains(stdlib_path) {
+                search_paths.push(stdlib_path.clone());
+            }
+        }
+        if let Ok(env_path) = std::env::var("BHC_STDLIB_PATH") {
+            let p = Utf8PathBuf::from(env_path);
+            if !search_paths.contains(&p) {
+                search_paths.push(p);
+            }
+        }
+
+        // Discover all modules recursively
+        let all_paths = self.discover_modules(&entry_path, &search_paths)?;
+
+        if all_paths.len() <= 1 {
+            // Single file, use fast path
+            self.compile_files(all_paths.iter().map(|p| p.as_path()))
+        } else {
+            info!(
+                modules = all_paths.len(),
+                "auto-discovered {} modules",
+                all_paths.len()
+            );
+            self.compile_files_ordered(all_paths.iter().map(|p| p.as_path()))
+        }
+    }
+
+    /// Recursively discover all modules imported by the entry file.
+    ///
+    /// Performs a breadth-first traversal of import declarations, resolving
+    /// each imported module name to a file path using the search paths.
+    /// Stdlib/builtin modules are skipped.
+    fn discover_modules(
+        &self,
+        entry_path: &Utf8Path,
+        search_paths: &[Utf8PathBuf],
+    ) -> CompileResult<Vec<Utf8PathBuf>> {
+        use rustc_hash::FxHashSet;
+        use std::collections::VecDeque;
+
+        let mut discovered: Vec<Utf8PathBuf> = Vec::new();
+        let mut visited: FxHashSet<Utf8PathBuf> = FxHashSet::default();
+        let mut queue: VecDeque<Utf8PathBuf> = VecDeque::new();
+
+        queue.push_back(entry_path.to_path_buf());
+        visited.insert(entry_path.to_path_buf());
+
+        let file_id = FileId::new(0);
+
+        // Known stdlib/builtin modules to skip
+        let builtin_modules: FxHashSet<&str> = [
+            "Prelude",
+            "Data.List",
+            "Data.Map",
+            "Data.Map.Strict",
+            "Data.Set",
+            "Data.Maybe",
+            "Data.Either",
+            "Data.Char",
+            "Data.String",
+            "Data.Int",
+            "Data.Word",
+            "Data.IORef",
+            "Data.IntMap",
+            "Data.IntSet",
+            "Data.Tuple",
+            "Data.Bool",
+            "Data.Ord",
+            "Data.Eq",
+            "Control.Monad",
+            "Control.Applicative",
+            "Control.Exception",
+            "System.IO",
+            "System.Environment",
+            "System.Exit",
+            "System.Directory",
+        ]
+        .into_iter()
+        .collect();
+
+        while let Some(path) = queue.pop_front() {
+            let unit = CompilationUnit::from_path(path.clone())?;
+            let ast = self.parse(&unit, file_id)?;
+
+            discovered.push(path);
+
+            // Extract imports and look for their source files
+            for import in &ast.imports {
+                let module_name = import
+                    .module
+                    .parts
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+
+                // Skip builtins/stdlib
+                if builtin_modules.contains(module_name.as_str()) {
+                    continue;
+                }
+
+                // Try to find the module file
+                if let Some(found) =
+                    bhc_lower::loader::find_module_file(&module_name, search_paths)
+                {
+                    if !visited.contains(&found) {
+                        visited.insert(found.clone());
+                        queue.push_back(found);
+                    }
+                }
+                // If not found, it might be a builtin or will error during compilation
+            }
+        }
+
+        Ok(discovered)
     }
 
     /// Compute a topological ordering of modules based on import dependencies.

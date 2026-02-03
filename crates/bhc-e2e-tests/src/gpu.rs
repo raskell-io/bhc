@@ -30,13 +30,14 @@ pub fn compile_gpu(
 
     // Build bhc command with GPU target
     let mut cmd = Command::new("cargo");
+    cmd.args(["run", "--quiet", "-p", "bhc", "--"]);
+
+    // Add all source paths
+    for source in &test_case.source_paths {
+        cmd.arg(source.to_str().unwrap());
+    }
+
     cmd.args([
-        "run",
-        "--quiet",
-        "-p",
-        "bhc",
-        "--",
-        test_case.source_path.to_str().unwrap(),
         "--target=cuda",
         "--profile=numeric",
         "-o",

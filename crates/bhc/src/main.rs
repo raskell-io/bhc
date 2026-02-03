@@ -271,9 +271,11 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Use ordered compilation for multiple files (enables cross-module imports)
+    // Use ordered compilation for multiple files, or auto-discovery for single file
     let compile_result = if utf8_paths.len() > 1 {
         compiler.compile_files_ordered(utf8_paths.iter().map(|p| p.as_path()))
+    } else if utf8_paths.len() == 1 {
+        compiler.compile_with_discovery(utf8_paths[0].as_path())
     } else {
         compiler.compile_files(utf8_paths.iter().map(|p| p.as_path()))
     };

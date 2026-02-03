@@ -172,7 +172,7 @@ impl E2ERunner {
                         let name = path.file_name().unwrap_or_default();
                         let name_str = name.to_string_lossy();
                         // Skip source, expected output, and config files
-                        if name_str != "main.hs"
+                        if !name_str.ends_with(".hs")
                             && name_str != "expected.txt"
                             && name_str != "test.toml"
                         {
@@ -274,7 +274,9 @@ pub fn format_failure_report(
     report.push_str(&format!("\n=== E2E TEST FAILURE: {} ===\n", test_case.name));
     report.push_str(&format!("Backend: {}\n", backend));
     report.push_str(&format!("Profile: {}\n", profile));
-    report.push_str(&format!("Source: {}\n", test_case.source_path.display()));
+    for source in &test_case.source_paths {
+        report.push_str(&format!("Source: {}\n", source.display()));
+    }
     report.push('\n');
 
     match result {

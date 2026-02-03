@@ -84,6 +84,40 @@ fn test_tier2_mutual_recursion_native() {
     run_native_test("tier2_functions/mutual_recursion", Profile::Default);
 }
 
+#[test]
+fn test_tier2_lambda_native() {
+    run_native_test("tier2_functions/lambda", Profile::Default);
+}
+
+#[test]
+fn test_tier2_case_expr_native() {
+    run_native_test("tier2_functions/case_expr", Profile::Default);
+}
+
+#[test]
+fn test_tier2_custom_adt_native() {
+    run_native_test("tier2_functions/custom_adt", Profile::Default);
+}
+
+#[test]
+fn test_tier2_higher_order_native() {
+    run_native_test("tier2_functions/higher_order", Profile::Default);
+}
+
+// =============================================================================
+// Tier 2: Multi-Module Tests
+// =============================================================================
+
+#[test]
+fn test_tier2_multimodule_basic_native() {
+    run_native_test("tier2_functions/multimodule_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier2_multimodule_chain_native() {
+    run_native_test("tier2_functions/multimodule_chain", Profile::Default);
+}
+
 // =============================================================================
 // Tier 3: IO Tests
 // =============================================================================

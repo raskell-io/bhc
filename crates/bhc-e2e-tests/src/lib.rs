@@ -91,8 +91,8 @@ pub struct E2ETestCase {
     /// Test name (derived from directory name).
     pub name: String,
 
-    /// Path to source file.
-    pub source_path: PathBuf,
+    /// Paths to source files (sorted: dependencies first, Main last).
+    pub source_paths: Vec<PathBuf>,
 
     /// Path to the fixture directory (contains data files like input.txt).
     pub fixture_dir: PathBuf,
@@ -145,13 +145,38 @@ impl E2ETestCase {
             .ok_or_else(|| E2EError::InvalidFixture("Invalid fixture path".into()))?
             .to_string();
 
-        let source_path = fixture_path.join("main.hs");
-        if !source_path.exists() {
+        // Discover all .hs files in the fixture directory
+        let mut hs_files: Vec<PathBuf> = Vec::new();
+        for entry in std::fs::read_dir(fixture_path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map_or(false, |e| e == "hs") {
+                hs_files.push(path);
+            }
+        }
+
+        if hs_files.is_empty() {
             return Err(E2EError::InvalidFixture(format!(
-                "Missing main.hs in fixture: {}",
+                "No .hs files in fixture: {}",
                 fixture_path.display()
             )));
         }
+
+        // Sort: main.hs/Main.hs always last (it's the entry point),
+        // other files sorted alphabetically
+        hs_files.sort_by(|a, b| {
+            let a_is_main = a
+                .file_stem()
+                .map_or(false, |s| s.eq_ignore_ascii_case("main"));
+            let b_is_main = b
+                .file_stem()
+                .map_or(false, |s| s.eq_ignore_ascii_case("main"));
+            match (a_is_main, b_is_main) {
+                (true, false) => std::cmp::Ordering::Greater,
+                (false, true) => std::cmp::Ordering::Less,
+                _ => a.cmp(b),
+            }
+        });
 
         let expected_path = fixture_path.join("expected.txt");
         let expected_stdout = if expected_path.exists() {
@@ -185,7 +210,7 @@ impl E2ETestCase {
 
         Ok(Self {
             name,
-            source_path,
+            source_paths: hs_files,
             fixture_dir,
             backends,
             profile,

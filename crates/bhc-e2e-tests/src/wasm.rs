@@ -19,17 +19,14 @@ pub fn compile_wasm(
 
     // Build bhc command with WASM target
     let mut cmd = Command::new("cargo");
-    cmd.args([
-        "run",
-        "--quiet",
-        "-p",
-        "bhc",
-        "--",
-        test_case.source_path.to_str().unwrap(),
-        "--target=wasm32-wasi",
-        "-o",
-        output_path.to_str().unwrap(),
-    ]);
+    cmd.args(["run", "--quiet", "-p", "bhc", "--"]);
+
+    // Add all source paths
+    for source in &test_case.source_paths {
+        cmd.arg(source.to_str().unwrap());
+    }
+
+    cmd.args(["--target=wasm32-wasi", "-o", output_path.to_str().unwrap()]);
 
     // Add profile flag
     match profile {
