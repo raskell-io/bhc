@@ -103,6 +103,8 @@ struct ReplState {
     loaded_types: Vec<(String, Ty)>,
     /// Names of bindings that came from loaded files (vs REPL input)
     loaded_binding_names: Vec<String>,
+    /// Multi-line input buffer (active between `:{` and `:}`)
+    multiline_buffer: Option<String>,
 }
 
 /// REPL configuration options
@@ -152,6 +154,7 @@ impl ReplState {
             last_inferred_type: None,
             loaded_types: Vec::new(),
             loaded_binding_names: Vec::new(),
+            multiline_buffer: None,
         }
     }
 
@@ -349,25 +352,55 @@ fn main() -> Result<()> {
     let mut line_num = 1;
 
     loop {
-        let prompt = format!("bhci:{:03}> ", line_num);
+        let prompt = if state.multiline_buffer.is_some() {
+            format!("bhci:{:03}| ", line_num)
+        } else {
+            format!("bhci:{:03}> ", line_num)
+        };
 
         match rl.readline(&prompt) {
             Ok(line) => {
-                let line = line.trim();
+                let trimmed = line.trim();
 
-                if line.is_empty() {
+                // Handle multi-line mode
+                if let Some(ref mut buf) = state.multiline_buffer {
+                    if trimmed == ":}" {
+                        let complete_input = buf.clone();
+                        state.multiline_buffer = None;
+                        if !complete_input.trim().is_empty() {
+                            eval_input(&mut state, complete_input.trim());
+                        }
+                        line_num += 1;
+                        continue;
+                    }
+                    if !buf.is_empty() {
+                        buf.push('\n');
+                    }
+                    buf.push_str(&line);
+                    line_num += 1;
+                    continue;
+                }
+
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                // Start multi-line mode
+                if trimmed == ":{" {
+                    state.multiline_buffer = Some(String::new());
+                    line_num += 1;
                     continue;
                 }
 
                 // Handle commands
-                if line.starts_with(':') {
-                    match handle_command(&mut state, line) {
+                if trimmed.starts_with(':') {
+                    match handle_command(&mut state, trimmed) {
                         CommandResult::Continue => {}
                         CommandResult::Quit => break,
                     }
                 } else {
                     // Evaluate expression
-                    eval_input(&mut state, line);
+                    eval_input(&mut state, trimmed);
                 }
 
                 line_num += 1;
@@ -676,7 +709,7 @@ fn eval_let_binding(state: &mut ReplState, name: &str, expr_str: &str) {
             }
 
             let type_str = type_from_value(&value);
-            println!("{} :: {} = {:?}", name, type_str, value);
+            println!("{} :: {} = {}", name, type_str, value);
 
             // Store in the evaluator's named bindings for persistence
             let sym = bhc_intern::Symbol::intern(name);
@@ -857,6 +890,25 @@ fn find_it_binding(core: &bhc_core::CoreModule) -> Option<&bhc_core::Expr> {
 }
 
 fn show_type(state: &mut ReplState, expr: &str) {
+    let trimmed = expr.trim();
+
+    // Check REPL bindings first
+    for (name, _ty, _val, _) in &state.bindings {
+        if name == trimmed {
+            let ty_str = type_from_value(_val);
+            println!("{} :: {}", name, ty_str);
+            return;
+        }
+    }
+
+    // Check loaded module types
+    for (name, ty) in &state.loaded_types {
+        if name == trimmed {
+            println!("{} :: {}", name, ty);
+            return;
+        }
+    }
+
     let file_id = state
         .source_map
         .add_file("<repl>".to_string(), expr.to_string());
@@ -1224,6 +1276,12 @@ fn reload_modules(state: &mut ReplState) {
     println!("Reloading...");
     let files: Vec<PathBuf> = state.loaded_files.clone();
 
+    // Clear evaluator named bindings for loaded file definitions
+    let symbols: Vec<_> = state.loaded_binding_names.iter()
+        .map(|n| bhc_intern::Symbol::intern(n))
+        .collect();
+    state.evaluator.remove_named_bindings(&symbols);
+
     // Clear bindings that came from loaded files
     let loaded_names: HashSet<String> = state.loaded_binding_names.drain(..).collect();
     state.bindings.retain(|(name, _, _, _)| !loaded_names.contains(name));
@@ -1461,34 +1519,7 @@ fn format_type(ty: &Ty) -> String {
 }
 
 fn print_value(value: &Value) {
-    match value {
-        Value::Int(n) => println!("{}", n),
-        Value::Float(f) => println!("{}", f),
-        Value::Double(d) => println!("{}", d),
-        Value::Char(c) => println!("'{}'", c),
-        Value::String(s) => println!("\"{}\"", s),
-        Value::Data(d) => {
-            let name = d.con.name.as_str();
-            match (name, d.args.as_slice()) {
-                ("True", []) => println!("True"),
-                ("False", []) => println!("False"),
-                ("()", []) => println!("()"),
-                _ => println!("{:?}", value),
-            }
-        }
-        _ => println!("{:?}", value),
-    }
-}
-
-fn format_value(value: &Value) -> String {
-    match value {
-        Value::Int(n) => n.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Double(d) => d.to_string(),
-        Value::Char(c) => format!("'{}'", c),
-        Value::String(s) => format!("\"{}\"", s),
-        _ => format!("{:?}", value),
-    }
+    println!("{value}");
 }
 
 #[cfg(test)]

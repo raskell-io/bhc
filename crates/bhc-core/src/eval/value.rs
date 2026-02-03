@@ -167,6 +167,168 @@ impl fmt::Debug for Value {
     }
 }
 
+/// Returns true if a value needs parentheses when printed as a nested argument.
+fn needs_parens(v: &Value) -> bool {
+    matches!(v, Value::Data(d) if !d.args.is_empty()
+        && d.con.name.as_str() != "[]"
+        && d.con.name.as_str() != ":"
+        && !d.con.name.as_str().starts_with('('))
+}
+
+/// Format a floating-point number ensuring a decimal point is present.
+fn fmt_float(f: &mut fmt::Formatter<'_>, v: f64) -> fmt::Result {
+    if v.is_nan() {
+        write!(f, "NaN")
+    } else if v.is_infinite() {
+        if v.is_sign_positive() {
+            write!(f, "Infinity")
+        } else {
+            write!(f, "-Infinity")
+        }
+    } else if v.fract() == 0.0 {
+        write!(f, "{v:.1}")
+    } else {
+        write!(f, "{v}")
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Int(n) => write!(f, "{n}"),
+            Self::Integer(n) => write!(f, "{n}"),
+            Self::Float(n) => fmt_float(f, f64::from(*n)),
+            Self::Double(n) => fmt_float(f, *n),
+            Self::Char(c) => write!(f, "'{c}'"),
+            Self::String(s) => write!(f, "\"{s}\""),
+            Self::Closure(_) => write!(f, "<<function>>"),
+            Self::Thunk(_) => write!(f, "<<thunk>>"),
+            Self::PrimOp(op) => write!(f, "<<primop: {op:?}>>"),
+            Self::PartialPrimOp(op, _) => write!(f, "<<primop: {op:?} (partial)>>"),
+            Self::Handle(_) => write!(f, "<<handle>>"),
+            Self::IORef(_) => write!(f, "<<ioref>>"),
+            Self::UArrayInt(arr) => {
+                let items: Vec<_> = arr.to_vec();
+                write!(f, "UArray {items:?}")
+            }
+            Self::UArrayDouble(arr) => {
+                let items: Vec<_> = arr.to_vec();
+                write!(f, "UArray {items:?}")
+            }
+            Self::Map(m) => {
+                write!(f, "fromList [")?;
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "({},{})", k.0, v)?;
+                }
+                write!(f, "]")
+            }
+            Self::Set(s) => {
+                write!(f, "fromList [")?;
+                for (i, v) in s.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{}", v.0)?;
+                }
+                write!(f, "]")
+            }
+            Self::IntMap(m) => {
+                write!(f, "fromList [")?;
+                for (i, (k, v)) in m.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "({k},{v})")?;
+                }
+                write!(f, "]")
+            }
+            Self::IntSet(s) => {
+                write!(f, "fromList [")?;
+                for (i, v) in s.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
+            Self::Data(d) => {
+                let name = d.con.name.as_str();
+
+                // Unit
+                if name == "()" {
+                    return write!(f, "()");
+                }
+
+                // Booleans
+                if name == "True" || name == "False" {
+                    return write!(f, "{name}");
+                }
+
+                // List: try to collect into a Vec
+                if name == "[]" || name == ":" {
+                    if let Some(elems) = self.as_list() {
+                        // Check if it's a string (list of Char)
+                        if !elems.is_empty()
+                            && elems.iter().all(|e| matches!(e, Value::Char(_)))
+                        {
+                            let s: std::string::String = elems
+                                .iter()
+                                .map(|e| match e {
+                                    Value::Char(c) => *c,
+                                    _ => unreachable!(),
+                                })
+                                .collect();
+                            return write!(f, "\"{s}\"");
+                        }
+                        write!(f, "[")?;
+                        for (i, elem) in elems.iter().enumerate() {
+                            if i > 0 {
+                                write!(f, ",")?;
+                            }
+                            write!(f, "{elem}")?;
+                        }
+                        return write!(f, "]");
+                    }
+                    // Partial cons — fall through to generic data display
+                }
+
+                // Tuples: (,), (,,), etc.
+                if name.starts_with('(') && name.ends_with(')') && name.contains(',') {
+                    write!(f, "(")?;
+                    for (i, arg) in d.args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ",")?;
+                        }
+                        write!(f, "{arg}")?;
+                    }
+                    return write!(f, ")");
+                }
+
+                // Nullary constructor
+                if d.args.is_empty() {
+                    return write!(f, "{name}");
+                }
+
+                // Constructor with args
+                write!(f, "{name}")?;
+                for arg in &d.args {
+                    write!(f, " ")?;
+                    if needs_parens(arg) {
+                        write!(f, "({arg})")?;
+                    } else {
+                        write!(f, "{arg}")?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 impl Value {
     /// Returns true if this value needs to be forced (is a thunk).
     #[must_use]

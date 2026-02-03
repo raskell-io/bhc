@@ -209,6 +209,14 @@ impl Evaluator {
         self.named_bindings.borrow().get(&name).cloned()
     }
 
+    /// Removes named bindings for the given symbols.
+    pub fn remove_named_bindings(&self, names: &[Symbol]) {
+        let mut bindings = self.named_bindings.borrow_mut();
+        for name in names {
+            bindings.remove(name);
+        }
+    }
+
     /// Returns the captured IO output from print/putStrLn/putStr operations.
     #[must_use]
     pub fn take_io_output(&self) -> String {
