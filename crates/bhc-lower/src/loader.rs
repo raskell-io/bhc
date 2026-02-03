@@ -76,6 +76,8 @@ pub struct ConstructorInfo {
     pub type_con_name: Symbol,
     /// The number of type parameters the type has.
     pub type_param_count: usize,
+    /// The 0-based tag (position among the type's constructors).
+    pub tag: u32,
     /// For record constructors, the ordered list of field names.
     /// None for positional constructors.
     pub field_names: Option<Vec<Symbol>>,
@@ -293,7 +295,7 @@ fn collect_decl_exports(
                 if export_constructors {
                     let type_param_count = data_decl.params.len();
 
-                    for con in &data_decl.constrs {
+                    for (tag, con) in data_decl.constrs.iter().enumerate() {
                         let con_name = con.name.name;
                         let con_def_id = ctx.fresh_def_id();
 
@@ -322,6 +324,7 @@ fn collect_decl_exports(
                                 arity,
                                 type_con_name: type_name,
                                 type_param_count,
+                                tag: tag as u32,
                                 field_names,
                             },
                         );
@@ -382,6 +385,7 @@ fn collect_decl_exports(
                             arity: 1,
                             type_con_name: type_name,
                             type_param_count,
+                            tag: 0,
                             field_names,
                         },
                     );

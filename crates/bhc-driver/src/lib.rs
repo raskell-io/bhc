@@ -51,8 +51,8 @@ pub use report::ComprehensiveKernelReport;
 use bhc_ast::Module as AstModule;
 use bhc_codegen::{
     llvm::{
-        lower_core_module, lower_core_module_multimodule, CompiledSymbol, LlvmBackend,
-        LlvmModuleExt,
+        lower_core_module, lower_core_module_multimodule_with_constructors, CompiledSymbol,
+        ConstructorMeta, LlvmBackend, LlvmModuleExt,
     },
     CodegenConfig, CodegenOutputType,
 };
@@ -817,6 +817,17 @@ impl Compiler {
         lower_ctx: &LowerContext,
         typed: &TypedModule,
     ) -> CompileResult<CoreModule> {
+        self.core_lower_with_constructors(hir, lower_ctx, typed, None)
+    }
+
+    /// Lower HIR to Core IR with optional imported constructor metadata.
+    fn core_lower_with_constructors(
+        &self,
+        hir: &HirModule,
+        lower_ctx: &LowerContext,
+        typed: &TypedModule,
+        imported_constructors: Option<&bhc_hir_to_core::ConstructorInfoMap>,
+    ) -> CompileResult<CoreModule> {
         debug!("lowering HIR to Core");
 
         // Convert lower context's DefMap to hir-to-core's DefMap
@@ -834,8 +845,13 @@ impl Compiler {
             })
             .collect();
 
-        bhc_hir_to_core::lower_module_with_defs(hir, Some(&def_map), Some(&typed.def_schemes))
-            .map_err(CompileError::from)
+        bhc_hir_to_core::lower_module_with_defs_and_constructors(
+            hir,
+            Some(&def_map),
+            Some(&typed.def_schemes),
+            imported_constructors,
+        )
+        .map_err(CompileError::from)
     }
 
     /// Check escape analysis for Embedded profile.
@@ -1000,7 +1016,29 @@ impl Compiler {
         // Phase 3: Lower to Core IR
         self.callbacks
             .on_phase_start(CompilePhase::CoreLower, &unit.module_name);
-        let core = self.core_lower(&hir, &lower_ctx, &typed)?;
+
+        // Build imported constructor metadata for cross-module ADT pattern matching.
+        let imported_constructors = self.build_imported_constructor_map(registry, &lower_ctx);
+        for (def_id, ci) in &imported_constructors {
+            eprintln!(
+                "[DEBUG] imported con: {} (type={}) tag={} arity={} def_id={:?}",
+                ci.name.as_str(),
+                ci.type_name.as_str(),
+                ci.tag,
+                ci.arity,
+                def_id
+            );
+        }
+        let core = self.core_lower_with_constructors(
+            &hir,
+            &lower_ctx,
+            &typed,
+            if imported_constructors.is_empty() {
+                None
+            } else {
+                Some(&imported_constructors)
+            },
+        )?;
         debug!(module = %unit.module_name, bindings = core.bindings.len(), "Core lowering complete");
         self.callbacks
             .on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
@@ -1021,8 +1059,38 @@ impl Compiler {
             .flat_map(|info| info.symbols.iter().cloned())
             .collect();
 
-        let object_path =
-            self.codegen_multimodule(&unit.module_name, &core, module_name, &imported_symbols)?;
+        // Collect imported constructor metadata for codegen
+        let imported_constructors: Vec<(String, ConstructorMeta)> = registry
+            .modules
+            .values()
+            .flat_map(|info| {
+                info.exports.constructors.iter().map(|(name, con_info)| {
+                    (
+                        name.as_str().to_string(),
+                        ConstructorMeta {
+                            tag: con_info.tag,
+                            arity: con_info.arity as u32,
+                        },
+                    )
+                })
+            })
+            .collect();
+
+        // Debug: dump Core IR
+        if module_name == "Main" {
+            eprintln!("[DRIVER] Core IR for Main:");
+            for bind in &core.bindings {
+                eprintln!("[DRIVER]   {:?}", bind);
+            }
+        }
+
+        let object_path = self.codegen_multimodule(
+            &unit.module_name,
+            &core,
+            module_name,
+            &imported_symbols,
+            &imported_constructors,
+        )?;
 
         // Collect symbols exported by this module for later modules.
         // All functions are mangled as Module.name (including Main.main).
@@ -1074,6 +1142,100 @@ impl Compiler {
             }
         }
 
+        // Build a mapping from constructor DefId to (type_con_name, type_param_count, tag)
+        // using HIR data definitions, since the lowering context's DefInfo may not have
+        // type_con_name set for locally-defined constructors.
+        let mut con_type_info: rustc_hash::FxHashMap<bhc_hir::DefId, (Symbol, usize, u32)> =
+            rustc_hash::FxHashMap::default();
+        for item in &hir.items {
+            if let bhc_hir::Item::Data(data_def) = item {
+                for (tag, con) in data_def.cons.iter().enumerate() {
+                    con_type_info.insert(
+                        con.id,
+                        (data_def.name, data_def.params.len(), tag as u32),
+                    );
+                }
+            }
+            if let bhc_hir::Item::Newtype(newtype_def) = item {
+                con_type_info.insert(
+                    newtype_def.con.id,
+                    (newtype_def.name, newtype_def.params.len(), 0),
+                );
+            }
+        }
+
+        // Also export types and constructors defined in this module
+        for def_info in lower_ctx.defs.values() {
+            match def_info.kind {
+                bhc_lower::DefKind::Type => {
+                    exports.types.insert(def_info.name, def_info.id);
+                }
+                bhc_lower::DefKind::Constructor => {
+                    // Look up the actual type constructor name and tag from HIR data defs
+                    let (type_con_name, type_param_count, tag) =
+                        if let Some((name, params, tag)) = con_type_info.get(&def_info.id) {
+                            (*name, *params, *tag)
+                        } else if let Some(info) =
+                            def_info.type_con_name.zip(def_info.type_param_count)
+                        {
+                            (info.0, info.1, 0)
+                        } else {
+                            // Fallback: use constructor's own name (should not happen)
+                            (def_info.name, 0, 0)
+                        };
+                    let arity = def_info.arity.unwrap_or_else(|| {
+                        // Try to get arity from HIR con def fields
+                        hir.items
+                            .iter()
+                            .filter_map(|item| {
+                                if let bhc_hir::Item::Data(data_def) = item {
+                                    data_def
+                                        .cons
+                                        .iter()
+                                        .find(|c| c.id == def_info.id)
+                                        .map(|c| match &c.fields {
+                                            bhc_hir::ConFields::Positional(fs) => fs.len(),
+                                            bhc_hir::ConFields::Named(fs) => fs.len(),
+                                        })
+                                } else {
+                                    None
+                                }
+                            })
+                            .next()
+                            .unwrap_or(0)
+                    });
+                    let field_names = def_info.field_names.clone().or_else(|| {
+                        hir.items.iter().find_map(|item| {
+                            if let bhc_hir::Item::Data(data_def) = item {
+                                data_def
+                                    .cons
+                                    .iter()
+                                    .find(|c| c.id == def_info.id)
+                                    .and_then(|c| match &c.fields {
+                                        bhc_hir::ConFields::Named(fs) => {
+                                            Some(fs.iter().map(|f| f.name).collect())
+                                        }
+                                        _ => None,
+                                    })
+                            } else {
+                                None
+                            }
+                        })
+                    });
+                    let con_info = bhc_lower::loader::ConstructorInfo {
+                        def_id: def_info.id,
+                        arity,
+                        type_con_name,
+                        type_param_count,
+                        tag,
+                        field_names,
+                    };
+                    exports.constructors.insert(def_info.name, con_info);
+                }
+                _ => {}
+            }
+        }
+
         debug!(module = %unit.module_name, object = %object_path.display(), "code generation complete");
         self.callbacks
             .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
@@ -1085,6 +1247,61 @@ impl Compiler {
         };
 
         Ok((object_path, compiled_info))
+    }
+
+    /// Build a map of imported constructor metadata for cross-module ADT pattern matching.
+    ///
+    /// This groups constructors by type name to compute correct 0-based tags,
+    /// then maps them to the remapped DefIds in the current lowering context.
+    fn build_imported_constructor_map(
+        &self,
+        registry: &ModuleRegistry,
+        lower_ctx: &bhc_lower::LowerContext,
+    ) -> bhc_hir_to_core::ConstructorInfoMap {
+        let mut result = bhc_hir_to_core::ConstructorInfoMap::default();
+
+        // Builtin constructors are already registered by register_builtin_constructors
+        // in hir-to-core with correct tags. Skip them to avoid overriding with
+        // incorrect metadata from exports (where builtins may have wrong type_con_name).
+        let builtins: rustc_hash::FxHashSet<&str> = [
+            "True", "False", "Nothing", "Just", "Left", "Right", "[]", ":", "()", "(,)", "(,,)",
+            "LT", "EQ", "GT", "IO", "Any",
+        ]
+        .into_iter()
+        .collect();
+
+        for (_mod_name, info) in &registry.modules {
+            for (&con_name, con_info) in &info.exports.constructors {
+                // Skip builtins and constructors with broken metadata
+                if builtins.contains(con_name.as_str()) {
+                    continue;
+                }
+                if con_info.type_con_name == con_name {
+                    // type_con_name == constructor name indicates broken metadata
+                    continue;
+                }
+
+                // Find the remapped DefId for this constructor in the lower context
+                if let Some(def_id) = lower_ctx.lookup_constructor(con_name) {
+                    result.insert(
+                        def_id,
+                        bhc_hir_to_core::ConstructorInfo {
+                            name: con_name,
+                            type_name: con_info.type_con_name,
+                            tag: con_info.tag,
+                            arity: con_info.arity as u32,
+                            field_names: con_info
+                                .field_names
+                                .as_ref()
+                                .cloned()
+                                .unwrap_or_default(),
+                        },
+                    );
+                }
+            }
+        }
+
+        result
     }
 
     /// Lower an AST module with cross-module context from the registry.
@@ -1192,6 +1409,7 @@ impl Compiler {
         core: &CoreModule,
         module_name: &str,
         imported_symbols: &[CompiledSymbol],
+        imported_constructors: &[(String, ConstructorMeta)],
     ) -> CompileResult<std::path::PathBuf> {
         debug!(
             "generating code for module: {} (multi-module)",
@@ -1234,8 +1452,15 @@ impl Compiler {
             .map_err(|e| CompileError::CodegenError(e.to_string()))?;
 
         // Use multi-module lowering with name mangling and extern declarations
-        lower_core_module_multimodule(&ctx, &module, core, module_name, imported_symbols)
-            .map_err(|e| CompileError::CodegenError(e.to_string()))?;
+        lower_core_module_multimodule_with_constructors(
+            &ctx,
+            &module,
+            core,
+            module_name,
+            imported_symbols,
+            imported_constructors,
+        )
+        .map_err(|e| CompileError::CodegenError(e.to_string()))?;
 
         // Create entry point if this module has a main function.
         // In multi-module mode, Main.main is mangled to "Main.main",

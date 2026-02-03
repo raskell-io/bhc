@@ -371,6 +371,28 @@ pub fn parse_expr(src: &str, file_id: FileId) -> (Option<Expr>, Vec<Diagnostic>)
     }
 }
 
+/// Parse a single import declaration from source code.
+///
+/// This is used by the REPL to handle `import` statements entered interactively.
+pub fn parse_import_decl(
+    src: &str,
+    file_id: FileId,
+) -> (Option<bhc_ast::ImportDecl>, Vec<Diagnostic>) {
+    let mut parser = Parser::new(src, file_id);
+    let import = parser.parse_import();
+    let diagnostics = parser.take_diagnostics();
+
+    match import {
+        Ok(decl) => (Some(decl), diagnostics),
+        Err(e) => {
+            let mut diags = diagnostics;
+            let diag: Diagnostic = e.to_diagnostic(file_id);
+            diags.push(diag);
+            (None, diags)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

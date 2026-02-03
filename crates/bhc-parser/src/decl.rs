@@ -468,7 +468,7 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse an import declaration.
-    fn parse_import(&mut self) -> ParseResult<ImportDecl> {
+    pub fn parse_import(&mut self) -> ParseResult<ImportDecl> {
         let start = self.current_span();
         self.expect(&TokenKind::Import)?;
 

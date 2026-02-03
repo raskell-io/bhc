@@ -167,6 +167,11 @@ fn test_tier3_milestone_b_transform_native() {
     run_native_test("tier3_io/milestone_b_transform", Profile::Default);
 }
 
+#[test]
+fn test_tier3_milestone_c_markdown_native() {
+    run_native_test("tier3_io/milestone_c_markdown", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

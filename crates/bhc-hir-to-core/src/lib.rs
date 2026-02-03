@@ -31,7 +31,7 @@ use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 
-pub use context::LowerContext;
+pub use context::{ConstructorInfo, LowerContext};
 
 /// Information about a definition from the lowering pass.
 /// This mirrors `bhc_lower::context::DefInfo`.
@@ -48,6 +48,9 @@ pub type DefMap = IndexMap<DefId, DefInfo>;
 
 /// Map from `DefId` to type scheme (from type checker).
 pub type TypeSchemeMap = FxHashMap<DefId, Scheme>;
+
+/// Map from `DefId` to constructor info (for imported constructors).
+pub type ConstructorInfoMap = FxHashMap<DefId, ConstructorInfo>;
 
 /// Errors that can occur during HIR to Core lowering.
 #[derive(Debug, Error)]
@@ -114,6 +117,21 @@ pub fn lower_module_with_defs(
     defs: Option<&DefMap>,
     type_schemes: Option<&TypeSchemeMap>,
 ) -> LowerResult<CoreModule> {
+    lower_module_with_defs_and_constructors(module, defs, type_schemes, None)
+}
+
+/// Lower a HIR module to Core IR with optional definition mappings, type schemes,
+/// and imported constructor metadata.
+///
+/// The `imported_constructors` parameter provides constructor tags and metadata
+/// for constructors defined in other modules, enabling correct pattern matching
+/// code generation for cross-module ADT usage.
+pub fn lower_module_with_defs_and_constructors(
+    module: &HirModule,
+    defs: Option<&DefMap>,
+    type_schemes: Option<&TypeSchemeMap>,
+    imported_constructors: Option<&ConstructorInfoMap>,
+) -> LowerResult<CoreModule> {
     let mut ctx = LowerContext::new();
 
     // If we have definition mappings from the lowering pass, use them
@@ -125,6 +143,13 @@ pub fn lower_module_with_defs(
     // If we have type schemes from the type checker, use them
     if let Some(schemes) = type_schemes {
         ctx.set_type_schemes(schemes.clone());
+    }
+
+    // If we have imported constructor metadata, register it
+    if let Some(con_map) = imported_constructors {
+        for (def_id, info) in con_map {
+            ctx.register_constructor(*def_id, info.clone());
+        }
     }
 
     ctx.lower_module(module)

@@ -38,6 +38,7 @@ use rustyline::{Config, Editor, Helper};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 /// Basel Haskell Compiler Interactive
@@ -105,6 +106,10 @@ struct ReplState {
     loaded_binding_names: Vec<String>,
     /// Multi-line input buffer (active between `:{` and `:}`)
     multiline_buffer: Option<String>,
+    /// Accumulated import declarations from REPL `import` statements
+    accumulated_imports: Vec<bhc_ast::ImportDecl>,
+    /// Shared identifier list for tab-completion
+    completion_identifiers: Arc<Mutex<Vec<String>>>,
 }
 
 /// REPL configuration options
@@ -141,6 +146,7 @@ impl ReplState {
 
         let source_map = SourceMap::new();
         let file_id = FileId(0);
+        let identifiers: Vec<String> = PRELUDE_NAMES.iter().map(|s| s.to_string()).collect();
         Self {
             source_map,
             type_ctx: TyCtxt::new(file_id),
@@ -155,6 +161,8 @@ impl ReplState {
             loaded_types: Vec::new(),
             loaded_binding_names: Vec::new(),
             multiline_buffer: None,
+            accumulated_imports: Vec::new(),
+            completion_identifiers: Arc::new(Mutex::new(identifiers)),
         }
     }
 
@@ -169,14 +177,28 @@ impl ReplState {
     }
 }
 
+/// Well-known Prelude names for tab-completion.
+const PRELUDE_NAMES: &[&str] = &[
+    "map", "filter", "foldr", "foldl", "head", "tail", "null", "length",
+    "reverse", "concat", "sum", "product", "maximum", "minimum", "zip",
+    "take", "drop", "takeWhile", "dropWhile", "elem", "notElem",
+    "putStrLn", "print", "show", "readFile", "writeFile",
+    "True", "False", "Nothing", "Just", "Left", "Right",
+    "not", "and", "or", "any", "all", "id", "const", "flip", "even", "odd",
+    "div", "mod", "abs", "negate", "fromIntegral",
+    "error", "undefined", "otherwise",
+    "if", "then", "else", "let", "in", "where", "case", "of", "do",
+];
+
 /// Rustyline helper for completion and hints
 struct ReplHelper {
     commands: Vec<String>,
     modules: Vec<String>,
+    identifiers: Arc<Mutex<Vec<String>>>,
 }
 
 impl ReplHelper {
-    fn new() -> Self {
+    fn new(identifiers: Arc<Mutex<Vec<String>>>) -> Self {
         Self {
             commands: vec![
                 ":help".to_string(),
@@ -191,6 +213,7 @@ impl ReplHelper {
                 ":unset".to_string(),
                 ":module".to_string(),
                 ":cd".to_string(),
+                ":show".to_string(),
             ],
             modules: vec![
                 "Prelude".to_string(),
@@ -199,6 +222,7 @@ impl ReplHelper {
                 "Data.Either".to_string(),
                 "Control.Monad".to_string(),
             ],
+            identifiers,
         }
     }
 }
@@ -228,10 +252,12 @@ impl Completer for ReplHelper {
             return Ok((0, completions));
         }
 
-        // Module completion after :load, :browse, :module
+        // Module completion after :load, :browse, :module, import
         if line.starts_with(":load ")
             || line.starts_with(":browse ")
             || line.starts_with(":module ")
+            || line.starts_with("import ")
+            || line.starts_with("import qualified ")
         {
             let word_start = line.rfind(' ').map(|i| i + 1).unwrap_or(0);
             let prefix = &line[word_start..pos];
@@ -246,7 +272,27 @@ impl Completer for ReplHelper {
             return Ok((word_start, completions));
         }
 
-        Ok((pos, completions))
+        // Identifier completion for general input
+        let word_start = line[..pos]
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '\'')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prefix = &line[word_start..pos];
+
+        if !prefix.is_empty() {
+            if let Ok(ids) = self.identifiers.lock() {
+                for id in ids.iter() {
+                    if id.starts_with(prefix) && id != prefix {
+                        completions.push(Pair {
+                            display: id.clone(),
+                            replacement: id.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok((word_start, completions))
     }
 }
 
@@ -334,7 +380,7 @@ fn main() -> Result<()> {
         .auto_add_history(true)
         .build();
 
-    let helper = ReplHelper::new();
+    let helper = ReplHelper::new(Arc::clone(&state.completion_identifiers));
     let mut rl = Editor::with_config(config)?;
     rl.set_helper(Some(helper));
 
@@ -398,6 +444,8 @@ fn main() -> Result<()> {
                         CommandResult::Continue => {}
                         CommandResult::Quit => break,
                     }
+                } else if trimmed.starts_with("import ") {
+                    handle_import(&mut state, trimmed);
                 } else {
                     // Evaluate expression
                     eval_input(&mut state, trimmed);
@@ -554,6 +602,11 @@ fn handle_command(state: &mut ReplState, cmd: &str) -> CommandResult {
             CommandResult::Continue
         }
 
+        ":show" => {
+            handle_show(state, args);
+            CommandResult::Continue
+        }
+
         _ => {
             println!("Unknown command: {}", cmd_name);
             println!("Type :help for help");
@@ -573,11 +626,18 @@ fn print_help() {
   :load <file>          Load a Haskell module
   :reload               Reload the current modules
   :browse [module]      Browse module exports
+  :show [target]        Show REPL state (bindings, imports, modules)
   :module [+/-] <mod>   Add/remove modules from scope
   :set [option]         Show or set REPL options
   :unset <option>       Unset a REPL option
   :cd <dir>             Change working directory
   :!<cmd>               Run shell command
+
+Statements:
+  import Data.List      Import a module
+  import qualified M as Q  Qualified import
+  let x = expr          Bind a variable
+  expr                  Evaluate an expression
 
 Options:
   :set +t               Show types after evaluation
@@ -593,6 +653,122 @@ Keybindings:
   Up/Down               Navigate history
 "#
     );
+}
+
+fn handle_import(state: &mut ReplState, input: &str) {
+    let file_id = state
+        .source_map
+        .add_file("<repl>".to_string(), input.to_string());
+    let (import, diagnostics) = bhc_parser::parse_import_decl(input, file_id);
+
+    if !diagnostics.is_empty() {
+        let renderer = DiagnosticRenderer::new(&state.source_map);
+        renderer.render_all(&diagnostics);
+        if diagnostics.iter().any(|d| d.is_error()) {
+            return;
+        }
+    }
+
+    if let Some(decl) = import {
+        let module_name = decl
+            .module
+            .parts
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        let desc = format_import_description(&decl);
+        state.accumulated_imports.push(decl);
+        state.modules_in_scope.insert(module_name);
+        println!("{}", desc);
+    }
+}
+
+fn format_import_description(decl: &bhc_ast::ImportDecl) -> String {
+    let module_name = decl
+        .module
+        .parts
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
+
+    let mut desc = String::from("import ");
+    if decl.qualified {
+        desc.push_str("qualified ");
+    }
+    desc.push_str(&module_name);
+    if let Some(ref alias) = decl.alias {
+        let alias_name = alias
+            .parts
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(".");
+        desc.push_str(" as ");
+        desc.push_str(&alias_name);
+    }
+    desc
+}
+
+fn handle_show(state: &ReplState, args: &str) {
+    match args.trim() {
+        "bindings" | "b" => show_bindings(state),
+        "imports" | "i" => show_repl_imports(state),
+        "modules" | "m" => show_modules_in_scope(state),
+        "" => {
+            println!("Profile: {:?}", state.profile);
+            println!();
+            show_repl_imports(state);
+            println!();
+            show_bindings(state);
+        }
+        other => {
+            println!("Unknown :show target: {}", other);
+            println!("Usage: :show [bindings|imports|modules]");
+        }
+    }
+}
+
+fn show_bindings(state: &ReplState) {
+    if state.bindings.is_empty() {
+        println!("No bindings defined.");
+        return;
+    }
+    for (name, _ty, value, _) in &state.bindings {
+        println!("  {} :: {}", name, type_from_value(value));
+    }
+}
+
+fn show_repl_imports(state: &ReplState) {
+    if state.accumulated_imports.is_empty() {
+        println!("No imports (implicit Prelude only).");
+        return;
+    }
+    for decl in &state.accumulated_imports {
+        println!("  {}", format_import_description(decl));
+    }
+}
+
+fn show_modules_in_scope(state: &ReplState) {
+    let mut mods: Vec<_> = state.modules_in_scope.iter().collect();
+    mods.sort();
+    for m in mods {
+        println!("  {}", m);
+    }
+}
+
+fn update_completion_identifiers(state: &ReplState) {
+    if let Ok(mut ids) = state.completion_identifiers.lock() {
+        ids.clear();
+        for (name, _, _, _) in &state.bindings {
+            ids.push(name.clone());
+        }
+        for (name, _) in &state.loaded_types {
+            ids.push(name.clone());
+        }
+        ids.extend(PRELUDE_NAMES.iter().map(|s| s.to_string()));
+    }
 }
 
 fn eval_input(state: &mut ReplState, input: &str) {
@@ -670,6 +846,8 @@ fn eval_input(state: &mut ReplState, input: &str) {
                 let elapsed = start.elapsed();
                 println!("  ({:.3}ms)", elapsed.as_secs_f64() * 1000.0);
             }
+
+            update_completion_identifiers(state);
         }
         Err(e) => {
             eprintln!("Evaluation error: {}", e);
@@ -722,6 +900,8 @@ fn eval_let_binding(state: &mut ReplState, name: &str, expr_str: &str) {
             state
                 .bindings
                 .push((name.to_string(), ty, value, None));
+
+            update_completion_identifiers(state);
         }
         Err(e) => {
             eprintln!("Evaluation error: {}", e);
@@ -767,7 +947,7 @@ fn type_from_value(value: &Value) -> String {
 
 fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String> {
     // 1. Wrap expression in a synthetic module: module REPL where { it = <expr> }
-    let module = wrap_expr_as_module(expr);
+    let module = wrap_expr_as_module(expr, &state.accumulated_imports);
 
     // 2. Lower AST -> HIR
     let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
@@ -840,7 +1020,10 @@ fn evaluate_expr(state: &mut ReplState, expr: &AstExpr) -> Result<Value, String>
 /// Wrap an AST expression in a synthetic module for lowering.
 ///
 /// Creates: `module REPL where { it = <expr> }`
-fn wrap_expr_as_module(expr: &AstExpr) -> bhc_ast::Module {
+fn wrap_expr_as_module(
+    expr: &AstExpr,
+    imports: &[bhc_ast::ImportDecl],
+) -> bhc_ast::Module {
     use bhc_ast::{Clause, Decl, FunBind, ModuleName, Rhs};
     use bhc_intern::Ident;
     use bhc_span::Span;
@@ -867,7 +1050,7 @@ fn wrap_expr_as_module(expr: &AstExpr) -> bhc_ast::Module {
             span: Span::DUMMY,
         }),
         exports: None,
-        imports: vec![],
+        imports: imports.to_vec(),
         decls: vec![Decl::FunBind(fun_bind)],
         span,
     }
@@ -930,7 +1113,7 @@ fn show_type(state: &mut ReplState, expr: &str) {
     };
 
     // Build a synthetic module for type checking
-    let module = wrap_expr_as_module(&ast_expr);
+    let module = wrap_expr_as_module(&ast_expr, &state.accumulated_imports);
     let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
     let config = bhc_lower::LowerConfig {
         include_builtins: true,
@@ -1063,7 +1246,7 @@ fn show_info(state: &mut ReplState, name: &str) {
 
     let (parsed, _) = parse_expr(name, file_id);
     if let Some(ast_expr) = parsed {
-        let module = wrap_expr_as_module(&ast_expr);
+        let module = wrap_expr_as_module(&ast_expr, &state.accumulated_imports);
         let mut lower_ctx = bhc_lower::LowerContext::with_builtins();
         let config = bhc_lower::LowerConfig {
             include_builtins: true,
@@ -1291,6 +1474,7 @@ fn reload_modules(state: &mut ReplState) {
     state.bindings.retain(|(name, _, _, _)| !loaded_names.contains(name));
     state.loaded_types.clear();
     state.loaded_files.clear();
+    state.accumulated_imports.clear();
 
     for file in files {
         if let Err(e) = load_file(state, &file) {
