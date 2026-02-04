@@ -133,26 +133,12 @@ pub fn lower_pat_to_alt(
             // Look up the constructor metadata from the context
             let (con_name, type_name, tag) =
                 if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
-                    eprintln!(
-                        "[PATTERN] found con {:?} -> {} tag={} type={}",
-                        def_ref.def_id,
-                        info.name.as_str(),
-                        info.tag,
-                        info.type_name.as_str()
-                    );
                     (info.name, info.type_name, info.tag)
                 } else if let Some(var) = ctx.lookup_var(def_ref.def_id) {
                     // Fallback for constructors not in the map - use name-based lookup
                     let tag = get_constructor_tag(var.name.as_str(), def_ref.def_id.index() as u32);
-                    eprintln!(
-                        "[PATTERN] fallback con {:?} -> {} tag={} (name-based)",
-                        def_ref.def_id,
-                        var.name.as_str(),
-                        tag
-                    );
                     (var.name, Symbol::intern("DataType"), tag)
                 } else {
-                    eprintln!("[PATTERN] last-resort con {:?}", def_ref.def_id);
                     // Last resort fallback
                     let name = Symbol::intern("Con");
                     (

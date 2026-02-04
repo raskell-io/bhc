@@ -557,9 +557,15 @@ impl Builtins {
                 )
             }),
             (">>", {
-                // (>>) :: IO () -> IO () -> IO () (very specific for debugging)
-                let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
-                Scheme::mono(Ty::fun(io_unit.clone(), Ty::fun(io_unit.clone(), io_unit)))
+                // (>>) :: Monad m => m a -> m b -> m b
+                let m_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let m = TyVar::new(BUILTIN_TYVAR_M, m_kind);
+                let ma = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(a.clone())));
+                let mb = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(b.clone())));
+                Scheme::poly(
+                    vec![m.clone(), a.clone(), b.clone()],
+                    Ty::fun(ma, Ty::fun(mb.clone(), mb)),
+                )
             }),
             ("=<<", {
                 // (=<<) :: (a -> m b) -> m a -> m b (flipped >>=)

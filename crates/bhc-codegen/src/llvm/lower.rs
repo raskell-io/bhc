@@ -15148,17 +15148,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Lower a Core module to LLVM IR.
     pub fn lower_module(&mut self, core_module: &CoreModule) -> CodegenResult<()> {
-        eprintln!("[CODEGEN] lower_module: module_name={:?}, {} bindings", self.module_name, core_module.bindings.len());
-        for bind in &core_module.bindings {
-            match bind {
-                Bind::NonRec(var, _) => eprintln!("[CODEGEN]   binding: {}", var.name.as_str()),
-                Bind::Rec(binds) => {
-                    for (var, _) in binds {
-                        eprintln!("[CODEGEN]   rec binding: {}", var.name.as_str());
-                    }
-                }
-            }
-        }
         // Pre-pass: collect all constructor metadata from case alternatives
         // This ensures constructors are known before we try to lower applications
         for bind in &core_module.bindings {
@@ -15172,14 +15161,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
         // Second pass: define all functions
         for bind in &core_module.bindings {
-            match bind {
-                Bind::NonRec(var, _) => eprintln!("[CODEGEN] lowering binding: {}", var.name.as_str()),
-                Bind::Rec(binds) => {
-                    for (var, _) in binds {
-                        eprintln!("[CODEGEN] lowering rec binding: {}", var.name.as_str());
-                    }
-                }
-            }
             self.lower_binding(bind)?;
         }
 
@@ -16028,6 +16009,60 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 // return :: a -> m a
                 // For our simple IO model, just return the value
                 Ok(Some(args[0]))
+            }
+            "fmap" | "<$>" => {
+                // fmap :: (a -> b) -> f a -> f b
+                // For IO: apply function to action result
+                let func = args[0].into_pointer_value();
+                let action_result = args[1];
+
+                let fn_ptr = self.extract_closure_fn_ptr(func)?;
+                let action_ptr = self.value_to_ptr(action_result)?;
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                let result = self
+                    .builder()
+                    .build_indirect_call(
+                        fn_type,
+                        fn_ptr,
+                        &[func.into(), action_ptr.into()],
+                        "fmap_result",
+                    )
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("fmap call failed: {:?}", e))
+                    })?
+                    .try_as_basic_value()
+                    .basic()
+                    .ok_or_else(|| {
+                        CodegenError::Internal("fmap: returned void".to_string())
+                    })?;
+                Ok(Some(result))
+            }
+            "<*>" => {
+                // (<*>) :: f (a -> b) -> f a -> f b
+                // For IO: extract function from first action, apply to second
+                let func_closure = args[0].into_pointer_value();
+                let val = args[1];
+
+                let fn_ptr = self.extract_closure_fn_ptr(func_closure)?;
+                let val_ptr = self.value_to_ptr(val)?;
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                let result = self
+                    .builder()
+                    .build_indirect_call(
+                        fn_type,
+                        fn_ptr,
+                        &[func_closure.into(), val_ptr.into()],
+                        "ap_result",
+                    )
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("<*> call failed: {:?}", e))
+                    })?
+                    .try_as_basic_value()
+                    .basic()
+                    .ok_or_else(|| {
+                        CodegenError::Internal("<*>: returned void".to_string())
+                    })?;
+                Ok(Some(result))
             }
             "putStrLn" => {
                 // putStrLn :: String -> IO ()
@@ -17397,10 +17432,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let closure_ptr = match closure_val {
             BasicValueEnum::PointerValue(p) => p,
             _ => {
-                eprintln!("[CODEGEN] closure value is not a pointer: {:?}, args count: {}", closure_val, args.len());
-                for (i, arg) in args.iter().enumerate() {
-                    eprintln!("[CODEGEN]   arg[{}]: {}", i, arg);
-                }
                 return Err(CodegenError::Internal(
                     "closure value is not a pointer".to_string(),
                 ))
@@ -18447,12 +18478,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
             match &alt.con {
                 AltCon::DataCon(con) => {
-                    eprintln!(
-                        "[CODEGEN] case alt: con={} tag={} arity={}",
-                        con.name.as_str(),
-                        con.tag,
-                        con.arity
-                    );
                     let tag_val = self
                         .type_mapper()
                         .i64_type()

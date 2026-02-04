@@ -388,6 +388,25 @@ impl LowerContext {
             self.var_map.insert(def_id, var);
             id += 1;
         }
+
+        // IO monad method implementations (DefIds 150-154)
+        // These are referenced by dictionary construction for Functor/Applicative/Monad IO
+        let io_methods: [(usize, &str); 5] = [
+            (150, "fmap"),
+            (151, "pure"),
+            (152, "<*>"),
+            (153, ">>="),
+            (154, ">>"),
+        ];
+        for (method_id, name) in io_methods {
+            let def_id = DefId::new(method_id);
+            let var = Var {
+                name: Symbol::intern(name),
+                id: VarId::new(method_id),
+                ty: Ty::Error,
+            };
+            self.var_map.insert(def_id, var);
+        }
     }
 
     /// Register built-in type classes and their instances.
@@ -583,6 +602,61 @@ impl LowerContext {
             ],
         );
         self.register_builtin_instance("Show", &char_ty, &[(92, "show")]);
+
+        // === Register Functor class ===
+        // Methods: fmap
+        // fmap is also known as <$> (DefId 43)
+        let functor_class = ClassInfo {
+            name: Symbol::intern("Functor"),
+            methods: vec![Symbol::intern("fmap")],
+            method_types: FxHashMap::default(),
+            superclasses: vec![],
+            defaults: FxHashMap::default(),
+            assoc_types: vec![],
+        };
+        self.class_registry.register_class(functor_class);
+
+        // === Register Applicative class ===
+        // Methods: pure, <*>
+        // Superclass: Functor
+        let applicative_class = ClassInfo {
+            name: Symbol::intern("Applicative"),
+            methods: vec![Symbol::intern("pure"), Symbol::intern("<*>")],
+            method_types: FxHashMap::default(),
+            superclasses: vec![Symbol::intern("Functor")],
+            defaults: FxHashMap::default(),
+            assoc_types: vec![],
+        };
+        self.class_registry.register_class(applicative_class);
+
+        // === Register Monad class ===
+        // Methods: >>=, >>
+        // Superclass: Applicative
+        let monad_class = ClassInfo {
+            name: Symbol::intern("Monad"),
+            methods: vec![Symbol::intern(">>="), Symbol::intern(">>")],
+            method_types: FxHashMap::default(),
+            superclasses: vec![Symbol::intern("Applicative")],
+            defaults: FxHashMap::default(),
+            assoc_types: vec![],
+        };
+        self.class_registry.register_class(monad_class);
+
+        // === Register IO instances for Functor/Applicative/Monad ===
+        // IO has kind * -> *, so we construct it as a type application
+        let io_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+        let io_ty = Ty::Con(TyCon::new(Symbol::intern("IO"), io_kind));
+
+        // Functor IO: fmap = DefId(150)
+        self.register_builtin_instance("Functor", &io_ty, &[(150, "fmap")]);
+
+        // Applicative IO: pure = DefId(151), <*> = DefId(152)
+        // Superclass: Functor IO
+        self.register_builtin_instance("Applicative", &io_ty, &[(151, "pure"), (152, "<*>")]);
+
+        // Monad IO: >>= = DefId(153), >> = DefId(154)
+        // Superclass: Applicative IO
+        self.register_builtin_instance("Monad", &io_ty, &[(153, ">>="), (154, ">>")]);
     }
 
     /// Helper to register a builtin instance with method DefIds.

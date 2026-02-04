@@ -1019,16 +1019,6 @@ impl Compiler {
 
         // Build imported constructor metadata for cross-module ADT pattern matching.
         let imported_constructors = self.build_imported_constructor_map(registry, &lower_ctx);
-        for (def_id, ci) in &imported_constructors {
-            eprintln!(
-                "[DEBUG] imported con: {} (type={}) tag={} arity={} def_id={:?}",
-                ci.name.as_str(),
-                ci.type_name.as_str(),
-                ci.tag,
-                ci.arity,
-                def_id
-            );
-        }
         let core = self.core_lower_with_constructors(
             &hir,
             &lower_ctx,
@@ -1075,14 +1065,6 @@ impl Compiler {
                 })
             })
             .collect();
-
-        // Debug: dump Core IR
-        if module_name == "Main" {
-            eprintln!("[DRIVER] Core IR for Main:");
-            for bind in &core.bindings {
-                eprintln!("[DRIVER]   {:?}", bind);
-            }
-        }
 
         let object_path = self.codegen_multimodule(
             &unit.module_name,

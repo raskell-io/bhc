@@ -460,13 +460,38 @@ impl<'a> DictContext<'a> {
 
     /// Create a reference to a method implementation.
     fn method_reference(&self, def_id: DefId, span: Span) -> core::Expr {
-        // Create a variable reference to the method's DefId
+        // Look up the actual method name from the registry so codegen can resolve it
+        let name = self
+            .find_method_name(def_id)
+            .unwrap_or_else(|| Symbol::intern(&format!("$method_{}", def_id.index())));
         let var = Var {
-            name: Symbol::intern(&format!("$method_{}", def_id.index())),
+            name,
             id: VarId::new(def_id.index()),
             ty: Ty::Error,
         };
         core::Expr::Var(var, span)
+    }
+
+    /// Find the method name for a given DefId by searching all registered instances.
+    fn find_method_name(&self, def_id: DefId) -> Option<Symbol> {
+        for instances in self.registry.instances.values() {
+            for instance in instances {
+                for (name, &id) in &instance.methods {
+                    if id == def_id {
+                        return Some(*name);
+                    }
+                }
+            }
+        }
+        // Also check class defaults
+        for class in self.registry.classes.values() {
+            for (name, &id) in &class.defaults {
+                if id == def_id {
+                    return Some(*name);
+                }
+            }
+        }
+        None
     }
 }
 
