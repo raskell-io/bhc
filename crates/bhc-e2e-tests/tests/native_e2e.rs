@@ -212,6 +212,20 @@ fn test_tier3_monad_error_native() {
     run_native_test("tier3_io/monad_error", Profile::Default);
 }
 
+// Cross-transformer tests are commented out pending type system support for nested transformers.
+// The codegen infrastructure for automatic lift insertion is in place (see TransformerStack),
+// but the type checker needs MonadReader/MonadState typeclass support.
+
+// #[test]
+// fn test_tier3_cross_state_reader_native() {
+//     run_native_test("tier3_io/cross_state_reader", Profile::Default);
+// }
+
+// #[test]
+// fn test_tier3_cross_reader_state_native() {
+//     run_native_test("tier3_io/cross_reader_state", Profile::Default);
+// }
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

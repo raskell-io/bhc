@@ -85,14 +85,66 @@ pub struct CompiledSymbol {
     pub param_count: usize,
 }
 
-/// Which monad's bind/return semantics to use during lowering.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum MonadContext {
+/// A single layer in a transformer stack.
+///
+/// Used to track which transformer's bind/return semantics to use during lowering,
+/// and to enable automatic lift insertion for cross-transformer operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransformerLayer {
     IO,
     ReaderT,
     StateT,
     ExceptT,
     WriterT,
+}
+
+/// A stack of transformer layers, tracking the full transformer stack.
+///
+/// The stack is ordered [outermost, ..., IO], so the current (outermost) layer
+/// is at index 0. This enables automatic lift insertion when an operation's
+/// native layer doesn't match the stack top.
+#[derive(Clone, Debug)]
+struct TransformerStack {
+    layers: Vec<TransformerLayer>,
+}
+
+impl TransformerStack {
+    /// Create a new stack with just IO at the base.
+    fn new() -> Self {
+        Self {
+            layers: vec![TransformerLayer::IO],
+        }
+    }
+
+    /// Push a new transformer layer onto the stack (becomes the new outermost).
+    fn push(&mut self, layer: TransformerLayer) {
+        self.layers.insert(0, layer);
+    }
+
+    /// Pop the outermost transformer layer. Returns None if only IO remains.
+    fn pop(&mut self) -> Option<TransformerLayer> {
+        if self.layers.len() > 1 {
+            Some(self.layers.remove(0))
+        } else {
+            None
+        }
+    }
+
+    /// Get the current (outermost) transformer layer.
+    fn current(&self) -> TransformerLayer {
+        self.layers.first().copied().unwrap_or(TransformerLayer::IO)
+    }
+
+    /// Calculate how many lifts are needed to reach the target layer.
+    /// Returns None if the target layer is not in the stack.
+    fn lifts_to_reach(&self, target: TransformerLayer) -> Option<usize> {
+        self.layers.iter().position(|&l| l == target)
+    }
+
+    /// Check if the stack contains the given layer.
+    fn contains(&self, layer: TransformerLayer) -> bool {
+        self.layers.contains(&layer)
+    }
 }
 
 /// State for lowering Core IR to LLVM IR.
@@ -121,9 +173,9 @@ pub struct Lowering<'ctx, 'm> {
     module_name: Option<String>,
     /// External functions imported from other compiled modules.
     external_functions: FxHashMap<Symbol, FunctionValue<'ctx>>,
-    /// Stack tracking which monad's bind/return to use.
+    /// Stack tracking the full transformer stack for automatic lift insertion.
     /// Pushed when entering transformer runners (runReaderT, evalStateT, etc.).
-    monad_context_stack: Vec<MonadContext>,
+    transformer_stack: TransformerStack,
     /// Set of function names whose bodies use StateT operations.
     /// Used to detect monad context when these functions appear in bind chains.
     state_t_functions: FxHashSet<String>,
@@ -148,7 +200,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             in_tail_position: false,
             module_name: None,
             external_functions: FxHashMap::default(),
-            monad_context_stack: vec![MonadContext::IO],
+            transformer_stack: TransformerStack::new(),
             state_t_functions: FxHashSet::default(),
             reader_t_functions: FxHashSet::default(),
             except_t_functions: FxHashSet::default(),
@@ -178,7 +230,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             in_tail_position: false,
             module_name: Some(module_name.to_string()),
             external_functions: FxHashMap::default(),
-            monad_context_stack: vec![MonadContext::IO],
+            transformer_stack: TransformerStack::new(),
             state_t_functions: FxHashSet::default(),
             reader_t_functions: FxHashSet::default(),
             except_t_functions: FxHashSet::default(),
@@ -189,25 +241,25 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(lowering)
     }
 
-    /// Push a monad context onto the stack (e.g. when entering a transformer runner).
-    fn push_monad_context(&mut self, ctx: MonadContext) {
-        self.monad_context_stack.push(ctx);
+    /// Push a transformer layer onto the stack (e.g. when entering a transformer runner).
+    fn push_transformer_layer(&mut self, layer: TransformerLayer) {
+        self.transformer_stack.push(layer);
     }
 
-    /// Pop the monad context stack (e.g. when leaving a transformer runner).
-    fn pop_monad_context(&mut self) {
-        self.monad_context_stack.pop();
+    /// Pop the transformer stack (e.g. when leaving a transformer runner).
+    fn pop_transformer_layer(&mut self) {
+        self.transformer_stack.pop();
     }
 
-    /// Return the current monad context (top of stack, defaults to IO).
-    fn current_monad_context(&self) -> MonadContext {
-        self.monad_context_stack.last().copied().unwrap_or(MonadContext::IO)
+    /// Return the current transformer layer (outermost, defaults to IO).
+    fn current_transformer_layer(&self) -> TransformerLayer {
+        self.transformer_stack.current()
     }
 
-    /// Detect the monad context from an expression by inspecting its head symbol.
-    /// This handles the case where `>>=` is used with transformer operations
-    /// (e.g. `ask >>= \n -> return n`) outside of an explicit runner call.
-    fn detect_monad_from_expr(&self, expr: &Expr) -> MonadContext {
+    /// Detect the native transformer layer of an operation by inspecting the head symbol.
+    /// This determines which transformer the operation belongs to natively
+    /// (e.g. `ask` belongs to ReaderT, `get` belongs to StateT).
+    fn detect_operation_layer(&self, expr: &Expr) -> TransformerLayer {
         match expr {
             Expr::Var(v, _) => {
                 let name = v.name.as_str();
@@ -215,83 +267,642 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     "ask" | "asks" | "local"
                     | "ReaderT.>>=" | "ReaderT.>>" | "ReaderT.pure"
                     | "ReaderT.fmap" | "ReaderT.<*>"
-                    | "ReaderT.lift" | "ReaderT.liftIO" => MonadContext::ReaderT,
+                    | "ReaderT.lift" | "ReaderT.liftIO" => TransformerLayer::ReaderT,
                     "get" | "put" | "modify" | "gets"
                     | "StateT.>>=" | "StateT.>>" | "StateT.pure"
                     | "StateT.fmap" | "StateT.<*>"
-                    | "StateT.lift" | "StateT.liftIO" => MonadContext::StateT,
+                    | "StateT.lift" | "StateT.liftIO" => TransformerLayer::StateT,
                     "throwE" | "catchE" | "throwError" | "catchError"
                     | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure"
                     | "ExceptT.fmap" | "ExceptT.<*>"
-                    | "ExceptT.lift" | "ExceptT.liftIO" => MonadContext::ExceptT,
+                    | "ExceptT.lift" | "ExceptT.liftIO" => TransformerLayer::ExceptT,
                     "tell"
                     | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure"
                     | "WriterT.fmap" | "WriterT.<*>"
-                    | "WriterT.lift" | "WriterT.liftIO" => MonadContext::WriterT,
+                    | "WriterT.lift" | "WriterT.liftIO" => TransformerLayer::WriterT,
                     _ => {
                         // Check if this is a user-defined function that was detected
                         // as using StateT/ReaderT/ExceptT/WriterT operations in its body.
                         if self.state_t_functions.contains(name) {
-                            MonadContext::StateT
+                            TransformerLayer::StateT
                         } else if self.reader_t_functions.contains(name) {
-                            MonadContext::ReaderT
+                            TransformerLayer::ReaderT
                         } else if self.except_t_functions.contains(name) {
-                            MonadContext::ExceptT
+                            TransformerLayer::ExceptT
                         } else if self.writer_t_functions.contains(name) {
-                            MonadContext::WriterT
+                            TransformerLayer::WriterT
                         } else {
-                            self.current_monad_context()
+                            self.current_transformer_layer()
                         }
                     }
                 }
             }
-            Expr::App(func, _, _) => self.detect_monad_from_expr(func),
-            _ => self.current_monad_context(),
+            Expr::App(func, _, _) => self.detect_operation_layer(func),
+            _ => self.current_transformer_layer(),
         }
     }
 
     /// Check whether an expression tree contains StateT/ReaderT/ExceptT/WriterT operations.
-    /// Used to determine the monad context for top-level function definitions
+    /// Used to determine the transformer layer for top-level function definitions
     /// that are used as transformer computations.
-    fn detect_monad_context_for_body(&self, expr: &Expr) -> Option<MonadContext> {
+    fn detect_transformer_for_body(&self, expr: &Expr) -> Option<TransformerLayer> {
         match expr {
             Expr::Var(v, _) => {
                 let name = v.name.as_str();
                 match name {
                     "get" | "put" | "modify" | "gets"
-                    | "StateT.>>=" | "StateT.>>" | "StateT.pure" => Some(MonadContext::StateT),
+                    | "StateT.>>=" | "StateT.>>" | "StateT.pure" => Some(TransformerLayer::StateT),
                     "ask" | "asks" | "local"
-                    | "ReaderT.>>=" | "ReaderT.>>" | "ReaderT.pure" => Some(MonadContext::ReaderT),
+                    | "ReaderT.>>=" | "ReaderT.>>" | "ReaderT.pure" => Some(TransformerLayer::ReaderT),
                     "throwE" | "catchE" | "throwError" | "catchError"
-                    | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure" => Some(MonadContext::ExceptT),
+                    | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure" => Some(TransformerLayer::ExceptT),
                     "tell"
-                    | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure" => Some(MonadContext::WriterT),
+                    | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure" => Some(TransformerLayer::WriterT),
                     _ => None,
                 }
             }
             Expr::App(func, arg, _) => {
-                self.detect_monad_context_for_body(func)
-                    .or_else(|| self.detect_monad_context_for_body(arg))
+                self.detect_transformer_for_body(func)
+                    .or_else(|| self.detect_transformer_for_body(arg))
             }
-            Expr::Lam(_, body, _) => self.detect_monad_context_for_body(body),
+            Expr::Lam(_, body, _) => self.detect_transformer_for_body(body),
             Expr::Let(bind, body, _) => {
                 let in_bind = match bind.as_ref() {
-                    Bind::NonRec(_, e) => self.detect_monad_context_for_body(e),
+                    Bind::NonRec(_, e) => self.detect_transformer_for_body(e),
                     Bind::Rec(bindings) => bindings
                         .iter()
-                        .find_map(|(_, e)| self.detect_monad_context_for_body(e)),
+                        .find_map(|(_, e)| self.detect_transformer_for_body(e)),
                 };
-                in_bind.or_else(|| self.detect_monad_context_for_body(body))
+                in_bind.or_else(|| self.detect_transformer_for_body(body))
             }
             Expr::Case(scrut, alts, _, _) => {
-                self.detect_monad_context_for_body(scrut).or_else(|| {
+                self.detect_transformer_for_body(scrut).or_else(|| {
                     alts.iter()
-                        .find_map(|alt| self.detect_monad_context_for_body(&alt.rhs))
+                        .find_map(|alt| self.detect_transformer_for_body(&alt.rhs))
                 })
             }
-            Expr::TyApp(e, _, _) => self.detect_monad_context_for_body(e),
+            Expr::TyApp(e, _, _) => self.detect_transformer_for_body(e),
             _ => None,
         }
+    }
+
+    // ========================================================================
+    // Automatic Lift Insertion for Cross-Transformer Operations
+    // ========================================================================
+
+    /// Lower a bind operation with automatic lifting for cross-transformer use.
+    ///
+    /// When the LHS operation's native layer differs from the current stack top,
+    /// we wrap the operation result with appropriate lifts before binding.
+    fn lower_bind_with_auto_lift(
+        &mut self,
+        lhs_expr: &Expr,
+        rhs_expr: &Expr,
+        native_layer: TransformerLayer,
+        current_layer: TransformerLayer,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Lower the LHS with its native context to get the inner action
+        self.push_transformer_layer(native_layer);
+        let inner_val = self.lower_expr(lhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("auto-lift: LHS has no value".to_string()))?;
+        self.pop_transformer_layer();
+
+        // Apply the lift to wrap from native layer to current layer
+        let lifted_val = self.apply_lift_for_layer(inner_val, native_layer, current_layer)?;
+
+        // Now dispatch bind to the current layer with the lifted value
+        match current_layer {
+            TransformerLayer::StateT => self.lower_state_t_bind_with_value(lifted_val, rhs_expr),
+            TransformerLayer::ReaderT => self.lower_reader_t_bind_with_value(lifted_val, rhs_expr),
+            TransformerLayer::ExceptT => self.lower_except_t_bind_with_value(lifted_val, rhs_expr),
+            TransformerLayer::WriterT => self.lower_writer_t_bind_with_value(lifted_val, rhs_expr),
+            TransformerLayer::IO => self.lower_io_bind_with_value(lifted_val, rhs_expr),
+        }
+    }
+
+    /// Lower a then operation with automatic lifting for cross-transformer use.
+    fn lower_then_with_auto_lift(
+        &mut self,
+        lhs_expr: &Expr,
+        rhs_expr: &Expr,
+        native_layer: TransformerLayer,
+        current_layer: TransformerLayer,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Lower the LHS with its native context to get the inner action
+        self.push_transformer_layer(native_layer);
+        let inner_val = self.lower_expr(lhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("auto-lift then: LHS has no value".to_string()))?;
+        self.pop_transformer_layer();
+
+        // Apply the lift to wrap from native layer to current layer
+        let lifted_val = self.apply_lift_for_layer(inner_val, native_layer, current_layer)?;
+
+        // Now dispatch then to the current layer with the lifted value
+        match current_layer {
+            TransformerLayer::StateT => self.lower_state_t_then_with_value(lifted_val, rhs_expr),
+            TransformerLayer::ReaderT => self.lower_reader_t_then_with_value(lifted_val, rhs_expr),
+            TransformerLayer::ExceptT => self.lower_except_t_then_with_value(lifted_val, rhs_expr),
+            TransformerLayer::WriterT => self.lower_writer_t_then_with_value(lifted_val, rhs_expr),
+            TransformerLayer::IO => self.lower_io_then_with_value(lifted_val, rhs_expr),
+        }
+    }
+
+    /// Apply a lift to wrap an inner transformer's action in the outer transformer.
+    ///
+    /// For example, lifting a ReaderT action into StateT produces:
+    /// `StateT.lift (runReaderT action env)` which becomes `\s -> (runReaderT action env, s)`
+    fn apply_lift_for_layer(
+        &mut self,
+        inner_val: BasicValueEnum<'ctx>,
+        native_layer: TransformerLayer,
+        outer_layer: TransformerLayer,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        // The inner_val is already a closure representing the inner transformer's action.
+        // We need to wrap it with the outer transformer's lift operation.
+        match outer_layer {
+            TransformerLayer::StateT => {
+                // StateT.lift action = \s -> (action, s)
+                // The action from native_layer returns a value when run,
+                // and we pair it with the unchanged state.
+                self.apply_state_t_lift_to_value(inner_val)
+            }
+            TransformerLayer::ReaderT => {
+                // ReaderT.lift action = \r -> action
+                // The action from native_layer is returned ignoring the environment.
+                self.apply_reader_t_lift_to_value(inner_val)
+            }
+            TransformerLayer::ExceptT => {
+                // ExceptT.lift action = wrap action in Right
+                self.apply_except_t_lift_to_value(inner_val)
+            }
+            TransformerLayer::WriterT => {
+                // WriterT.lift action = (action, mempty)
+                self.apply_writer_t_lift_to_value(inner_val)
+            }
+            TransformerLayer::IO => {
+                // IO is the base, no lifting needed
+                Ok(inner_val)
+            }
+        }
+    }
+
+    /// Apply StateT.lift to a value (creates closure \s -> (action, s))
+    fn apply_state_t_lift_to_value(
+        &mut self,
+        action_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_state_t_lift_auto";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, s) -> (action, s) where action = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let s = func.get_nth_param(1).unwrap();
+            let action = self.extract_closure_env_elem(env, 1, 0)?;
+            let pair = self.alloc_pair(action.into(), s)?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("state_t_lift_auto return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let action_ptr = self.value_to_ptr(action_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900100), action_ptr.into())])?;
+        Ok(closure_ptr.into())
+    }
+
+    /// Apply ReaderT.lift to a value (creates closure \r -> action)
+    fn apply_reader_t_lift_to_value(
+        &mut self,
+        action_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let fn_name = "bhc_reader_t_lift_auto";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _r) -> action where action = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let action = self.extract_closure_env_elem(env, 1, 0)?;
+            self.builder().build_return(Some(&action))
+                .map_err(|e| CodegenError::Internal(format!("reader_t_lift_auto return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let action_ptr = self.value_to_ptr(action_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900101), action_ptr.into())])?;
+        Ok(closure_ptr.into())
+    }
+
+    /// Apply ExceptT.lift to a value (wraps in Right)
+    fn apply_except_t_lift_to_value(
+        &mut self,
+        action_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let fn_name = "bhc_except_t_lift_auto";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> Right action where action = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let action = self.extract_closure_env_elem(env, 1, 0)?;
+            // Allocate Right ADT: tag=1, arity=1
+            let right_adt = self.alloc_adt(1, 1)?;
+            self.store_adt_field(right_adt, 1, 0, action.into())?;
+            self.builder().build_return(Some(&right_adt))
+                .map_err(|e| CodegenError::Internal(format!("except_t_lift_auto return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let action_ptr = self.value_to_ptr(action_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900102), action_ptr.into())])?;
+        Ok(closure_ptr.into())
+    }
+
+    /// Apply WriterT.lift to a value (pairs with mempty)
+    fn apply_writer_t_lift_to_value(
+        &mut self,
+        action_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<BasicValueEnum<'ctx>> {
+        let fn_name = "bhc_writer_t_lift_auto";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> (action, []) where action = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let action = self.extract_closure_env_elem(env, 1, 0)?;
+            // Build empty list as mempty for the writer log
+            let empty_list = self.build_nil()?;
+            let pair = self.alloc_pair(action.into(), empty_list.into())?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_lift_auto return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let action_ptr = self.value_to_ptr(action_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900103), action_ptr.into())])?;
+        Ok(closure_ptr.into())
+    }
+
+    // ========================================================================
+    // Bind/Then with Pre-Evaluated LHS Value
+    // ========================================================================
+
+    /// StateT bind with a pre-evaluated LHS value
+    fn lower_state_t_bind_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // The LHS is already a StateT closure (function s -> (a, s'))
+        // We need to create a new closure that runs LHS, then runs RHS with the result
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("state_t_bind_val: RHS has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_state_t_bind_val";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // \(env, s) -> let (a, s') = m(s) in k(a)(s')
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let s = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let k = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+            // Run m(s) to get (a, s')
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let s_ptr = self.value_to_ptr(s)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), s_ptr.into()], "state_bind_m")
+                .map_err(|e| CodegenError::Internal(format!("state_t_bind m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("state_t_bind m: void".to_string()))?
+                .into_pointer_value();
+
+            let a = self.extract_pair_fst(pair)?;
+            let s_prime = self.extract_pair_snd(pair)?;
+
+            // Run k(a) to get a new StateT closure
+            let k_fn = self.extract_closure_fn_ptr(k)?;
+            let a_ptr = self.value_to_ptr(a.into())?;
+            let k_result = self.builder()
+                .build_indirect_call(fn_type, k_fn, &[k.into(), a_ptr.into()], "state_bind_k")
+                .map_err(|e| CodegenError::Internal(format!("state_t_bind k: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("state_t_bind k: void".to_string()))?
+                .into_pointer_value();
+
+            // Run the resulting closure with s'
+            let k_result_fn = self.extract_closure_fn_ptr(k_result)?;
+            let s_prime_ptr = self.value_to_ptr(s_prime.into())?;
+            let final_result = self.builder()
+                .build_indirect_call(fn_type, k_result_fn, &[k_result.into(), s_prime_ptr.into()], "state_bind_final")
+                .map_err(|e| CodegenError::Internal(format!("state_t_bind final: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("state_t_bind final: void".to_string()))?;
+
+            self.builder().build_return(Some(&final_result))
+                .map_err(|e| CodegenError::Internal(format!("state_t_bind return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(lhs_val)?;
+        let k_ptr = self.value_to_ptr(rhs_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900200), m_ptr.into()),
+            (VarId::new(900201), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ReaderT bind with a pre-evaluated LHS value
+    fn lower_reader_t_bind_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("reader_t_bind_val: RHS has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_reader_t_bind_val";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // \(env, r) -> let a = m(r) in k(a)(r)
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let r = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let k = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+            // Run m(r) to get a
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let r_ptr = self.value_to_ptr(r)?;
+            let a = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), r_ptr.into()], "reader_bind_m")
+                .map_err(|e| CodegenError::Internal(format!("reader_t_bind m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("reader_t_bind m: void".to_string()))?;
+
+            // Run k(a) to get new ReaderT closure
+            let k_fn = self.extract_closure_fn_ptr(k)?;
+            let a_ptr = self.value_to_ptr(a)?;
+            let k_result = self.builder()
+                .build_indirect_call(fn_type, k_fn, &[k.into(), a_ptr.into()], "reader_bind_k")
+                .map_err(|e| CodegenError::Internal(format!("reader_t_bind k: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("reader_t_bind k: void".to_string()))?
+                .into_pointer_value();
+
+            // Run k_result(r)
+            let k_result_fn = self.extract_closure_fn_ptr(k_result)?;
+            let final_result = self.builder()
+                .build_indirect_call(fn_type, k_result_fn, &[k_result.into(), r_ptr.into()], "reader_bind_final")
+                .map_err(|e| CodegenError::Internal(format!("reader_t_bind final: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("reader_t_bind final: void".to_string()))?;
+
+            self.builder().build_return(Some(&final_result))
+                .map_err(|e| CodegenError::Internal(format!("reader_t_bind return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(lhs_val)?;
+        let k_ptr = self.value_to_ptr(rhs_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900202), m_ptr.into()),
+            (VarId::new(900203), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT bind with pre-evaluated LHS - uses standard implementation
+    fn lower_except_t_bind_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For ExceptT, we can use the standard bind since the lifted value is already wrapped
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("except_t_bind_val: RHS has no value".to_string()))?;
+        self.lower_except_t_bind_impl(lhs_val, rhs_val)
+    }
+
+    /// WriterT bind with pre-evaluated LHS - uses standard implementation
+    fn lower_writer_t_bind_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("writer_t_bind_val: RHS has no value".to_string()))?;
+        self.lower_writer_t_bind_impl(lhs_val, rhs_val)
+    }
+
+    /// IO bind with pre-evaluated LHS
+    fn lower_io_bind_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For IO, we just run the LHS and pass its result to RHS
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("io_bind_val: RHS has no value".to_string()))?;
+
+        // Call RHS with LHS result
+        let rhs_ptr = rhs_val.into_pointer_value();
+        let fn_ptr = self.extract_closure_fn_ptr(rhs_ptr)?;
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let lhs_ptr = self.value_to_ptr(lhs_val)?;
+        let result = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[rhs_ptr.into(), lhs_ptr.into()], "io_bind_val")
+            .map_err(|e| CodegenError::Internal(format!("io_bind_val: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("io_bind_val: void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// StateT then with pre-evaluated LHS
+    fn lower_state_t_then_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For then, we ignore the result of LHS and just run RHS
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("state_t_then_val: RHS has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_state_t_then_val";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // \(env, s) -> let (_, s') = m(s) in n(s')
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let s = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let n = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+            // Run m(s) to get (_, s')
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let s_ptr = self.value_to_ptr(s)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), s_ptr.into()], "state_then_m")
+                .map_err(|e| CodegenError::Internal(format!("state_t_then m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("state_t_then m: void".to_string()))?
+                .into_pointer_value();
+
+            let s_prime = self.extract_pair_snd(pair)?;
+
+            // Run n(s')
+            let n_fn = self.extract_closure_fn_ptr(n)?;
+            let s_prime_ptr = self.value_to_ptr(s_prime.into())?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, n_fn, &[n.into(), s_prime_ptr.into()], "state_then_n")
+                .map_err(|e| CodegenError::Internal(format!("state_t_then n: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("state_t_then n: void".to_string()))?;
+
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("state_t_then return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(lhs_val)?;
+        let n_ptr = self.value_to_ptr(rhs_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900210), m_ptr.into()),
+            (VarId::new(900211), n_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ReaderT then with pre-evaluated LHS
+    fn lower_reader_t_then_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("reader_t_then_val: RHS has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_reader_t_then_val";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // \(env, r) -> let _ = m(r) in n(r)
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let r = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let n = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+            // Run m(r) and ignore result
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let r_ptr = self.value_to_ptr(r)?;
+            let _m_result = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), r_ptr.into()], "reader_then_m")
+                .map_err(|e| CodegenError::Internal(format!("reader_t_then m: {:?}", e)))?;
+
+            // Run n(r)
+            let n_fn = self.extract_closure_fn_ptr(n)?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, n_fn, &[n.into(), r_ptr.into()], "reader_then_n")
+                .map_err(|e| CodegenError::Internal(format!("reader_t_then n: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("reader_t_then n: void".to_string()))?;
+
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("reader_t_then return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(lhs_val)?;
+        let n_ptr = self.value_to_ptr(rhs_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900212), m_ptr.into()),
+            (VarId::new(900213), n_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT then with pre-evaluated LHS - uses standard implementation
+    fn lower_except_t_then_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("except_t_then_val: RHS has no value".to_string()))?;
+        self.lower_except_t_then_impl(lhs_val, rhs_val)
+    }
+
+    /// WriterT then with pre-evaluated LHS - uses standard implementation
+    fn lower_writer_t_then_with_value(
+        &mut self,
+        lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rhs_val = self.lower_expr(rhs_expr)?
+            .ok_or_else(|| CodegenError::Internal("writer_t_then_val: RHS has no value".to_string()))?;
+        self.lower_writer_t_then_impl(lhs_val, rhs_val)
+    }
+
+    /// IO then with pre-evaluated LHS
+    fn lower_io_then_with_value(
+        &mut self,
+        _lhs_val: BasicValueEnum<'ctx>,
+        rhs_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For IO then, LHS is already evaluated (side effect happened)
+        // Just evaluate and return RHS
+        self.lower_expr(rhs_expr)
     }
 
     /// Mangle a function name with the module name for multi-module compilation.
@@ -2033,42 +2644,67 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "print" => self.lower_builtin_print(args[0]),
             "getLine" => self.lower_builtin_get_line(),
 
-            // Monadic operations — dispatch based on monad context.
-            // Push the detected context so that nested operations (e.g. return
-            // inside a bind continuation) also dispatch to the correct monad.
+            // Monadic operations — dispatch based on transformer stack.
+            // Detects the operation's native layer and inserts lifts if needed.
             ">>=" => {
-                let monad = self.detect_monad_from_expr(args[0]);
-                self.push_monad_context(monad);
-                let result = match monad {
-                    MonadContext::ReaderT => self.lower_builtin_reader_t_bind(args[0], args[1]),
-                    MonadContext::StateT => self.lower_builtin_state_t_bind(args[0], args[1]),
-                    MonadContext::ExceptT => self.lower_builtin_except_t_bind(args[0], args[1]),
-                    MonadContext::WriterT => self.lower_builtin_writer_t_bind(args[0], args[1]),
-                    MonadContext::IO => self.lower_builtin_bind(args[0], args[1]),
-                };
-                self.pop_monad_context();
-                result
+                let op_layer = self.detect_operation_layer(args[0]);
+                let current = self.current_transformer_layer();
+
+                // Check if we need to lift the LHS operation to the current layer
+                let needs_lift = op_layer != current
+                    && self.transformer_stack.contains(op_layer)
+                    && self.transformer_stack.lifts_to_reach(op_layer).unwrap_or(0) > 0;
+
+                if needs_lift {
+                    // Lift the inner operation to the current stack layer
+                    self.lower_bind_with_auto_lift(args[0], args[1], op_layer, current)
+                } else {
+                    // No lifting needed, dispatch based on detected operation layer
+                    self.push_transformer_layer(op_layer);
+                    let result = match op_layer {
+                        TransformerLayer::ReaderT => self.lower_builtin_reader_t_bind(args[0], args[1]),
+                        TransformerLayer::StateT => self.lower_builtin_state_t_bind(args[0], args[1]),
+                        TransformerLayer::ExceptT => self.lower_builtin_except_t_bind(args[0], args[1]),
+                        TransformerLayer::WriterT => self.lower_builtin_writer_t_bind(args[0], args[1]),
+                        TransformerLayer::IO => self.lower_builtin_bind(args[0], args[1]),
+                    };
+                    self.pop_transformer_layer();
+                    result
+                }
             }
             ">>" => {
-                let monad = self.detect_monad_from_expr(args[0]);
-                self.push_monad_context(monad);
-                let result = match monad {
-                    MonadContext::ReaderT => self.lower_builtin_reader_t_then(args[0], args[1]),
-                    MonadContext::StateT => self.lower_builtin_state_t_then(args[0], args[1]),
-                    MonadContext::ExceptT => self.lower_builtin_except_t_then(args[0], args[1]),
-                    MonadContext::WriterT => self.lower_builtin_writer_t_then(args[0], args[1]),
-                    MonadContext::IO => self.lower_builtin_then(args[0], args[1]),
-                };
-                self.pop_monad_context();
-                result
+                let op_layer = self.detect_operation_layer(args[0]);
+                let current = self.current_transformer_layer();
+
+                // Check if we need to lift the LHS operation to the current layer
+                let needs_lift = op_layer != current
+                    && self.transformer_stack.contains(op_layer)
+                    && self.transformer_stack.lifts_to_reach(op_layer).unwrap_or(0) > 0;
+
+                if needs_lift {
+                    // Lift the inner operation to the current stack layer
+                    self.lower_then_with_auto_lift(args[0], args[1], op_layer, current)
+                } else {
+                    // No lifting needed, dispatch based on detected operation layer
+                    self.push_transformer_layer(op_layer);
+                    let result = match op_layer {
+                        TransformerLayer::ReaderT => self.lower_builtin_reader_t_then(args[0], args[1]),
+                        TransformerLayer::StateT => self.lower_builtin_state_t_then(args[0], args[1]),
+                        TransformerLayer::ExceptT => self.lower_builtin_except_t_then(args[0], args[1]),
+                        TransformerLayer::WriterT => self.lower_builtin_writer_t_then(args[0], args[1]),
+                        TransformerLayer::IO => self.lower_builtin_then(args[0], args[1]),
+                    };
+                    self.pop_transformer_layer();
+                    result
+                }
             }
             "return" | "pure" => {
-                match self.current_monad_context() {
-                    MonadContext::ReaderT => self.lower_builtin_reader_t_pure(args[0]),
-                    MonadContext::StateT => self.lower_builtin_state_t_pure(args[0]),
-                    MonadContext::ExceptT => self.lower_builtin_except_t_pure(args[0]),
-                    MonadContext::WriterT => self.lower_builtin_writer_t_pure(args[0]),
-                    MonadContext::IO => self.lower_builtin_return(args[0]),
+                match self.current_transformer_layer() {
+                    TransformerLayer::ReaderT => self.lower_builtin_reader_t_pure(args[0]),
+                    TransformerLayer::StateT => self.lower_builtin_state_t_pure(args[0]),
+                    TransformerLayer::ExceptT => self.lower_builtin_except_t_pure(args[0]),
+                    TransformerLayer::WriterT => self.lower_builtin_writer_t_pure(args[0]),
+                    TransformerLayer::IO => self.lower_builtin_return(args[0]),
                 }
             }
 
@@ -8060,10 +8696,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         m_expr: &Expr,
         r_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.push_monad_context(MonadContext::ReaderT);
+        self.push_transformer_layer(TransformerLayer::ReaderT);
         let m_val = self.lower_expr(m_expr)?
             .ok_or_else(|| CodegenError::Internal("runReaderT: m has no value".to_string()))?;
-        self.pop_monad_context();
+        self.pop_transformer_layer();
         let r_val = self.lower_expr(r_expr)?
             .ok_or_else(|| CodegenError::Internal("runReaderT: r has no value".to_string()))?;
 
@@ -8521,10 +9157,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         m_expr: &Expr,
         s_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.push_monad_context(MonadContext::StateT);
+        self.push_transformer_layer(TransformerLayer::StateT);
         let m_val = self.lower_expr(m_expr)?
             .ok_or_else(|| CodegenError::Internal("runStateT: m has no value".to_string()))?;
-        self.pop_monad_context();
+        self.pop_transformer_layer();
         let s_val = self.lower_expr(s_expr)?
             .ok_or_else(|| CodegenError::Internal("runStateT: s has no value".to_string()))?;
 
@@ -9094,10 +9730,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         &mut self,
         m_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.push_monad_context(MonadContext::ExceptT);
+        self.push_transformer_layer(TransformerLayer::ExceptT);
         let m_val = self.lower_expr(m_expr)?
             .ok_or_else(|| CodegenError::Internal("runExceptT: m has no value".to_string()))?;
-        self.pop_monad_context();
+        self.pop_transformer_layer();
 
         let m_ptr = match m_val {
             BasicValueEnum::PointerValue(p) => p,
@@ -9645,6 +10281,50 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(closure_ptr.into()))
     }
 
+    /// ExceptT bind implementation with pre-lowered values
+    fn lower_except_t_bind_impl(
+        &mut self,
+        m_val: BasicValueEnum<'ctx>,
+        k_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_bind";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        // Function body is generated by lower_builtin_except_t_bind if not already present
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let k_ptr = self.value_to_ptr(k_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT then implementation with pre-lowered values
+    fn lower_except_t_then_impl(
+        &mut self,
+        m1_val: BasicValueEnum<'ctx>,
+        m2_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_then";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        // Function body is generated by lower_builtin_except_t_then if not already present
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m1_ptr = self.value_to_ptr(m1_val)?;
+        let m2_ptr = self.value_to_ptr(m2_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m1_ptr.into()),
+            (VarId::new(900001), m2_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
     // ========================================================================
     // WriterT Transformer Operations
     // ========================================================================
@@ -9654,10 +10334,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         &mut self,
         m_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        self.push_monad_context(MonadContext::WriterT);
+        self.push_transformer_layer(TransformerLayer::WriterT);
         let m_val = self.lower_expr(m_expr)?
             .ok_or_else(|| CodegenError::Internal("runWriterT: m has no value".to_string()))?;
-        self.pop_monad_context();
+        self.pop_transformer_layer();
 
         let m_ptr = match m_val {
             BasicValueEnum::PointerValue(p) => p,
@@ -9902,6 +10582,46 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 .map_err(|e| CodegenError::Internal(format!("writer_t_then return: {:?}", e)))?;
             if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
         }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m1_ptr = self.value_to_ptr(m1_val)?;
+        let m2_ptr = self.value_to_ptr(m2_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m1_ptr.into()),
+            (VarId::new(900001), m2_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT bind implementation with pre-lowered values
+    fn lower_writer_t_bind_impl(
+        &mut self,
+        m_val: BasicValueEnum<'ctx>,
+        k_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_name = "bhc_writer_t_bind";
+        let func = self.get_or_create_transformer_fn(fn_name);
+        // Function body is generated by lower_builtin_writer_t_bind if not already present
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let k_ptr = self.value_to_ptr(k_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT then implementation with pre-lowered values
+    fn lower_writer_t_then_impl(
+        &mut self,
+        m1_val: BasicValueEnum<'ctx>,
+        m2_val: BasicValueEnum<'ctx>,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_name = "bhc_writer_t_then";
+        let func = self.get_or_create_transformer_fn(fn_name);
+        // Function body is generated by lower_builtin_writer_t_then if not already present
 
         let fn_ptr = func.as_global_value().as_pointer_value();
         let m1_ptr = self.value_to_ptr(m1_val)?;
@@ -17669,8 +18389,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
         // Pre-pass: detect which functions use StateT/ReaderT operations.
         // This must happen before lowering so that callers of these functions
-        // can detect the correct monad context.
-        self.detect_monad_functions(&core_module.bindings);
+        // can detect the correct transformer layer.
+        self.detect_transformer_functions(&core_module.bindings);
 
         // First pass: declare all top-level functions
         for bind in &core_module.bindings {
@@ -17686,33 +18406,33 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Pre-pass: scan all bindings to detect which functions use StateT/ReaderT/ExceptT/WriterT.
-    /// This populates the function sets so that `detect_monad_from_expr` can recognize
+    /// This populates the function sets so that `detect_operation_layer` can recognize
     /// calls to user-defined monadic functions.
-    fn detect_monad_functions(&mut self, bindings: &[Bind]) {
+    fn detect_transformer_functions(&mut self, bindings: &[Bind]) {
         // First pass: detect direct users of get/put/ask/throwE/tell/etc.
         for bind in bindings {
             match bind {
                 Bind::NonRec(var, expr) => {
-                    if let Some(ctx) = self.detect_monad_context_for_body(expr) {
+                    if let Some(layer) = self.detect_transformer_for_body(expr) {
                         let name = var.name.as_str().to_string();
-                        match ctx {
-                            MonadContext::StateT => { self.state_t_functions.insert(name); }
-                            MonadContext::ReaderT => { self.reader_t_functions.insert(name); }
-                            MonadContext::ExceptT => { self.except_t_functions.insert(name); }
-                            MonadContext::WriterT => { self.writer_t_functions.insert(name); }
+                        match layer {
+                            TransformerLayer::StateT => { self.state_t_functions.insert(name); }
+                            TransformerLayer::ReaderT => { self.reader_t_functions.insert(name); }
+                            TransformerLayer::ExceptT => { self.except_t_functions.insert(name); }
+                            TransformerLayer::WriterT => { self.writer_t_functions.insert(name); }
                             _ => {}
                         }
                     }
                 }
                 Bind::Rec(pairs) => {
                     for (var, expr) in pairs {
-                        if let Some(ctx) = self.detect_monad_context_for_body(expr) {
+                        if let Some(layer) = self.detect_transformer_for_body(expr) {
                             let name = var.name.as_str().to_string();
-                            match ctx {
-                                MonadContext::StateT => { self.state_t_functions.insert(name); }
-                                MonadContext::ReaderT => { self.reader_t_functions.insert(name); }
-                                MonadContext::ExceptT => { self.except_t_functions.insert(name); }
-                                MonadContext::WriterT => { self.writer_t_functions.insert(name); }
+                            match layer {
+                                TransformerLayer::StateT => { self.state_t_functions.insert(name); }
+                                TransformerLayer::ReaderT => { self.reader_t_functions.insert(name); }
+                                TransformerLayer::ExceptT => { self.except_t_functions.insert(name); }
+                                TransformerLayer::WriterT => { self.writer_t_functions.insert(name); }
                                 _ => {}
                             }
                         }
@@ -17734,21 +18454,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                             && !self.except_t_functions.contains(&name)
                             && !self.writer_t_functions.contains(&name)
                         {
-                            if let Some(ctx) = self.detect_monad_context_for_calls(expr) {
-                                match ctx {
-                                    MonadContext::StateT => {
+                            if let Some(layer) = self.detect_transformer_for_calls(expr) {
+                                match layer {
+                                    TransformerLayer::StateT => {
                                         self.state_t_functions.insert(name);
                                         changed = true;
                                     }
-                                    MonadContext::ReaderT => {
+                                    TransformerLayer::ReaderT => {
                                         self.reader_t_functions.insert(name);
                                         changed = true;
                                     }
-                                    MonadContext::ExceptT => {
+                                    TransformerLayer::ExceptT => {
                                         self.except_t_functions.insert(name);
                                         changed = true;
                                     }
-                                    MonadContext::WriterT => {
+                                    TransformerLayer::WriterT => {
                                         self.writer_t_functions.insert(name);
                                         changed = true;
                                     }
@@ -17765,21 +18485,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                 && !self.except_t_functions.contains(&name)
                                 && !self.writer_t_functions.contains(&name)
                             {
-                                if let Some(ctx) = self.detect_monad_context_for_calls(expr) {
-                                    match ctx {
-                                        MonadContext::StateT => {
+                                if let Some(layer) = self.detect_transformer_for_calls(expr) {
+                                    match layer {
+                                        TransformerLayer::StateT => {
                                             self.state_t_functions.insert(name);
                                             changed = true;
                                         }
-                                        MonadContext::ReaderT => {
+                                        TransformerLayer::ReaderT => {
                                             self.reader_t_functions.insert(name);
                                             changed = true;
                                         }
-                                        MonadContext::ExceptT => {
+                                        TransformerLayer::ExceptT => {
                                             self.except_t_functions.insert(name);
                                             changed = true;
                                         }
-                                        MonadContext::WriterT => {
+                                        TransformerLayer::WriterT => {
                                             self.writer_t_functions.insert(name);
                                             changed = true;
                                         }
@@ -17795,43 +18515,43 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Detect if an expression calls any known transformer function.
-    fn detect_monad_context_for_calls(&self, expr: &Expr) -> Option<MonadContext> {
+    fn detect_transformer_for_calls(&self, expr: &Expr) -> Option<TransformerLayer> {
         match expr {
             Expr::Var(v, _) => {
                 let name = v.name.as_str();
                 if self.state_t_functions.contains(name) {
-                    Some(MonadContext::StateT)
+                    Some(TransformerLayer::StateT)
                 } else if self.reader_t_functions.contains(name) {
-                    Some(MonadContext::ReaderT)
+                    Some(TransformerLayer::ReaderT)
                 } else if self.except_t_functions.contains(name) {
-                    Some(MonadContext::ExceptT)
+                    Some(TransformerLayer::ExceptT)
                 } else if self.writer_t_functions.contains(name) {
-                    Some(MonadContext::WriterT)
+                    Some(TransformerLayer::WriterT)
                 } else {
                     None
                 }
             }
             Expr::App(func, arg, _) => {
-                self.detect_monad_context_for_calls(func)
-                    .or_else(|| self.detect_monad_context_for_calls(arg))
+                self.detect_transformer_for_calls(func)
+                    .or_else(|| self.detect_transformer_for_calls(arg))
             }
-            Expr::Lam(_, body, _) => self.detect_monad_context_for_calls(body),
+            Expr::Lam(_, body, _) => self.detect_transformer_for_calls(body),
             Expr::Let(bind, body, _) => {
                 let in_bind = match bind.as_ref() {
-                    Bind::NonRec(_, e) => self.detect_monad_context_for_calls(e),
+                    Bind::NonRec(_, e) => self.detect_transformer_for_calls(e),
                     Bind::Rec(bindings) => bindings
                         .iter()
-                        .find_map(|(_, e)| self.detect_monad_context_for_calls(e)),
+                        .find_map(|(_, e)| self.detect_transformer_for_calls(e)),
                 };
-                in_bind.or_else(|| self.detect_monad_context_for_calls(body))
+                in_bind.or_else(|| self.detect_transformer_for_calls(body))
             }
             Expr::Case(scrut, alts, _, _) => {
-                self.detect_monad_context_for_calls(scrut).or_else(|| {
+                self.detect_transformer_for_calls(scrut).or_else(|| {
                     alts.iter()
-                        .find_map(|alt| self.detect_monad_context_for_calls(&alt.rhs))
+                        .find_map(|alt| self.detect_transformer_for_calls(&alt.rhs))
                 })
             }
-            Expr::TyApp(e, _, _) => self.detect_monad_context_for_calls(e),
+            Expr::TyApp(e, _, _) => self.detect_transformer_for_calls(e),
             _ => None,
         }
     }
@@ -17993,25 +18713,25 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         self.builder().position_at_end(entry);
 
         // Detect if this function body uses StateT/ReaderT operations.
-        // If so, push the appropriate monad context so that >>= and >>
+        // If so, push the appropriate transformer layer so that >>= and >>
         // dispatch correctly for user-defined helper functions, and record
         // this function as a StateT/ReaderT function so callers can detect it.
-        let monad_ctx = self.detect_monad_context_for_body(expr);
-        if let Some(ctx) = monad_ctx {
+        let transformer_layer = self.detect_transformer_for_body(expr);
+        if let Some(layer) = transformer_layer {
             let fn_name = var.name.as_str().to_string();
-            match ctx {
-                MonadContext::StateT => { self.state_t_functions.insert(fn_name); }
-                MonadContext::ReaderT => { self.reader_t_functions.insert(fn_name); }
+            match layer {
+                TransformerLayer::StateT => { self.state_t_functions.insert(fn_name); }
+                TransformerLayer::ReaderT => { self.reader_t_functions.insert(fn_name); }
                 _ => {}
             }
-            self.push_monad_context(ctx);
+            self.push_transformer_layer(layer);
         }
 
         // Lower the function body, handling lambda parameters
         let result = self.lower_function_body(fn_val, expr)?;
 
-        if monad_ctx.is_some() {
-            self.pop_monad_context();
+        if transformer_layer.is_some() {
+            self.pop_transformer_layer();
         }
 
         // Check if the current block already has a terminator (e.g., from `error` or `unreachable`)
