@@ -1005,6 +1005,9 @@ impl LowerContext {
             (10061, "runExceptT"),
             (10062, "throwE"),
             (10063, "catchE"),
+            // MonadError standard names (mtl-style aliases)
+            (10071, "throwError"),
+            (10072, "catchError"),
             // WriterT (10080-10095)
             (10080, "WriterT"),
             (10081, "runWriterT"),

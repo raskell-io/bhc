@@ -4213,6 +4213,33 @@ impl Builtins {
             ),
         );
 
+        // === MonadError standard names (mtl-style aliases for throwE/catchE) ===
+        // throwError :: e -> ExceptT e m a (alias for throwE)
+        env.register_value(
+            DefId::new(10071),
+            Symbol::intern("throwError"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(Ty::Var(e_var.clone()), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // catchError :: ExceptT e m a -> (e -> ExceptT e m a) -> ExceptT e m a (alias for catchE)
+        env.register_value(
+            DefId::new(10072),
+            Symbol::intern("catchError"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(
+                    except_t_e_m_a.clone(),
+                    Ty::fun(
+                        Ty::fun(Ty::Var(e_var.clone()), except_t_e_m_a.clone()),
+                        except_t_e_m_a.clone(),
+                    ),
+                ),
+            ),
+        );
+
         // === WriterT (DefIds 10080-10095) ===
         // WriterT w m a ≅ m (a, w)
         let w_var = TyVar::new_star(BUILTIN_TYVAR_W);

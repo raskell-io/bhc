@@ -220,7 +220,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     | "StateT.>>=" | "StateT.>>" | "StateT.pure"
                     | "StateT.fmap" | "StateT.<*>"
                     | "StateT.lift" | "StateT.liftIO" => MonadContext::StateT,
-                    "throwE" | "catchE"
+                    "throwE" | "catchE" | "throwError" | "catchError"
                     | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure"
                     | "ExceptT.fmap" | "ExceptT.<*>"
                     | "ExceptT.lift" | "ExceptT.liftIO" => MonadContext::ExceptT,
@@ -262,7 +262,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     | "StateT.>>=" | "StateT.>>" | "StateT.pure" => Some(MonadContext::StateT),
                     "ask" | "asks" | "local"
                     | "ReaderT.>>=" | "ReaderT.>>" | "ReaderT.pure" => Some(MonadContext::ReaderT),
-                    "throwE" | "catchE"
+                    "throwE" | "catchE" | "throwError" | "catchError"
                     | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure" => Some(MonadContext::ExceptT),
                     "tell"
                     | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure" => Some(MonadContext::WriterT),
@@ -1907,6 +1907,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "ExceptT.liftIO" => Some(1),
             "throwE" => Some(1),
             "catchE" => Some(2),
+            // MonadError standard names (mtl-style aliases)
+            "throwError" => Some(1),
+            "catchError" => Some(2),
 
             // WriterT operations
             "WriterT" => Some(1),
@@ -2448,6 +2451,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "ExceptT.lift" | "ExceptT.liftIO" => self.lower_builtin_except_t_lift(args[0]),
             "throwE" => self.lower_builtin_throw_e(args[0]),
             "catchE" => self.lower_builtin_catch_e(args[0], args[1]),
+            // MonadError standard names (mtl-style aliases)
+            "throwError" => self.lower_builtin_throw_e(args[0]),
+            "catchError" => self.lower_builtin_catch_e(args[0], args[1]),
 
             // WriterT operations
             "WriterT" => self.lower_expr(args[0]), // newtype wrap = identity

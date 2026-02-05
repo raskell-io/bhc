@@ -207,6 +207,11 @@ fn test_tier3_writer_t_native() {
     run_native_test("tier3_io/writer_t", Profile::Default);
 }
 
+#[test]
+fn test_tier3_monad_error_native() {
+    run_native_test("tier3_io/monad_error", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================
