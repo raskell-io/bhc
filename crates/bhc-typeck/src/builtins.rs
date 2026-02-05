@@ -4011,6 +4011,393 @@ impl Builtins {
                 ),
             ),
         );
+
+        // === ExceptT (DefIds 10060-10075) ===
+        // ExceptT e m a ≅ m (Either e a)
+        let e_var = TyVar::new_star(BUILTIN_TYVAR_E);
+        let except_t_con = TyCon::new(
+            Symbol::intern("ExceptT"),
+            Kind::Arrow(
+                Box::new(Kind::Star),
+                Box::new(Kind::Arrow(
+                    Box::new(m_kind.clone()),
+                    Box::new(m_kind.clone()),
+                )),
+            ),
+        );
+
+        // ExceptT e m a
+        let except_t_e_m_a = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(except_t_con.clone())),
+                    Box::new(Ty::Var(e_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::Var(a.clone())),
+        );
+
+        // Either e a
+        let either_con = TyCon::new(Symbol::intern("Either"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)))));
+        let either_e_a = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::Con(either_con.clone())),
+                Box::new(Ty::Var(e_var.clone())),
+            )),
+            Box::new(Ty::Var(a.clone())),
+        );
+        let m_either_e_a = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(either_e_a.clone()));
+
+        // ExceptT :: m (Either e a) -> ExceptT e m a
+        env.register_value(
+            DefId::new(10060),
+            Symbol::intern("ExceptT"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(m_either_e_a.clone(), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // runExceptT :: ExceptT e m a -> m (Either e a)
+        env.register_value(
+            DefId::new(10061),
+            Symbol::intern("runExceptT"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(except_t_e_m_a.clone(), m_either_e_a.clone()),
+            ),
+        );
+
+        // throwE :: e -> ExceptT e m a
+        env.register_value(
+            DefId::new(10062),
+            Symbol::intern("throwE"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(Ty::Var(e_var.clone()), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // catchE :: ExceptT e m a -> (e -> ExceptT e m a) -> ExceptT e m a
+        env.register_value(
+            DefId::new(10063),
+            Symbol::intern("catchE"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(
+                    except_t_e_m_a.clone(),
+                    Ty::fun(
+                        Ty::fun(Ty::Var(e_var.clone()), except_t_e_m_a.clone()),
+                        except_t_e_m_a.clone(),
+                    ),
+                ),
+            ),
+        );
+
+        // ExceptT e m ()
+        let except_t_e_m_unit = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(except_t_con.clone())),
+                    Box::new(Ty::Var(e_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::unit()),
+        );
+
+        // ExceptT.pure :: a -> ExceptT e m a (uses return pattern)
+        env.register_value(
+            DefId::new(10064),
+            Symbol::intern("ExceptT.pure"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(Ty::Var(a.clone()), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // ExceptT.>>= :: ExceptT e m a -> (a -> ExceptT e m b) -> ExceptT e m b
+        let b_var = TyVar::new_star(BUILTIN_TYVAR_B);
+        let except_t_e_m_b = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(except_t_con.clone())),
+                    Box::new(Ty::Var(e_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::Var(b_var.clone())),
+        );
+        env.register_value(
+            DefId::new(10065),
+            Symbol::intern("ExceptT.>>="),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    except_t_e_m_a.clone(),
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), except_t_e_m_b.clone()),
+                        except_t_e_m_b.clone(),
+                    ),
+                ),
+            ),
+        );
+
+        // ExceptT.>> :: ExceptT e m a -> ExceptT e m b -> ExceptT e m b
+        env.register_value(
+            DefId::new(10066),
+            Symbol::intern("ExceptT.>>"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    except_t_e_m_a.clone(),
+                    Ty::fun(except_t_e_m_b.clone(), except_t_e_m_b.clone()),
+                ),
+            ),
+        );
+
+        // ExceptT.fmap :: (a -> b) -> ExceptT e m a -> ExceptT e m b
+        env.register_value(
+            DefId::new(10067),
+            Symbol::intern("ExceptT.fmap"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    Ty::fun(Ty::Var(a.clone()), Ty::Var(b_var.clone())),
+                    Ty::fun(except_t_e_m_a.clone(), except_t_e_m_b.clone()),
+                ),
+            ),
+        );
+
+        // ExceptT.<*> :: ExceptT e m (a -> b) -> ExceptT e m a -> ExceptT e m b
+        let except_t_e_m_a_to_b = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(except_t_con.clone())),
+                    Box::new(Ty::Var(e_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::fun(Ty::Var(a.clone()), Ty::Var(b_var.clone()))),
+        );
+        env.register_value(
+            DefId::new(10068),
+            Symbol::intern("ExceptT.<*>"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    except_t_e_m_a_to_b,
+                    Ty::fun(except_t_e_m_a.clone(), except_t_e_m_b.clone()),
+                ),
+            ),
+        );
+
+        // ExceptT.lift :: m a -> ExceptT e m a
+        env.register_value(
+            DefId::new(10069),
+            Symbol::intern("ExceptT.lift"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(ma(&m, &a), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // ExceptT.liftIO :: IO a -> ExceptT e m a
+        env.register_value(
+            DefId::new(10070),
+            Symbol::intern("ExceptT.liftIO"),
+            Scheme::poly(
+                vec![e_var.clone(), m.clone(), a.clone()],
+                Ty::fun(self.io_of(Ty::Var(a.clone())), except_t_e_m_a.clone()),
+            ),
+        );
+
+        // === WriterT (DefIds 10080-10095) ===
+        // WriterT w m a ≅ m (a, w)
+        let w_var = TyVar::new_star(BUILTIN_TYVAR_W);
+        let writer_t_con = TyCon::new(
+            Symbol::intern("WriterT"),
+            Kind::Arrow(
+                Box::new(Kind::Star),
+                Box::new(Kind::Arrow(
+                    Box::new(m_kind.clone()),
+                    Box::new(m_kind.clone()),
+                )),
+            ),
+        );
+
+        // WriterT w m a
+        let writer_t_w_m_a = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(writer_t_con.clone())),
+                    Box::new(Ty::Var(w_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::Var(a.clone())),
+        );
+
+        // (a, w) pair
+        let pair_a_w = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(w_var.clone())]);
+        let m_pair_a_w = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(pair_a_w.clone()));
+
+        // WriterT :: m (a, w) -> WriterT w m a
+        env.register_value(
+            DefId::new(10080),
+            Symbol::intern("WriterT"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(m_pair_a_w.clone(), writer_t_w_m_a.clone()),
+            ),
+        );
+
+        // runWriterT :: WriterT w m a -> m (a, w)
+        env.register_value(
+            DefId::new(10081),
+            Symbol::intern("runWriterT"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(writer_t_w_m_a.clone(), m_pair_a_w.clone()),
+            ),
+        );
+
+        // tell :: w -> WriterT w m ()
+        let writer_t_w_m_unit = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(writer_t_con.clone())),
+                    Box::new(Ty::Var(w_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::unit()),
+        );
+        env.register_value(
+            DefId::new(10082),
+            Symbol::intern("tell"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone()],
+                Ty::fun(Ty::Var(w_var.clone()), writer_t_w_m_unit.clone()),
+            ),
+        );
+
+        // execWriterT :: WriterT w m a -> m w
+        let m_w = Ty::App(Box::new(Ty::Var(m.clone())), Box::new(Ty::Var(w_var.clone())));
+        env.register_value(
+            DefId::new(10083),
+            Symbol::intern("execWriterT"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(writer_t_w_m_a.clone(), m_w),
+            ),
+        );
+
+        // WriterT.pure :: a -> WriterT w m a
+        env.register_value(
+            DefId::new(10084),
+            Symbol::intern("WriterT.pure"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(Ty::Var(a.clone()), writer_t_w_m_a.clone()),
+            ),
+        );
+
+        // WriterT.>>= :: WriterT w m a -> (a -> WriterT w m b) -> WriterT w m b
+        let writer_t_w_m_b = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(writer_t_con.clone())),
+                    Box::new(Ty::Var(w_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::Var(b_var.clone())),
+        );
+        env.register_value(
+            DefId::new(10085),
+            Symbol::intern("WriterT.>>="),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    writer_t_w_m_a.clone(),
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), writer_t_w_m_b.clone()),
+                        writer_t_w_m_b.clone(),
+                    ),
+                ),
+            ),
+        );
+
+        // WriterT.>> :: WriterT w m a -> WriterT w m b -> WriterT w m b
+        env.register_value(
+            DefId::new(10086),
+            Symbol::intern("WriterT.>>"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    writer_t_w_m_a.clone(),
+                    Ty::fun(writer_t_w_m_b.clone(), writer_t_w_m_b.clone()),
+                ),
+            ),
+        );
+
+        // WriterT.fmap :: (a -> b) -> WriterT w m a -> WriterT w m b
+        env.register_value(
+            DefId::new(10087),
+            Symbol::intern("WriterT.fmap"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    Ty::fun(Ty::Var(a.clone()), Ty::Var(b_var.clone())),
+                    Ty::fun(writer_t_w_m_a.clone(), writer_t_w_m_b.clone()),
+                ),
+            ),
+        );
+
+        // WriterT.<*> :: WriterT w m (a -> b) -> WriterT w m a -> WriterT w m b
+        let writer_t_w_m_a_to_b = Ty::App(
+            Box::new(Ty::App(
+                Box::new(Ty::App(
+                    Box::new(Ty::Con(writer_t_con.clone())),
+                    Box::new(Ty::Var(w_var.clone())),
+                )),
+                Box::new(Ty::Var(m.clone())),
+            )),
+            Box::new(Ty::fun(Ty::Var(a.clone()), Ty::Var(b_var.clone()))),
+        );
+        env.register_value(
+            DefId::new(10088),
+            Symbol::intern("WriterT.<*>"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone(), b_var.clone()],
+                Ty::fun(
+                    writer_t_w_m_a_to_b,
+                    Ty::fun(writer_t_w_m_a.clone(), writer_t_w_m_b.clone()),
+                ),
+            ),
+        );
+
+        // WriterT.lift :: m a -> WriterT w m a
+        env.register_value(
+            DefId::new(10089),
+            Symbol::intern("WriterT.lift"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(ma(&m, &a), writer_t_w_m_a.clone()),
+            ),
+        );
+
+        // WriterT.liftIO :: IO a -> WriterT w m a
+        env.register_value(
+            DefId::new(10090),
+            Symbol::intern("WriterT.liftIO"),
+            Scheme::poly(
+                vec![w_var.clone(), m.clone(), a.clone()],
+                Ty::fun(self.io_of(Ty::Var(a.clone())), writer_t_w_m_a.clone()),
+            ),
+        );
     }
 
     /// Register dynamic tensor operations in the environment.
@@ -4180,6 +4567,8 @@ pub(crate) const BUILTIN_TYVAR_M: u32 = 0xFFFF_0005; // For monad type construct
 pub(crate) const BUILTIN_TYVAR_F: u32 = 0xFFFF_0006; // For functor type constructor variable
 const BUILTIN_TYVAR_S: u32 = 0xFFFF_0007; // For state type variable
 const BUILTIN_TYVAR_T: u32 = 0xFFFF_0008; // For transformer type constructor variable
+const BUILTIN_TYVAR_E: u32 = 0xFFFF_0009; // For error type variable (ExceptT)
+const BUILTIN_TYVAR_W: u32 = 0xFFFF_000A; // For writer output type variable (WriterT)
 
 #[cfg(test)]
 mod tests {

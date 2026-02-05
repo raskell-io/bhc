@@ -1000,6 +1000,16 @@ impl LowerContext {
             (10053, "gets"),
             (10054, "evalStateT"),
             (10055, "execStateT"),
+            // ExceptT (10060-10075)
+            (10060, "ExceptT"),
+            (10061, "runExceptT"),
+            (10062, "throwE"),
+            (10063, "catchE"),
+            // WriterT (10080-10095)
+            (10080, "WriterT"),
+            (10081, "runWriterT"),
+            (10082, "tell"),
+            (10083, "execWriterT"),
         ];
 
         for &(id, name) in transformer_builtins {
@@ -1010,8 +1020,8 @@ impl LowerContext {
         }
 
         // Ensure next_def_id is past the transformer range
-        if self.next_def_id <= 10056 {
-            self.next_def_id = 10056;
+        if self.next_def_id <= 10096 {
+            self.next_def_id = 10096;
         }
     }
 

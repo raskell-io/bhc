@@ -197,6 +197,16 @@ fn test_tier3_milestone_d_csv_parser_native() {
     run_native_test("tier3_io/milestone_d_csv_parser", Profile::Default);
 }
 
+#[test]
+fn test_tier3_except_t_native() {
+    run_native_test("tier3_io/except_t", Profile::Default);
+}
+
+#[test]
+fn test_tier3_writer_t_native() {
+    run_native_test("tier3_io/writer_t", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

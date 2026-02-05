@@ -91,6 +91,8 @@ enum MonadContext {
     IO,
     ReaderT,
     StateT,
+    ExceptT,
+    WriterT,
 }
 
 /// State for lowering Core IR to LLVM IR.
@@ -127,6 +129,10 @@ pub struct Lowering<'ctx, 'm> {
     state_t_functions: FxHashSet<String>,
     /// Set of function names whose bodies use ReaderT operations.
     reader_t_functions: FxHashSet<String>,
+    /// Set of function names whose bodies use ExceptT operations.
+    except_t_functions: FxHashSet<String>,
+    /// Set of function names whose bodies use WriterT operations.
+    writer_t_functions: FxHashSet<String>,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -145,6 +151,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             monad_context_stack: vec![MonadContext::IO],
             state_t_functions: FxHashSet::default(),
             reader_t_functions: FxHashSet::default(),
+            except_t_functions: FxHashSet::default(),
+            writer_t_functions: FxHashSet::default(),
         };
         lowering.declare_rts_functions();
         lowering
@@ -173,6 +181,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             monad_context_stack: vec![MonadContext::IO],
             state_t_functions: FxHashSet::default(),
             reader_t_functions: FxHashSet::default(),
+            except_t_functions: FxHashSet::default(),
+            writer_t_functions: FxHashSet::default(),
         };
         lowering.declare_rts_functions();
         lowering.declare_external_symbols(imported_symbols)?;
@@ -210,13 +220,25 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     | "StateT.>>=" | "StateT.>>" | "StateT.pure"
                     | "StateT.fmap" | "StateT.<*>"
                     | "StateT.lift" | "StateT.liftIO" => MonadContext::StateT,
+                    "throwE" | "catchE"
+                    | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure"
+                    | "ExceptT.fmap" | "ExceptT.<*>"
+                    | "ExceptT.lift" | "ExceptT.liftIO" => MonadContext::ExceptT,
+                    "tell"
+                    | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure"
+                    | "WriterT.fmap" | "WriterT.<*>"
+                    | "WriterT.lift" | "WriterT.liftIO" => MonadContext::WriterT,
                     _ => {
                         // Check if this is a user-defined function that was detected
-                        // as using StateT/ReaderT operations in its body.
+                        // as using StateT/ReaderT/ExceptT/WriterT operations in its body.
                         if self.state_t_functions.contains(name) {
                             MonadContext::StateT
                         } else if self.reader_t_functions.contains(name) {
                             MonadContext::ReaderT
+                        } else if self.except_t_functions.contains(name) {
+                            MonadContext::ExceptT
+                        } else if self.writer_t_functions.contains(name) {
+                            MonadContext::WriterT
                         } else {
                             self.current_monad_context()
                         }
@@ -228,9 +250,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
-    /// Check whether an expression tree contains StateT or ReaderT operations.
+    /// Check whether an expression tree contains StateT/ReaderT/ExceptT/WriterT operations.
     /// Used to determine the monad context for top-level function definitions
-    /// that are used as StateT/ReaderT computations.
+    /// that are used as transformer computations.
     fn detect_monad_context_for_body(&self, expr: &Expr) -> Option<MonadContext> {
         match expr {
             Expr::Var(v, _) => {
@@ -240,6 +262,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     | "StateT.>>=" | "StateT.>>" | "StateT.pure" => Some(MonadContext::StateT),
                     "ask" | "asks" | "local"
                     | "ReaderT.>>=" | "ReaderT.>>" | "ReaderT.pure" => Some(MonadContext::ReaderT),
+                    "throwE" | "catchE"
+                    | "ExceptT.>>=" | "ExceptT.>>" | "ExceptT.pure" => Some(MonadContext::ExceptT),
+                    "tell"
+                    | "WriterT.>>=" | "WriterT.>>" | "WriterT.pure" => Some(MonadContext::WriterT),
                     _ => None,
                 }
             }
@@ -1869,6 +1895,32 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "evalStateT" => Some(2),
             "execStateT" => Some(2),
 
+            // ExceptT operations
+            "ExceptT" => Some(1),
+            "runExceptT" => Some(1),
+            "ExceptT.fmap" => Some(2),
+            "ExceptT.pure" => Some(1),
+            "ExceptT.<*>" => Some(2),
+            "ExceptT.>>=" => Some(2),
+            "ExceptT.>>" => Some(2),
+            "ExceptT.lift" => Some(1),
+            "ExceptT.liftIO" => Some(1),
+            "throwE" => Some(1),
+            "catchE" => Some(2),
+
+            // WriterT operations
+            "WriterT" => Some(1),
+            "runWriterT" => Some(1),
+            "WriterT.fmap" => Some(2),
+            "WriterT.pure" => Some(1),
+            "WriterT.<*>" => Some(2),
+            "WriterT.>>=" => Some(2),
+            "WriterT.>>" => Some(2),
+            "WriterT.lift" => Some(1),
+            "WriterT.liftIO" => Some(1),
+            "tell" => Some(1),
+            "execWriterT" => Some(1),
+
             _ => {
                 // Check for field selector pattern: $sel_N where N is a digit
                 if name.starts_with("$sel_") {
@@ -1987,6 +2039,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let result = match monad {
                     MonadContext::ReaderT => self.lower_builtin_reader_t_bind(args[0], args[1]),
                     MonadContext::StateT => self.lower_builtin_state_t_bind(args[0], args[1]),
+                    MonadContext::ExceptT => self.lower_builtin_except_t_bind(args[0], args[1]),
+                    MonadContext::WriterT => self.lower_builtin_writer_t_bind(args[0], args[1]),
                     MonadContext::IO => self.lower_builtin_bind(args[0], args[1]),
                 };
                 self.pop_monad_context();
@@ -1998,6 +2052,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let result = match monad {
                     MonadContext::ReaderT => self.lower_builtin_reader_t_then(args[0], args[1]),
                     MonadContext::StateT => self.lower_builtin_state_t_then(args[0], args[1]),
+                    MonadContext::ExceptT => self.lower_builtin_except_t_then(args[0], args[1]),
+                    MonadContext::WriterT => self.lower_builtin_writer_t_then(args[0], args[1]),
                     MonadContext::IO => self.lower_builtin_then(args[0], args[1]),
                 };
                 self.pop_monad_context();
@@ -2007,6 +2063,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 match self.current_monad_context() {
                     MonadContext::ReaderT => self.lower_builtin_reader_t_pure(args[0]),
                     MonadContext::StateT => self.lower_builtin_state_t_pure(args[0]),
+                    MonadContext::ExceptT => self.lower_builtin_except_t_pure(args[0]),
+                    MonadContext::WriterT => self.lower_builtin_writer_t_pure(args[0]),
                     MonadContext::IO => self.lower_builtin_return(args[0]),
                 }
             }
@@ -2378,6 +2436,30 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "gets" => self.lower_builtin_gets(args[0]),
             "evalStateT" => self.lower_builtin_eval_state_t(args[0], args[1]),
             "execStateT" => self.lower_builtin_exec_state_t(args[0], args[1]),
+
+            // ExceptT operations
+            "ExceptT" => self.lower_expr(args[0]), // newtype wrap = identity
+            "runExceptT" => self.lower_builtin_run_except_t(args[0]),
+            "ExceptT.pure" => self.lower_builtin_except_t_pure(args[0]),
+            "ExceptT.>>=" => self.lower_builtin_except_t_bind(args[0], args[1]),
+            "ExceptT.>>" => self.lower_builtin_except_t_then(args[0], args[1]),
+            "ExceptT.fmap" => self.lower_builtin_except_t_fmap(args[0], args[1]),
+            "ExceptT.<*>" => self.lower_builtin_except_t_ap(args[0], args[1]),
+            "ExceptT.lift" | "ExceptT.liftIO" => self.lower_builtin_except_t_lift(args[0]),
+            "throwE" => self.lower_builtin_throw_e(args[0]),
+            "catchE" => self.lower_builtin_catch_e(args[0], args[1]),
+
+            // WriterT operations
+            "WriterT" => self.lower_expr(args[0]), // newtype wrap = identity
+            "runWriterT" => self.lower_builtin_run_writer_t(args[0]),
+            "WriterT.pure" => self.lower_builtin_writer_t_pure(args[0]),
+            "WriterT.>>=" => self.lower_builtin_writer_t_bind(args[0], args[1]),
+            "WriterT.>>" => self.lower_builtin_writer_t_then(args[0], args[1]),
+            "WriterT.fmap" => self.lower_builtin_writer_t_fmap(args[0], args[1]),
+            "WriterT.<*>" => self.lower_builtin_writer_t_ap(args[0], args[1]),
+            "WriterT.lift" | "WriterT.liftIO" => self.lower_builtin_writer_t_lift(args[0]),
+            "tell" => self.lower_builtin_tell(args[0]),
+            "execWriterT" => self.lower_builtin_exec_writer_t(args[0]),
 
             _ => {
                 // Check for field selector pattern: $sel_N
@@ -7844,6 +7926,124 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    /// Helper: get or create a list append function for use in WriterT.
+    /// The function has signature: (ptr, ptr) -> ptr (list1, list2) -> appended
+    fn get_or_create_list_append_fn(&mut self) -> CodegenResult<FunctionValue<'ctx>> {
+        let fn_name = "bhc_list_append";
+        let ptr_type = self.type_mapper().ptr_type();
+
+        if let Some(existing) = self.module.llvm_module().get_function(fn_name) {
+            return Ok(existing);
+        }
+
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let func = self.module.llvm_module().add_function(fn_name, fn_type, None);
+
+        // Build the function body - implements: append xs ys = foldr (:) ys xs
+        // which reverses xs, then conses each element onto ys
+        let entry = self.llvm_ctx.append_basic_block(func, "entry");
+        let rev_header = self.llvm_ctx.append_basic_block(func, "rev_header");
+        let rev_body = self.llvm_ctx.append_basic_block(func, "rev_body");
+        let rev_exit = self.llvm_ctx.append_basic_block(func, "rev_exit");
+        let fold_header = self.llvm_ctx.append_basic_block(func, "fold_header");
+        let fold_body = self.llvm_ctx.append_basic_block(func, "fold_body");
+        let fold_exit = self.llvm_ctx.append_basic_block(func, "fold_exit");
+
+        let saved_bb = self.builder().get_insert_block();
+        self.builder().position_at_end(entry);
+
+        let list1 = func.get_nth_param(0).unwrap().into_pointer_value();
+        let list2 = func.get_nth_param(1).unwrap().into_pointer_value();
+        let tm = self.type_mapper();
+
+        // Start with empty accumulator for reverse
+        let nil = self.build_nil()?;
+        self.builder()
+            .build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        // Reverse loop header
+        self.builder().position_at_end(rev_header);
+        let rev_acc_phi = self.builder()
+            .build_phi(ptr_type, "rev_acc")
+            .map_err(|e| CodegenError::Internal(format!("append phi: {:?}", e)))?;
+        let rev_list_phi = self.builder()
+            .build_phi(ptr_type, "rev_list")
+            .map_err(|e| CodegenError::Internal(format!("append phi: {:?}", e)))?;
+
+        rev_acc_phi.add_incoming(&[(&nil, entry)]);
+        rev_list_phi.add_incoming(&[(&list1, entry)]);
+
+        let rev_current = rev_list_phi.as_basic_value().into_pointer_value();
+        let rev_tag = self.extract_adt_tag(rev_current)?;
+        let rev_is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, rev_tag, tm.i64_type().const_zero(), "rev_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("append cmp: {:?}", e)))?;
+        self.builder()
+            .build_conditional_branch(rev_is_empty, rev_exit, rev_body)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        // Reverse loop body
+        self.builder().position_at_end(rev_body);
+        let rev_head = self.extract_adt_field(rev_current, 2, 0)?;
+        let rev_tail = self.extract_adt_field(rev_current, 2, 1)?;
+        let rev_new_acc = self.build_cons(rev_head.into(), rev_acc_phi.as_basic_value())?;
+        self.builder()
+            .build_unconditional_branch(rev_header)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        rev_acc_phi.add_incoming(&[(&rev_new_acc, rev_body)]);
+        rev_list_phi.add_incoming(&[(&rev_tail, rev_body)]);
+
+        // Reverse done, start fold
+        self.builder().position_at_end(rev_exit);
+        let reversed = rev_acc_phi.as_basic_value();
+        self.builder()
+            .build_unconditional_branch(fold_header)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        // Fold loop header
+        self.builder().position_at_end(fold_header);
+        let fold_acc_phi = self.builder()
+            .build_phi(ptr_type, "fold_acc")
+            .map_err(|e| CodegenError::Internal(format!("append phi: {:?}", e)))?;
+        let fold_list_phi = self.builder()
+            .build_phi(ptr_type, "fold_list")
+            .map_err(|e| CodegenError::Internal(format!("append phi: {:?}", e)))?;
+
+        fold_acc_phi.add_incoming(&[(&list2, rev_exit)]);
+        fold_list_phi.add_incoming(&[(&reversed, rev_exit)]);
+
+        let fold_current = fold_list_phi.as_basic_value().into_pointer_value();
+        let fold_tag = self.extract_adt_tag(fold_current)?;
+        let fold_is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, fold_tag, tm.i64_type().const_zero(), "fold_is_empty")
+            .map_err(|e| CodegenError::Internal(format!("append cmp: {:?}", e)))?;
+        self.builder()
+            .build_conditional_branch(fold_is_empty, fold_exit, fold_body)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        // Fold loop body
+        self.builder().position_at_end(fold_body);
+        let fold_head = self.extract_adt_field(fold_current, 2, 0)?;
+        let fold_tail = self.extract_adt_field(fold_current, 2, 1)?;
+        let fold_new_acc = self.build_cons(fold_head.into(), fold_acc_phi.as_basic_value())?;
+        self.builder()
+            .build_unconditional_branch(fold_header)
+            .map_err(|e| CodegenError::Internal(format!("append branch: {:?}", e)))?;
+
+        fold_acc_phi.add_incoming(&[(&fold_new_acc, fold_body)]);
+        fold_list_phi.add_incoming(&[(&fold_tail, fold_body)]);
+
+        // Return result
+        self.builder().position_at_end(fold_exit);
+        self.builder().build_return(Some(&fold_acc_phi.as_basic_value()))
+            .map_err(|e| CodegenError::Internal(format!("append return: {:?}", e)))?;
+
+        if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        Ok(func)
+    }
+
     // ========================================================================
     // ReaderT Operations
     // ========================================================================
@@ -8877,6 +9077,1008 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .into_pointer_value();
         let snd = self.extract_pair_snd(pair)?;
         Ok(Some(snd.into()))
+    }
+
+    // ========================================================================
+    // ExceptT Transformer Operations
+    // ========================================================================
+
+    /// runExceptT m = m(_) — runs the computation, returns Either e a
+    fn lower_builtin_run_except_t(
+        &mut self,
+        m_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.push_monad_context(MonadContext::ExceptT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("runExceptT: m has no value".to_string()))?;
+        self.pop_monad_context();
+
+        let m_ptr = match m_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("runExceptT: expected closure".to_string())),
+        };
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let m_fn = self.extract_closure_fn_ptr(m_ptr)?;
+        let null_arg = ptr_type.const_null();
+        let result = self.builder()
+            .build_indirect_call(fn_type, m_fn, &[m_ptr.into(), null_arg.into()], "run_except_t")
+            .map_err(|e| CodegenError::Internal(format!("runExceptT call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("runExceptT: void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// ExceptT.pure x = closure \_ -> Right x
+    fn lower_builtin_except_t_pure(
+        &mut self,
+        x_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let x_val = self.lower_expr(x_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.pure: x has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_pure";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> Right(x) where x = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let x = self.extract_closure_env_elem(env, 1, 0)?;
+            // Allocate Right ADT: tag=1, arity=1
+            let right_adt = self.alloc_adt(1, 1)?;
+            self.store_adt_field(right_adt, 1, 0, x.into())?;
+            self.builder().build_return(Some(&right_adt))
+                .map_err(|e| CodegenError::Internal(format!("except_t_pure return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), x_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// throwE e = closure \_ -> Left e
+    fn lower_builtin_throw_e(
+        &mut self,
+        e_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let e_val = self.lower_expr(e_expr)?
+            .ok_or_else(|| CodegenError::Internal("throwE: e has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_throw";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> Left(e) where e = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let e = self.extract_closure_env_elem(env, 1, 0)?;
+            // Allocate Left ADT: tag=0, arity=1
+            let left_adt = self.alloc_adt(0, 1)?;
+            self.store_adt_field(left_adt, 1, 0, e.into())?;
+            self.builder().build_return(Some(&left_adt))
+                .map_err(|e| CodegenError::Internal(format!("throw_e return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let e_ptr = self.value_to_ptr(e_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), e_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT.>>= m k = closure \_ -> let either = m(_) in case tag of
+    ///   0 (Left) -> either (short-circuit)
+    ///   1 (Right) -> let a = field0(either); kr = k(a) in kr(_)
+    fn lower_builtin_except_t_bind(
+        &mut self,
+        m_expr: &Expr,
+        k_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.>>=: m has no value".to_string()))?;
+        let k_val = self.lower_expr(k_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.>>=: k has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_bind";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let right_bb = self.llvm_ctx.append_basic_block(func, "right");
+            let left_bb = self.llvm_ctx.append_basic_block(func, "left");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let k = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // either = m(_)
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let either = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), null_arg.into()], "except_bind_either")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT bind m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT bind m: void".to_string()))?
+                .into_pointer_value();
+
+            // Check tag (0 = Left, 1 = Right)
+            let tag = self.extract_adt_tag(either)?;
+            let tm = self.type_mapper();
+            let is_right = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_right")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT tag cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right, right_bb, left_bb)
+                .map_err(|e| CodegenError::Internal(format!("ExceptT branch: {:?}", e)))?;
+
+            // Left case: short-circuit, return either
+            self.builder().position_at_end(left_bb);
+            self.builder().build_return(Some(&either))
+                .map_err(|e| CodegenError::Internal(format!("except_t_bind left return: {:?}", e)))?;
+
+            // Right case: extract a, call k(a), call result(_)
+            self.builder().position_at_end(right_bb);
+            let a = self.extract_adt_field(either, 1, 0)?;
+            let k_fn = self.extract_closure_fn_ptr(k)?;
+            let kr = self.builder()
+                .build_indirect_call(fn_type, k_fn, &[k.into(), a.into()], "except_bind_kr")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT bind k: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT bind k: void".to_string()))?
+                .into_pointer_value();
+            let kr_fn = self.extract_closure_fn_ptr(kr)?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, kr_fn, &[kr.into(), null_arg.into()], "except_bind_result")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT bind kr: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT bind kr: void".to_string()))?;
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("except_t_bind right return: {:?}", e)))?;
+
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let k_ptr = self.value_to_ptr(k_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT.>> m1 m2 = m1 >>= \_ -> m2
+    fn lower_builtin_except_t_then(
+        &mut self,
+        m1_expr: &Expr,
+        m2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1_val = self.lower_expr(m1_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.>>: m1 has no value".to_string()))?;
+        let m2_val = self.lower_expr(m2_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.>>: m2 has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_then";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let right_bb = self.llvm_ctx.append_basic_block(func, "right");
+            let left_bb = self.llvm_ctx.append_basic_block(func, "left");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let m1 = self.extract_closure_env_elem(env, 2, 0)?;
+            let m2 = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // either = m1(_)
+            let m1_fn = self.extract_closure_fn_ptr(m1)?;
+            let either = self.builder()
+                .build_indirect_call(fn_type, m1_fn, &[m1.into(), null_arg.into()], "except_then_either")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT then m1: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT then m1: void".to_string()))?
+                .into_pointer_value();
+
+            let tag = self.extract_adt_tag(either)?;
+            let tm = self.type_mapper();
+            let is_right = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_right")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT then cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right, right_bb, left_bb)
+                .map_err(|e| CodegenError::Internal(format!("ExceptT then branch: {:?}", e)))?;
+
+            // Left case: return either
+            self.builder().position_at_end(left_bb);
+            self.builder().build_return(Some(&either))
+                .map_err(|e| CodegenError::Internal(format!("except_t_then left return: {:?}", e)))?;
+
+            // Right case: call m2(_)
+            self.builder().position_at_end(right_bb);
+            let m2_fn = self.extract_closure_fn_ptr(m2)?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, m2_fn, &[m2.into(), null_arg.into()], "except_then_result")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT then m2: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT then m2: void".to_string()))?;
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("except_t_then right return: {:?}", e)))?;
+
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m1_ptr = self.value_to_ptr(m1_val)?;
+        let m2_ptr = self.value_to_ptr(m2_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m1_ptr.into()),
+            (VarId::new(900001), m2_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// catchE m handler = closure \_ -> let either = m(_) in case tag of
+    ///   0 (Left) -> let e = field0; h = handler(e) in h(_)
+    ///   1 (Right) -> either
+    fn lower_builtin_catch_e(
+        &mut self,
+        m_expr: &Expr,
+        handler_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("catchE: m has no value".to_string()))?;
+        let handler_val = self.lower_expr(handler_expr)?
+            .ok_or_else(|| CodegenError::Internal("catchE: handler has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_catch";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let right_bb = self.llvm_ctx.append_basic_block(func, "right");
+            let left_bb = self.llvm_ctx.append_basic_block(func, "left");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let handler = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // either = m(_)
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let either = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), null_arg.into()], "catch_either")
+                .map_err(|e| CodegenError::Internal(format!("catchE m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("catchE m: void".to_string()))?
+                .into_pointer_value();
+
+            let tag = self.extract_adt_tag(either)?;
+            let tm = self.type_mapper();
+            let is_right = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_right")
+                .map_err(|e| CodegenError::Internal(format!("catchE tag cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right, right_bb, left_bb)
+                .map_err(|e| CodegenError::Internal(format!("catchE branch: {:?}", e)))?;
+
+            // Right case: pass through
+            self.builder().position_at_end(right_bb);
+            self.builder().build_return(Some(&either))
+                .map_err(|e| CodegenError::Internal(format!("catch_e right return: {:?}", e)))?;
+
+            // Left case: run handler
+            self.builder().position_at_end(left_bb);
+            let e = self.extract_adt_field(either, 1, 0)?;
+            let handler_fn = self.extract_closure_fn_ptr(handler)?;
+            let h = self.builder()
+                .build_indirect_call(fn_type, handler_fn, &[handler.into(), e.into()], "catch_handler")
+                .map_err(|e| CodegenError::Internal(format!("catchE handler: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("catchE handler: void".to_string()))?
+                .into_pointer_value();
+            let h_fn = self.extract_closure_fn_ptr(h)?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, h_fn, &[h.into(), null_arg.into()], "catch_result")
+                .map_err(|e| CodegenError::Internal(format!("catchE h: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("catchE h: void".to_string()))?;
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("catch_e left return: {:?}", e)))?;
+
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let handler_ptr = self.value_to_ptr(handler_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), handler_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT.lift io = closure \_ -> let a = io in Right(a)
+    fn lower_builtin_except_t_lift(
+        &mut self,
+        io_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let io_val = self.lower_expr(io_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.lift: io has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_lift";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> Right(io_result) where io = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let io = self.extract_closure_env_elem(env, 1, 0)?;
+            // For now, IO actions are already executed, so just wrap the value
+            // Allocate Right ADT: tag=1, arity=1
+            let right_adt = self.alloc_adt(1, 1)?;
+            self.store_adt_field(right_adt, 1, 0, io.into())?;
+            self.builder().build_return(Some(&right_adt))
+                .map_err(|e| CodegenError::Internal(format!("except_t_lift return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let io_ptr = self.value_to_ptr(io_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), io_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT.fmap f m = closure \_ -> let either = m(_) in case tag of
+    ///   0 (Left) -> either
+    ///   1 (Right) -> Right(f(field0))
+    fn lower_builtin_except_t_fmap(
+        &mut self,
+        f_expr: &Expr,
+        m_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.fmap: f has no value".to_string()))?;
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.fmap: m has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_fmap";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let right_bb = self.llvm_ctx.append_basic_block(func, "right");
+            let left_bb = self.llvm_ctx.append_basic_block(func, "left");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let f = self.extract_closure_env_elem(env, 2, 0)?;
+            let m = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let either = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), null_arg.into()], "fmap_either")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT fmap m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT fmap m: void".to_string()))?
+                .into_pointer_value();
+
+            let tag = self.extract_adt_tag(either)?;
+            let tm = self.type_mapper();
+            let is_right = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_int(1, false), "is_right")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT fmap cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right, right_bb, left_bb)
+                .map_err(|e| CodegenError::Internal(format!("ExceptT fmap branch: {:?}", e)))?;
+
+            // Left case: pass through
+            self.builder().position_at_end(left_bb);
+            self.builder().build_return(Some(&either))
+                .map_err(|e| CodegenError::Internal(format!("except_t_fmap left return: {:?}", e)))?;
+
+            // Right case: apply f
+            self.builder().position_at_end(right_bb);
+            let a = self.extract_adt_field(either, 1, 0)?;
+            let f_fn = self.extract_closure_fn_ptr(f)?;
+            let b = self.builder()
+                .build_indirect_call(fn_type, f_fn, &[f.into(), a.into()], "fmap_b")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT fmap f: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT fmap f: void".to_string()))?;
+            let right_adt = self.alloc_adt(1, 1)?;
+            self.store_adt_field(right_adt, 1, 0, b)?;
+            self.builder().build_return(Some(&right_adt))
+                .map_err(|e| CodegenError::Internal(format!("except_t_fmap right return: {:?}", e)))?;
+
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let f_ptr = self.value_to_ptr(f_val)?;
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), f_ptr.into()),
+            (VarId::new(900001), m_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// ExceptT.<*> mf ma — applicative apply
+    fn lower_builtin_except_t_ap(
+        &mut self,
+        mf_expr: &Expr,
+        ma_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let mf_val = self.lower_expr(mf_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.<*>: mf has no value".to_string()))?;
+        let ma_val = self.lower_expr(ma_expr)?
+            .ok_or_else(|| CodegenError::Internal("ExceptT.<*>: ma has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_except_t_ap";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let mf_right_bb = self.llvm_ctx.append_basic_block(func, "mf_right");
+            let mf_left_bb = self.llvm_ctx.append_basic_block(func, "mf_left");
+            let ma_right_bb = self.llvm_ctx.append_basic_block(func, "ma_right");
+            let ma_left_bb = self.llvm_ctx.append_basic_block(func, "ma_left");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let mf = self.extract_closure_env_elem(env, 2, 0)?;
+            let ma = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+            let tm = self.type_mapper();
+
+            // either_f = mf(_)
+            let mf_fn = self.extract_closure_fn_ptr(mf)?;
+            let either_f = self.builder()
+                .build_indirect_call(fn_type, mf_fn, &[mf.into(), null_arg.into()], "ap_either_f")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap mf: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT ap mf: void".to_string()))?
+                .into_pointer_value();
+
+            let tag_f = self.extract_adt_tag(either_f)?;
+            let is_right_f = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag_f, tm.i64_type().const_int(1, false), "is_right_f")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap tag_f cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right_f, mf_right_bb, mf_left_bb)
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap branch_f: {:?}", e)))?;
+
+            // mf Left: return either_f
+            self.builder().position_at_end(mf_left_bb);
+            self.builder().build_return(Some(&either_f))
+                .map_err(|e| CodegenError::Internal(format!("except_t_ap mf_left return: {:?}", e)))?;
+
+            // mf Right: run ma
+            self.builder().position_at_end(mf_right_bb);
+            let f = self.extract_adt_field(either_f, 1, 0)?;
+            let ma_fn = self.extract_closure_fn_ptr(ma)?;
+            let either_a = self.builder()
+                .build_indirect_call(fn_type, ma_fn, &[ma.into(), null_arg.into()], "ap_either_a")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap ma: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT ap ma: void".to_string()))?
+                .into_pointer_value();
+
+            let tag_a = self.extract_adt_tag(either_a)?;
+            let is_right_a = self.builder()
+                .build_int_compare(inkwell::IntPredicate::EQ, tag_a, tm.i64_type().const_int(1, false), "is_right_a")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap tag_a cmp: {:?}", e)))?;
+            self.builder()
+                .build_conditional_branch(is_right_a, ma_right_bb, ma_left_bb)
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap branch_a: {:?}", e)))?;
+
+            // ma Left: return either_a
+            self.builder().position_at_end(ma_left_bb);
+            self.builder().build_return(Some(&either_a))
+                .map_err(|e| CodegenError::Internal(format!("except_t_ap ma_left return: {:?}", e)))?;
+
+            // Both Right: apply f to a
+            self.builder().position_at_end(ma_right_bb);
+            let a = self.extract_adt_field(either_a, 1, 0)?;
+            let f_fn = self.extract_closure_fn_ptr(f)?;
+            let b = self.builder()
+                .build_indirect_call(fn_type, f_fn, &[f.into(), a.into()], "ap_b")
+                .map_err(|e| CodegenError::Internal(format!("ExceptT ap f: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("ExceptT ap f: void".to_string()))?;
+            let right_adt = self.alloc_adt(1, 1)?;
+            self.store_adt_field(right_adt, 1, 0, b)?;
+            self.builder().build_return(Some(&right_adt))
+                .map_err(|e| CodegenError::Internal(format!("except_t_ap ma_right return: {:?}", e)))?;
+
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let mf_ptr = self.value_to_ptr(mf_val)?;
+        let ma_ptr = self.value_to_ptr(ma_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), mf_ptr.into()),
+            (VarId::new(900001), ma_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    // ========================================================================
+    // WriterT Transformer Operations
+    // ========================================================================
+
+    /// runWriterT m = m(_) — runs the computation, returns (a, w) pair
+    fn lower_builtin_run_writer_t(
+        &mut self,
+        m_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.push_monad_context(MonadContext::WriterT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("runWriterT: m has no value".to_string()))?;
+        self.pop_monad_context();
+
+        let m_ptr = match m_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("runWriterT: expected closure".to_string())),
+        };
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let m_fn = self.extract_closure_fn_ptr(m_ptr)?;
+        let null_arg = ptr_type.const_null();
+        let result = self.builder()
+            .build_indirect_call(fn_type, m_fn, &[m_ptr.into(), null_arg.into()], "run_writer_t")
+            .map_err(|e| CodegenError::Internal(format!("runWriterT call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("runWriterT: void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// execWriterT m = snd(m(_)) — runs computation, returns just the output
+    fn lower_builtin_exec_writer_t(
+        &mut self,
+        m_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let result = self.lower_builtin_run_writer_t(m_expr)?;
+        let pair = result
+            .ok_or_else(|| CodegenError::Internal("execWriterT: no result".to_string()))?
+            .into_pointer_value();
+        let snd = self.extract_pair_snd(pair)?;
+        Ok(Some(snd.into()))
+    }
+
+    /// WriterT.pure x = closure \_ -> (x, "")
+    fn lower_builtin_writer_t_pure(
+        &mut self,
+        x_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let x_val = self.lower_expr(x_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.pure: x has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_pure";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> (x, "") where x = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let x = self.extract_closure_env_elem(env, 1, 0)?;
+            // Empty string = nil list
+            let empty = self.build_nil()?;
+            let pair = self.alloc_pair(x.into(), empty.into())?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_pure return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), x_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// tell w = closure \_ -> ((), w)
+    fn lower_builtin_tell(
+        &mut self,
+        w_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let w_val = self.lower_expr(w_expr)?
+            .ok_or_else(|| CodegenError::Internal("tell: w has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_tell";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> ((), w) where w = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let w = self.extract_closure_env_elem(env, 1, 0)?;
+            let unit = ptr_type.const_null();
+            let pair = self.alloc_pair(unit.into(), w.into())?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_tell return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let w_ptr = self.value_to_ptr(w_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), w_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT.>>= m k = closure \_ ->
+    ///   let (a, w1) = m(_)
+    ///   let (b, w2) = k(a)(_)
+    ///   (b, w1 ++ w2)
+    fn lower_builtin_writer_t_bind(
+        &mut self,
+        m_expr: &Expr,
+        k_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.>>=: m has no value".to_string()))?;
+        let k_val = self.lower_expr(k_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.>>=: k has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_bind";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let k = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // pair1 = m(_)
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let pair1 = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), null_arg.into()], "wt_bind_pair1")
+                .map_err(|e| CodegenError::Internal(format!("WriterT bind m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT bind m: void".to_string()))?
+                .into_pointer_value();
+
+            let a = self.extract_pair_fst(pair1)?;
+            let w1 = self.extract_pair_snd(pair1)?;
+
+            // kr = k(a)
+            let k_fn = self.extract_closure_fn_ptr(k)?;
+            let kr = self.builder()
+                .build_indirect_call(fn_type, k_fn, &[k.into(), a.into()], "wt_bind_kr")
+                .map_err(|e| CodegenError::Internal(format!("WriterT bind k: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT bind k: void".to_string()))?
+                .into_pointer_value();
+
+            // pair2 = kr(_)
+            let kr_fn = self.extract_closure_fn_ptr(kr)?;
+            let pair2 = self.builder()
+                .build_indirect_call(fn_type, kr_fn, &[kr.into(), null_arg.into()], "wt_bind_pair2")
+                .map_err(|e| CodegenError::Internal(format!("WriterT bind kr: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT bind kr: void".to_string()))?
+                .into_pointer_value();
+
+            let b = self.extract_pair_fst(pair2)?;
+            let w2 = self.extract_pair_snd(pair2)?;
+
+            // w_combined = append(w1, w2) via list append
+            let append_fn = self.get_or_create_list_append_fn()?;
+            let w_combined = self.builder()
+                .build_call(append_fn, &[w1.into(), w2.into()], "wt_bind_append")
+                .map_err(|e| CodegenError::Internal(format!("WriterT append: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT append: void".to_string()))?;
+
+            let result_pair = self.alloc_pair(b.into(), w_combined)?;
+            self.builder().build_return(Some(&result_pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_bind return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let k_ptr = self.value_to_ptr(k_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), k_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT.>> m1 m2 = m1 >>= \_ -> m2
+    fn lower_builtin_writer_t_then(
+        &mut self,
+        m1_expr: &Expr,
+        m2_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let m1_val = self.lower_expr(m1_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.>>: m1 has no value".to_string()))?;
+        let m2_val = self.lower_expr(m2_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.>>: m2 has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_then";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let m1 = self.extract_closure_env_elem(env, 2, 0)?;
+            let m2 = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // pair1 = m1(_)
+            let m1_fn = self.extract_closure_fn_ptr(m1)?;
+            let pair1 = self.builder()
+                .build_indirect_call(fn_type, m1_fn, &[m1.into(), null_arg.into()], "wt_then_pair1")
+                .map_err(|e| CodegenError::Internal(format!("WriterT then m1: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT then m1: void".to_string()))?
+                .into_pointer_value();
+
+            let w1 = self.extract_pair_snd(pair1)?;
+
+            // pair2 = m2(_)
+            let m2_fn = self.extract_closure_fn_ptr(m2)?;
+            let pair2 = self.builder()
+                .build_indirect_call(fn_type, m2_fn, &[m2.into(), null_arg.into()], "wt_then_pair2")
+                .map_err(|e| CodegenError::Internal(format!("WriterT then m2: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT then m2: void".to_string()))?
+                .into_pointer_value();
+
+            let b = self.extract_pair_fst(pair2)?;
+            let w2 = self.extract_pair_snd(pair2)?;
+
+            // w_combined = append(w1, w2) via list append
+            let append_fn = self.get_or_create_list_append_fn()?;
+            let w_combined = self.builder()
+                .build_call(append_fn, &[w1.into(), w2.into()], "wt_then_append")
+                .map_err(|e| CodegenError::Internal(format!("WriterT then append: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT then append: void".to_string()))?;
+
+            let result_pair = self.alloc_pair(b.into(), w_combined)?;
+            self.builder().build_return(Some(&result_pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_then return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m1_ptr = self.value_to_ptr(m1_val)?;
+        let m2_ptr = self.value_to_ptr(m2_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m1_ptr.into()),
+            (VarId::new(900001), m2_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT.lift io = closure \_ -> (io_result, "")
+    fn lower_builtin_writer_t_lift(
+        &mut self,
+        io_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let io_val = self.lower_expr(io_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.lift: io has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_lift";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            // \(env, _) -> (io_result, "") where io = env[0]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let io_result = self.extract_closure_env_elem(env, 1, 0)?;
+            let empty = self.build_nil()?;
+            let pair = self.alloc_pair(io_result.into(), empty.into())?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_lift return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let io_ptr = self.value_to_ptr(io_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900000), io_ptr.into())])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT.fmap f m = closure \_ -> let (a, w) = m(_) in (f(a), w)
+    fn lower_builtin_writer_t_fmap(
+        &mut self,
+        f_expr: &Expr,
+        m_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.fmap: f has no value".to_string()))?;
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.fmap: m has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_fmap";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let f = self.extract_closure_env_elem(env, 2, 0)?;
+            let m = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), null_arg.into()], "wt_fmap_pair")
+                .map_err(|e| CodegenError::Internal(format!("WriterT fmap m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT fmap m: void".to_string()))?
+                .into_pointer_value();
+
+            let a = self.extract_pair_fst(pair)?;
+            let w = self.extract_pair_snd(pair)?;
+
+            let f_fn = self.extract_closure_fn_ptr(f)?;
+            let b = self.builder()
+                .build_indirect_call(fn_type, f_fn, &[f.into(), a.into()], "wt_fmap_b")
+                .map_err(|e| CodegenError::Internal(format!("WriterT fmap f: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT fmap f: void".to_string()))?;
+
+            let result_pair = self.alloc_pair(b, w.into())?;
+            self.builder().build_return(Some(&result_pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_fmap return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let f_ptr = self.value_to_ptr(f_val)?;
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), f_ptr.into()),
+            (VarId::new(900001), m_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// WriterT.<*> mf ma — applicative apply
+    fn lower_builtin_writer_t_ap(
+        &mut self,
+        mf_expr: &Expr,
+        ma_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let mf_val = self.lower_expr(mf_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.<*>: mf has no value".to_string()))?;
+        let ma_val = self.lower_expr(ma_expr)?
+            .ok_or_else(|| CodegenError::Internal("WriterT.<*>: ma has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_writer_t_ap";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let mf = self.extract_closure_env_elem(env, 2, 0)?;
+            let ma = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let null_arg = ptr_type.const_null();
+
+            // (f, w1) = mf(_)
+            let mf_fn = self.extract_closure_fn_ptr(mf)?;
+            let pair1 = self.builder()
+                .build_indirect_call(fn_type, mf_fn, &[mf.into(), null_arg.into()], "wt_ap_pair1")
+                .map_err(|e| CodegenError::Internal(format!("WriterT ap mf: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT ap mf: void".to_string()))?
+                .into_pointer_value();
+
+            let f = self.extract_pair_fst(pair1)?;
+            let w1 = self.extract_pair_snd(pair1)?;
+
+            // (a, w2) = ma(_)
+            let ma_fn = self.extract_closure_fn_ptr(ma)?;
+            let pair2 = self.builder()
+                .build_indirect_call(fn_type, ma_fn, &[ma.into(), null_arg.into()], "wt_ap_pair2")
+                .map_err(|e| CodegenError::Internal(format!("WriterT ap ma: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT ap ma: void".to_string()))?
+                .into_pointer_value();
+
+            let a = self.extract_pair_fst(pair2)?;
+            let w2 = self.extract_pair_snd(pair2)?;
+
+            // b = f(a)
+            let f_fn = self.extract_closure_fn_ptr(f)?;
+            let b = self.builder()
+                .build_indirect_call(fn_type, f_fn, &[f.into(), a.into()], "wt_ap_b")
+                .map_err(|e| CodegenError::Internal(format!("WriterT ap f: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT ap f: void".to_string()))?;
+
+            // w_combined = append(w1, w2) via list append
+            let append_fn = self.get_or_create_list_append_fn()?;
+            let w_combined = self.builder()
+                .build_call(append_fn, &[w1.into(), w2.into()], "wt_ap_append")
+                .map_err(|e| CodegenError::Internal(format!("WriterT ap append: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("WriterT ap append: void".to_string()))?;
+
+            let result_pair = self.alloc_pair(b, w_combined)?;
+            self.builder().build_return(Some(&result_pair))
+                .map_err(|e| CodegenError::Internal(format!("writer_t_ap return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let mf_ptr = self.value_to_ptr(mf_val)?;
+        let ma_ptr = self.value_to_ptr(ma_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), mf_ptr.into()),
+            (VarId::new(900001), ma_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
     }
 
     // ========================================================================
@@ -16477,11 +17679,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(())
     }
 
-    /// Pre-pass: scan all bindings to detect which functions use StateT/ReaderT.
-    /// This populates `state_t_functions` and `reader_t_functions` so that
-    /// `detect_monad_from_expr` can recognize calls to user-defined monadic functions.
+    /// Pre-pass: scan all bindings to detect which functions use StateT/ReaderT/ExceptT/WriterT.
+    /// This populates the function sets so that `detect_monad_from_expr` can recognize
+    /// calls to user-defined monadic functions.
     fn detect_monad_functions(&mut self, bindings: &[Bind]) {
-        // First pass: detect direct users of get/put/ask/etc.
+        // First pass: detect direct users of get/put/ask/throwE/tell/etc.
         for bind in bindings {
             match bind {
                 Bind::NonRec(var, expr) => {
@@ -16490,6 +17692,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         match ctx {
                             MonadContext::StateT => { self.state_t_functions.insert(name); }
                             MonadContext::ReaderT => { self.reader_t_functions.insert(name); }
+                            MonadContext::ExceptT => { self.except_t_functions.insert(name); }
+                            MonadContext::WriterT => { self.writer_t_functions.insert(name); }
                             _ => {}
                         }
                     }
@@ -16501,6 +17705,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                             match ctx {
                                 MonadContext::StateT => { self.state_t_functions.insert(name); }
                                 MonadContext::ReaderT => { self.reader_t_functions.insert(name); }
+                                MonadContext::ExceptT => { self.except_t_functions.insert(name); }
+                                MonadContext::WriterT => { self.writer_t_functions.insert(name); }
                                 _ => {}
                             }
                         }
@@ -16508,8 +17714,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 }
             }
         }
-        // Second pass: propagate — functions that call StateT/ReaderT functions
-        // are themselves StateT/ReaderT functions.
+        // Second pass: propagate — functions that call transformer functions
+        // are themselves transformer functions.
         let mut changed = true;
         while changed {
             changed = false;
@@ -16519,6 +17725,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         let name = var.name.as_str().to_string();
                         if !self.state_t_functions.contains(&name)
                             && !self.reader_t_functions.contains(&name)
+                            && !self.except_t_functions.contains(&name)
+                            && !self.writer_t_functions.contains(&name)
                         {
                             if let Some(ctx) = self.detect_monad_context_for_calls(expr) {
                                 match ctx {
@@ -16528,6 +17736,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                     }
                                     MonadContext::ReaderT => {
                                         self.reader_t_functions.insert(name);
+                                        changed = true;
+                                    }
+                                    MonadContext::ExceptT => {
+                                        self.except_t_functions.insert(name);
+                                        changed = true;
+                                    }
+                                    MonadContext::WriterT => {
+                                        self.writer_t_functions.insert(name);
                                         changed = true;
                                     }
                                     _ => {}
@@ -16540,6 +17756,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                             let name = var.name.as_str().to_string();
                             if !self.state_t_functions.contains(&name)
                                 && !self.reader_t_functions.contains(&name)
+                                && !self.except_t_functions.contains(&name)
+                                && !self.writer_t_functions.contains(&name)
                             {
                                 if let Some(ctx) = self.detect_monad_context_for_calls(expr) {
                                     match ctx {
@@ -16549,6 +17767,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                         }
                                         MonadContext::ReaderT => {
                                             self.reader_t_functions.insert(name);
+                                            changed = true;
+                                        }
+                                        MonadContext::ExceptT => {
+                                            self.except_t_functions.insert(name);
+                                            changed = true;
+                                        }
+                                        MonadContext::WriterT => {
+                                            self.writer_t_functions.insert(name);
                                             changed = true;
                                         }
                                         _ => {}
@@ -16562,7 +17788,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
-    /// Detect if an expression calls any known StateT/ReaderT function.
+    /// Detect if an expression calls any known transformer function.
     fn detect_monad_context_for_calls(&self, expr: &Expr) -> Option<MonadContext> {
         match expr {
             Expr::Var(v, _) => {
@@ -16571,6 +17797,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     Some(MonadContext::StateT)
                 } else if self.reader_t_functions.contains(name) {
                     Some(MonadContext::ReaderT)
+                } else if self.except_t_functions.contains(name) {
+                    Some(MonadContext::ExceptT)
+                } else if self.writer_t_functions.contains(name) {
+                    Some(MonadContext::WriterT)
                 } else {
                     None
                 }
