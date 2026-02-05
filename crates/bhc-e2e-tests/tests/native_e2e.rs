@@ -198,6 +198,11 @@ fn test_tier3_milestone_d_csv_parser_native() {
 }
 
 #[test]
+fn test_tier3_milestone_e_json_native() {
+    run_native_test("tier3_io/milestone_e_json", Profile::Default);
+}
+
+#[test]
 fn test_tier3_except_t_native() {
     run_native_test("tier3_io/except_t", Profile::Default);
 }
@@ -213,18 +218,14 @@ fn test_tier3_monad_error_native() {
 }
 
 // Cross-transformer tests using MTL typeclasses (MonadReader, MonadState)
-// NOTE: These tests require nested transformer stacks (e.g., StateT over ReaderT over IO).
-// The MTL typeclasses are correctly registered in the type system, but the codegen doesn't
-// yet support running nested transformers - it expects transformers directly over IO.
-// Enabling these requires extending the codegen to properly compose transformer runners.
+// NOTE: StateT-over-ReaderT is now supported. ReaderT-over-StateT requires additional work.
 #[test]
-#[ignore = "Codegen doesn't yet support nested transformer stacks like StateT s (ReaderT r IO)"]
 fn test_tier3_cross_state_reader_native() {
     run_native_test("tier3_io/cross_state_reader", Profile::Default);
 }
 
 #[test]
-#[ignore = "Codegen doesn't yet support nested transformer stacks like ReaderT r (StateT s IO)"]
+#[ignore = "ReaderT r (StateT s IO) requires lifting StateT operations into ReaderT context - not yet implemented"]
 fn test_tier3_cross_reader_state_native() {
     run_native_test("tier3_io/cross_reader_state", Profile::Default);
 }

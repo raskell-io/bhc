@@ -145,6 +145,15 @@ impl TransformerStack {
     fn contains(&self, layer: TransformerLayer) -> bool {
         self.layers.contains(&layer)
     }
+
+    /// Check if this is a nested StateT over ReaderT context.
+    ///
+    /// Returns true if the current layer is StateT and ReaderT is in the stack below it.
+    fn is_state_t_over_reader_t(&self) -> bool {
+        self.layers.len() >= 2
+            && self.layers[0] == TransformerLayer::StateT
+            && self.layers.iter().skip(1).any(|&l| l == TransformerLayer::ReaderT)
+    }
 }
 
 /// State for lowering Core IR to LLVM IR.
@@ -310,10 +319,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     /// For nested transformers, we examine the monad parameter (the second-to-last
     /// type argument) recursively.
     ///
-    /// NOTE: Currently unused because the codegen doesn't yet support nested
-    /// transformer stacks. When nested transformer support is added, this will be
-    /// needed to properly set up the transformer stack for cross-transformer operations.
-    #[allow(dead_code)]
+    /// Used for nested transformer support to set up the full transformer stack.
     fn extract_transformer_stack_from_type(&self, ty: &Ty) -> Vec<TransformerLayer> {
         let mut stack = Vec::new();
         self.extract_transformer_stack_recursive(ty, &mut stack);
@@ -321,7 +327,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Helper for recursively building the transformer stack from a type.
-    #[allow(dead_code)]
     fn extract_transformer_stack_recursive(&self, ty: &Ty, stack: &mut Vec<TransformerLayer>) {
         match ty {
             // Check for IO at the base
@@ -329,12 +334,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 stack.push(TransformerLayer::IO);
             }
 
-            // Check for transformer application: T x m a where T is StateT/ReaderT/etc.
-            // The structure is: App(App(App(Con(T), x), m), a)
-            Ty::App(inner, _result_type) => {
-                // Go inside one application to get: App(App(Con(T), x), m)
+            // Check for transformer application. Can be either:
+            // - T x m a (fully applied): App(App(App(Con(T), x), m), a)
+            // - T x m (partial application): App(App(Con(T), x), m)
+            Ty::App(inner, arg) => {
+                // Case 1: Full application T x m a - go inside to get App(App(Con(T), x), m)
                 if let Ty::App(inner2, monad_arg) = inner.as_ref() {
-                    // Now inner2 is: App(Con(T), x)
+                    // inner2 might be App(Con(T), x) or Con(T) or App(App(Con(T), x), m)
                     if let Ty::App(con_or_app, _param) = inner2.as_ref() {
                         // con_or_app should be Con(T)
                         if let Ty::Con(tycon) = con_or_app.as_ref() {
@@ -349,10 +355,44 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                 stack.push(l);
                                 // Recursively extract from the monad argument
                                 self.extract_transformer_stack_recursive(monad_arg, stack);
+                                return;
                             }
                         }
                     }
+
+                    // Case 2: Partial application T x m - inner2 is Con(T)
+                    // Structure is App(App(Con(T), x), m) where we're at the outer App
+                    // Here, inner2 = Con(T), monad_arg = m (but we need to check inner/arg differently)
+                    if let Ty::Con(tycon) = inner2.as_ref() {
+                        let layer = match tycon.name.as_str() {
+                            "StateT" => Some(TransformerLayer::StateT),
+                            "ReaderT" => Some(TransformerLayer::ReaderT),
+                            "ExceptT" => Some(TransformerLayer::ExceptT),
+                            "WriterT" => Some(TransformerLayer::WriterT),
+                            _ => None,
+                        };
+                        if let Some(l) = layer {
+                            stack.push(l);
+                            // The arg is the monad 'm' for partial applications
+                            self.extract_transformer_stack_recursive(arg, stack);
+                            return;
+                        }
+                    }
                 }
+
+                // Case 3: Partial application - inner is Con(T)
+                // Structure is App(Con(T), x) - not enough args, recurse on arg
+                if let Ty::Con(tycon) = inner.as_ref() {
+                    // Check if it's IO
+                    if tycon.name.as_str() == "IO" {
+                        stack.push(TransformerLayer::IO);
+                        return;
+                    }
+                    // Otherwise, single-param application, continue
+                }
+
+                // Fallback: recurse on arg to find inner monads
+                self.extract_transformer_stack_recursive(arg, stack);
             }
             _ => {}
         }
@@ -503,11 +543,57 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Apply StateT.lift to a value (creates closure \s -> (action, s))
+    ///
+    /// For nested transformers (StateT over ReaderT), creates a 3-arg closure:
+    /// \(env, s, reader_env) -> (run_reader(action, reader_env), s)
     fn apply_state_t_lift_to_value(
         &mut self,
         action_val: BasicValueEnum<'ctx>,
     ) -> CodegenResult<BasicValueEnum<'ctx>> {
         let ptr_type = self.type_mapper().ptr_type();
+
+        // Check if we're lifting a ReaderT action in a nested StateT-over-ReaderT context
+        if self.transformer_stack.is_state_t_over_reader_t() {
+            // Nested case: create a 3-arg closure that runs the inner ReaderT action
+            let fn_name = "bhc_state_t_lift_reader_t_nested";
+            let func = self.get_or_create_nested_transformer_fn(fn_name);
+            if func.count_basic_blocks() == 0 {
+                let entry = self.llvm_ctx.append_basic_block(func, "entry");
+                let saved_bb = self.builder().get_insert_block();
+                self.builder().position_at_end(entry);
+                // \(env, s, reader_env) -> (call(inner_closure, inner_closure, reader_env), s)
+                // where inner_closure = env[0]
+                let env = func.get_nth_param(0).unwrap().into_pointer_value();
+                let s = func.get_nth_param(1).unwrap();
+                let reader_env = func.get_nth_param(2).unwrap();
+
+                // Extract the inner ReaderT closure from our closure's environment
+                let inner_closure = self.extract_closure_env_elem(env, 1, 0)?;
+
+                // Call the inner ReaderT closure with (inner_closure_as_env, reader_env)
+                // ReaderT closures take (closure_env, reader_env) and return the result
+                let inner_fn = self.extract_closure_fn_ptr(inner_closure)?;
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                let result = self.builder()
+                    .build_indirect_call(fn_type, inner_fn, &[inner_closure.into(), reader_env.into()], "lift_reader_result")
+                    .map_err(|e| CodegenError::Internal(format!("state_t_lift_nested call inner: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("state_t_lift_nested: inner returned void".to_string()))?;
+
+                // Return (result, s)
+                let pair = self.alloc_pair(result, s)?;
+                self.builder().build_return(Some(&pair))
+                    .map_err(|e| CodegenError::Internal(format!("state_t_lift_nested return: {:?}", e)))?;
+                if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+            }
+
+            let fn_ptr = func.as_global_value().as_pointer_value();
+            let action_ptr = self.value_to_ptr(action_val)?;
+            let closure_ptr = self.alloc_closure(fn_ptr, &[(VarId::new(900100), action_ptr.into())])?;
+            return Ok(closure_ptr.into());
+        }
+
+        // Non-nested case: simple 2-arg closure
         let fn_name = "bhc_state_t_lift_auto";
 
         let func = self.get_or_create_transformer_fn(fn_name);
@@ -8611,6 +8697,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
     /// Helper: emit a transformer closure body function that has already been added to the module.
     /// Returns the function value so the caller can build its body.
+    /// Takes 2 arguments: (closure_env, state)
     fn get_or_create_transformer_fn(
         &mut self,
         name: &str,
@@ -8620,6 +8707,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             existing
         } else {
             let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            self.module.llvm_module().add_function(name, fn_type, None)
+        }
+    }
+
+    /// Helper for nested transformers (e.g., StateT over ReaderT).
+    /// Takes 3 arguments: (closure_env, state, reader_env)
+    fn get_or_create_nested_transformer_fn(
+        &mut self,
+        name: &str,
+    ) -> FunctionValue<'ctx> {
+        let ptr_type = self.type_mapper().ptr_type();
+        if let Some(existing) = self.module.llvm_module().get_function(name) {
+            existing
+        } else {
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
             self.module.llvm_module().add_function(name, fn_type, None)
         }
     }
@@ -8747,7 +8849,37 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     // ========================================================================
 
     /// runReaderT m r = m(r)
+    ///
+    /// For nested transformers like `ReaderT r (StateT s IO)`, this returns
+    /// a StateT closure instead of executing directly.
     fn lower_builtin_run_reader_t(
+        &mut self,
+        m_expr: &Expr,
+        r_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if this is a nested transformer
+        let m_ty = m_expr.ty();
+        let inner_monad = self.extract_inner_monad_from_reader_t(&m_ty);
+
+        match inner_monad {
+            Some(TransformerLayer::StateT) => {
+                // ReaderT r (StateT s IO) - return a StateT closure
+                self.lower_run_reader_t_over_state_t(m_expr, r_expr)
+            }
+            Some(TransformerLayer::IO) | None => {
+                // ReaderT r IO - direct execution (current behavior)
+                self.lower_run_reader_t_direct(m_expr, r_expr)
+            }
+            Some(_other) => {
+                Err(CodegenError::Internal(
+                    "runReaderT over non-IO/StateT inner monad not yet supported".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Direct runReaderT for ReaderT r IO - the current behavior.
+    fn lower_run_reader_t_direct(
         &mut self,
         m_expr: &Expr,
         r_expr: &Expr,
@@ -8773,11 +8905,93 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(result))
     }
 
+    /// runReaderT for ReaderT r (StateT s IO) - returns a StateT closure.
+    fn lower_run_reader_t_over_state_t(
+        &mut self,
+        m_expr: &Expr,
+        r_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.push_transformer_layer(TransformerLayer::ReaderT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("runReaderT/StateT: m has no value".to_string()))?;
+        self.pop_transformer_layer();
+        let r_val = self.lower_expr(r_expr)?
+            .ok_or_else(|| CodegenError::Internal("runReaderT/StateT: r has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_run_reader_t_over_state_t";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // Parameters: (env, state)
+            // env contains: [m, reader_env]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let state = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let reader_env = self.extract_closure_env_elem(env, 2, 1)?;
+
+            // Call m with reader_env - returns result (for pure ReaderT ops)
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let result = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), reader_env.into()], "run_rt_result")
+                .map_err(|e| CodegenError::Internal(format!("runReaderT/StateT call m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("runReaderT/StateT m: void".to_string()))?;
+
+            // Return (result, state) pair (state unchanged for pure ReaderT computations)
+            let pair = self.alloc_pair(result, state)?;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("runReaderT/StateT return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        // Create a StateT closure that captures m and reader_env
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let r_ptr = self.value_to_ptr(r_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), r_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
     /// ask = closure \r -> r (returns env)
+    ///
+    /// When in StateT context (nested), ask is lifted:
+    /// ask = closure \(env, s, reader_env) -> (reader_env, s)
     fn lower_builtin_ask(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let ptr_type = self.type_mapper().ptr_type();
-        let fn_name = "bhc_reader_t_ask";
 
+        // Check if we're in a StateT context - if so, lift ask
+        if self.transformer_stack.is_state_t_over_reader_t() {
+            // Lifted ask: produces a StateT closure that returns reader_env
+            let fn_name = "bhc_lifted_ask_in_state_t";
+            let func = self.get_or_create_nested_transformer_fn(fn_name);
+            if func.count_basic_blocks() == 0 {
+                let entry = self.llvm_ctx.append_basic_block(func, "entry");
+                let saved_bb = self.builder().get_insert_block();
+                self.builder().position_at_end(entry);
+                // \(_env, s, reader_env) -> (reader_env, s)
+                let s = func.get_nth_param(1).unwrap();
+                let reader_env = func.get_nth_param(2).unwrap();
+                let pair = self.alloc_pair(reader_env, s)?;
+                self.builder().build_return(Some(&pair))
+                    .map_err(|e| CodegenError::Internal(format!("lifted_ask return: {:?}", e)))?;
+                if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+            }
+            let fn_ptr = func.as_global_value().as_pointer_value();
+            let closure_ptr = self.alloc_closure(fn_ptr, &[])?;
+            return Ok(Some(closure_ptr.into()));
+        }
+
+        // Normal ReaderT ask
+        let fn_name = "bhc_reader_t_ask";
         let func = self.get_or_create_transformer_fn(fn_name);
         if func.count_basic_blocks() == 0 {
             let entry = self.llvm_ctx.append_basic_block(func, "entry");
@@ -9208,7 +9422,37 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     // ========================================================================
 
     /// runStateT m s = m(s)
+    ///
+    /// For nested transformers like `StateT s (ReaderT r IO)`, this returns
+    /// a ReaderT closure that produces `(a, s)` instead of executing directly.
     fn lower_builtin_run_state_t(
+        &mut self,
+        m_expr: &Expr,
+        s_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if this is a nested transformer
+        let m_ty = m_expr.ty();
+        let inner_monad = self.extract_inner_monad_from_state_t(&m_ty);
+
+        match inner_monad {
+            Some(TransformerLayer::ReaderT) => {
+                // StateT s (ReaderT r IO) - return a ReaderT closure that produces (a, s)
+                self.lower_run_state_t_over_reader_t(m_expr, s_expr)
+            }
+            Some(TransformerLayer::IO) | None => {
+                // StateT s IO - direct execution (current behavior)
+                self.lower_run_state_t_direct(m_expr, s_expr)
+            }
+            Some(_other) => {
+                Err(CodegenError::Internal(
+                    "runStateT over non-IO/ReaderT inner monad not yet supported".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Direct runStateT for StateT s IO - the current behavior.
+    fn lower_run_state_t_direct(
         &mut self,
         m_expr: &Expr,
         s_expr: &Expr,
@@ -9232,6 +9476,62 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("runStateT: void".to_string()))?;
         Ok(Some(result))
+    }
+
+    /// runStateT for StateT s (ReaderT r IO) - returns a ReaderT closure that produces (a, s).
+    fn lower_run_state_t_over_reader_t(
+        &mut self,
+        m_expr: &Expr,
+        s_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.push_transformer_layer(TransformerLayer::StateT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("runStateT/ReaderT: m has no value".to_string()))?;
+        self.pop_transformer_layer();
+        let s_val = self.lower_expr(s_expr)?
+            .ok_or_else(|| CodegenError::Internal("runStateT/ReaderT: s has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_run_state_t_over_reader_t";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // Parameters: (env, reader_env)
+            // env contains: [m, init_state]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let reader_env = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let init_state = self.extract_closure_env_elem(env, 2, 1)?;
+
+            // Call m with state - returns (result, final_state)
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), init_state.into()], "run_st_pair")
+                .map_err(|e| CodegenError::Internal(format!("runStateT/ReaderT call m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("runStateT/ReaderT m: void".to_string()))?;
+
+            // Return the pair (reader_env unused for pure StateT computations)
+            let _ = reader_env;
+            self.builder().build_return(Some(&pair))
+                .map_err(|e| CodegenError::Internal(format!("runStateT/ReaderT return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        // Create a ReaderT closure that captures m and init_state
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let s_ptr = self.value_to_ptr(s_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), s_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
     }
 
     /// Helper: allocate a pair (a, s) as a 2-element ADT (tag=0, field0=a, field1=s)
@@ -9281,16 +9581,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// get = closure \s -> (s, s)
+    ///
+    /// For nested transformers: \(_env, s, _reader_env) -> (s, s)
     fn lower_builtin_get(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let ptr_type = self.type_mapper().ptr_type();
-        let fn_name = "bhc_state_t_get";
+        let is_nested = self.transformer_stack.is_state_t_over_reader_t();
+        let fn_name = if is_nested { "bhc_state_t_get_nested" } else { "bhc_state_t_get" };
 
-        let func = self.get_or_create_transformer_fn(fn_name);
+        let func = if is_nested {
+            self.get_or_create_nested_transformer_fn(fn_name)
+        } else {
+            self.get_or_create_transformer_fn(fn_name)
+        };
         if func.count_basic_blocks() == 0 {
             let entry = self.llvm_ctx.append_basic_block(func, "entry");
             let saved_bb = self.builder().get_insert_block();
             self.builder().position_at_end(entry);
-            // \(_env, s) -> (s, s)
+            // Both: \(_env, s, [_reader_env]) -> (s, s)
             let s = func.get_nth_param(1).unwrap();
             let pair = self.alloc_pair(s, s)?;
             self.builder().build_return(Some(&pair))
@@ -9420,6 +9727,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// StateT.pure x = closure \s -> (x, s)
+    ///
+    /// For nested transformers (StateT over ReaderT), the closure takes 3 args:
+    /// \(env, s, reader_env) -> (x, s)
     fn lower_builtin_state_t_pure(
         &mut self,
         x_expr: &Expr,
@@ -9428,16 +9738,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .ok_or_else(|| CodegenError::Internal("StateT.pure: x has no value".to_string()))?;
 
         let ptr_type = self.type_mapper().ptr_type();
-        let fn_name = "bhc_state_t_pure";
+        let is_nested = self.transformer_stack.is_state_t_over_reader_t();
+        let fn_name = if is_nested { "bhc_state_t_pure_nested" } else { "bhc_state_t_pure" };
 
-        let func = self.get_or_create_transformer_fn(fn_name);
+        let func = if is_nested {
+            self.get_or_create_nested_transformer_fn(fn_name)
+        } else {
+            self.get_or_create_transformer_fn(fn_name)
+        };
         if func.count_basic_blocks() == 0 {
             let entry = self.llvm_ctx.append_basic_block(func, "entry");
             let saved_bb = self.builder().get_insert_block();
             self.builder().position_at_end(entry);
-            // \(env, s) -> (x, s) where x = env[0]
+            // For nested: \(env, s, reader_env) -> (x, s) where x = env[0]
+            // For non-nested: \(env, s) -> (x, s) where x = env[0]
             let env = func.get_nth_param(0).unwrap().into_pointer_value();
             let s = func.get_nth_param(1).unwrap();
+            // reader_env is param 2 for nested, but unused for pure
             let x = self.extract_closure_env_elem(env, 1, 0)?;
             let pair = self.alloc_pair(x.into(), s)?;
             self.builder().build_return(Some(&pair))
@@ -9452,6 +9769,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// StateT.>>= m k = closure \s -> let (a, s') = m(s) in k(a)(s')
+    ///
+    /// For nested transformers (StateT over ReaderT), the closure takes 3 args:
+    /// \(env, s, reader_env) -> let (a, s') = m(s, reader_env) in k(a)(s')(reader_env)
     fn lower_builtin_state_t_bind(
         &mut self,
         m_expr: &Expr,
@@ -9463,9 +9783,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .ok_or_else(|| CodegenError::Internal("StateT.>>=: k has no value".to_string()))?;
 
         let ptr_type = self.type_mapper().ptr_type();
-        let fn_name = "bhc_state_t_bind";
+        let is_nested = self.transformer_stack.is_state_t_over_reader_t();
+        let fn_name = if is_nested { "bhc_state_t_bind_nested" } else { "bhc_state_t_bind" };
 
-        let func = self.get_or_create_transformer_fn(fn_name);
+        let func = if is_nested {
+            self.get_or_create_nested_transformer_fn(fn_name)
+        } else {
+            self.get_or_create_transformer_fn(fn_name)
+        };
         if func.count_basic_blocks() == 0 {
             let entry = self.llvm_ctx.append_basic_block(func, "entry");
             let saved_bb = self.builder().get_insert_block();
@@ -9475,40 +9800,81 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             let m = self.extract_closure_env_elem(env, 2, 0)?;
             let k = self.extract_closure_env_elem(env, 2, 1)?;
 
-            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            if is_nested {
+                // Nested: 3-arg closures with reader_env threading
+                let reader_env = func.get_nth_param(2).unwrap();
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
 
-            // pair = m(s)
-            let m_fn = self.extract_closure_fn_ptr(m)?;
-            let pair = self.builder()
-                .build_indirect_call(fn_type, m_fn, &[m.into(), s.into()], "st_bind_pair")
-                .map_err(|e| CodegenError::Internal(format!("StateT bind m: {:?}", e)))?
-                .try_as_basic_value().basic()
-                .ok_or_else(|| CodegenError::Internal("StateT bind m: void".to_string()))?
-                .into_pointer_value();
+                // pair = m(s, reader_env)
+                let m_fn = self.extract_closure_fn_ptr(m)?;
+                let pair = self.builder()
+                    .build_indirect_call(fn_type, m_fn, &[m.into(), s.into(), reader_env.into()], "st_bind_pair")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind m nested: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind m nested: void".to_string()))?
+                    .into_pointer_value();
 
-            // a = fst(pair), s' = snd(pair)
-            let a = self.extract_pair_fst(pair)?;
-            let s_prime = self.extract_pair_snd(pair)?;
+                // a = fst(pair), s' = snd(pair)
+                let a = self.extract_pair_fst(pair)?;
+                let s_prime = self.extract_pair_snd(pair)?;
 
-            // kr = k(a)
-            let k_fn = self.extract_closure_fn_ptr(k)?;
-            let kr = self.builder()
-                .build_indirect_call(fn_type, k_fn, &[k.into(), a.into()], "st_bind_kr")
-                .map_err(|e| CodegenError::Internal(format!("StateT bind k: {:?}", e)))?
-                .try_as_basic_value().basic()
-                .ok_or_else(|| CodegenError::Internal("StateT bind k: void".to_string()))?;
+                // kr = k(a) -- k is a non-nested closure that produces a nested closure
+                let k_fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                let k_fn = self.extract_closure_fn_ptr(k)?;
+                let kr = self.builder()
+                    .build_indirect_call(k_fn_type, k_fn, &[k.into(), a.into()], "st_bind_kr")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind k nested: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind k nested: void".to_string()))?;
 
-            // result = kr(s')
-            let kr_ptr = kr.into_pointer_value();
-            let kr_fn = self.extract_closure_fn_ptr(kr_ptr)?;
-            let result = self.builder()
-                .build_indirect_call(fn_type, kr_fn, &[kr_ptr.into(), s_prime.into()], "st_bind_result")
-                .map_err(|e| CodegenError::Internal(format!("StateT bind kr: {:?}", e)))?
-                .try_as_basic_value().basic()
-                .ok_or_else(|| CodegenError::Internal("StateT bind kr: void".to_string()))?;
+                // result = kr(s', reader_env)
+                let kr_ptr = kr.into_pointer_value();
+                let kr_fn = self.extract_closure_fn_ptr(kr_ptr)?;
+                let result = self.builder()
+                    .build_indirect_call(fn_type, kr_fn, &[kr_ptr.into(), s_prime.into(), reader_env.into()], "st_bind_result")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind kr nested: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind kr nested: void".to_string()))?;
 
-            self.builder().build_return(Some(&result))
-                .map_err(|e| CodegenError::Internal(format!("state_t_bind return: {:?}", e)))?;
+                self.builder().build_return(Some(&result))
+                    .map_err(|e| CodegenError::Internal(format!("state_t_bind nested return: {:?}", e)))?;
+            } else {
+                // Non-nested: original 2-arg implementation
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+                // pair = m(s)
+                let m_fn = self.extract_closure_fn_ptr(m)?;
+                let pair = self.builder()
+                    .build_indirect_call(fn_type, m_fn, &[m.into(), s.into()], "st_bind_pair")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind m: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind m: void".to_string()))?
+                    .into_pointer_value();
+
+                // a = fst(pair), s' = snd(pair)
+                let a = self.extract_pair_fst(pair)?;
+                let s_prime = self.extract_pair_snd(pair)?;
+
+                // kr = k(a)
+                let k_fn = self.extract_closure_fn_ptr(k)?;
+                let kr = self.builder()
+                    .build_indirect_call(fn_type, k_fn, &[k.into(), a.into()], "st_bind_kr")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind k: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind k: void".to_string()))?;
+
+                // result = kr(s')
+                let kr_ptr = kr.into_pointer_value();
+                let kr_fn = self.extract_closure_fn_ptr(kr_ptr)?;
+                let result = self.builder()
+                    .build_indirect_call(fn_type, kr_fn, &[kr_ptr.into(), s_prime.into()], "st_bind_result")
+                    .map_err(|e| CodegenError::Internal(format!("StateT bind kr: {:?}", e)))?
+                    .try_as_basic_value().basic()
+                    .ok_or_else(|| CodegenError::Internal("StateT bind kr: void".to_string()))?;
+
+                self.builder().build_return(Some(&result))
+                    .map_err(|e| CodegenError::Internal(format!("state_t_bind return: {:?}", e)))?;
+            }
             if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
         }
 
@@ -9750,31 +10116,311 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// evalStateT m s = fst(m(s))
+    ///
+    /// For nested transformers like `StateT s (ReaderT r IO)`, this returns
+    /// a ReaderT closure instead of executing directly.
     fn lower_builtin_eval_state_t(
         &mut self,
         m_expr: &Expr,
         s_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let result = self.lower_builtin_run_state_t(m_expr, s_expr)?;
-        let pair = result
-            .ok_or_else(|| CodegenError::Internal("evalStateT: no result".to_string()))?
-            .into_pointer_value();
-        let fst = self.extract_pair_fst(pair)?;
-        Ok(Some(fst.into()))
+        // Check if this is a nested transformer by examining the type
+        let m_ty = m_expr.ty();
+        let inner_monad = self.extract_inner_monad_from_state_t(&m_ty);
+
+        match inner_monad {
+            Some(TransformerLayer::ReaderT) => {
+                // StateT s (ReaderT r IO) - return a ReaderT closure
+                self.lower_eval_state_t_over_reader_t(m_expr, s_expr)
+            }
+            Some(TransformerLayer::IO) | None => {
+                // StateT s IO - direct execution (current behavior)
+                let result = self.lower_builtin_run_state_t(m_expr, s_expr)?;
+                let pair = result
+                    .ok_or_else(|| CodegenError::Internal("evalStateT: no result".to_string()))?
+                    .into_pointer_value();
+                let fst = self.extract_pair_fst(pair)?;
+                Ok(Some(fst.into()))
+            }
+            Some(_other) => {
+                // Other nested transformers - not yet supported
+                Err(CodegenError::Internal(
+                    "evalStateT over non-IO/ReaderT inner monad not yet supported".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Extract the inner monad from a StateT type.
+    ///
+    /// For `StateT s m a`, returns the transformer layer of `m`.
+    fn extract_inner_monad_from_state_t(&self, ty: &Ty) -> Option<TransformerLayer> {
+        // StateT s m a = App(App(App(Con(StateT), s), m), a)
+        // We need to get `m` and determine its transformer layer
+        match ty {
+            Ty::App(inner, _result_type) => {
+                // inner = App(App(Con(StateT), s), m)
+                if let Ty::App(inner2, monad_arg) = inner.as_ref() {
+                    // inner2 = App(Con(StateT), s)
+                    if let Ty::App(con, _param) = inner2.as_ref() {
+                        if let Ty::Con(tycon) = con.as_ref() {
+                            if tycon.name.as_str() == "StateT" {
+                                // monad_arg is the inner monad `m`
+                                return self.get_transformer_layer_from_type(monad_arg);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Extract the inner monad from a ReaderT type.
+    ///
+    /// For `ReaderT r m a`, returns the transformer layer of `m`.
+    fn extract_inner_monad_from_reader_t(&self, ty: &Ty) -> Option<TransformerLayer> {
+        // ReaderT r m a = App(App(App(Con(ReaderT), r), m), a)
+        match ty {
+            Ty::App(inner, _result_type) => {
+                if let Ty::App(inner2, monad_arg) = inner.as_ref() {
+                    if let Ty::App(con, _param) = inner2.as_ref() {
+                        if let Ty::Con(tycon) = con.as_ref() {
+                            if tycon.name.as_str() == "ReaderT" {
+                                return self.get_transformer_layer_from_type(monad_arg);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Extract the return type from a function type, stripping away function arrows.
+    ///
+    /// For `Int -> StateT Int IO Int`, returns `StateT Int IO Int`.
+    /// For `StateT Int IO Int` (no arrows), returns the type itself.
+    fn get_return_type_from_function_type<'a>(&self, ty: &'a Ty) -> &'a Ty {
+        match ty {
+            Ty::Fun(_, ret) => self.get_return_type_from_function_type(ret),
+            _ => ty,
+        }
+    }
+
+    /// Get the transformer layer from a monad type.
+    ///
+    /// Returns IO for `IO`, StateT for `StateT s m`, ReaderT for `ReaderT r m`, etc.
+    fn get_transformer_layer_from_type(&self, ty: &Ty) -> Option<TransformerLayer> {
+        // Detect transformer types. The structure depends on whether it's:
+        // - IO: Con(IO)
+        // - IO a: App(Con(IO), a)
+        // - T x m (partial, 2 params): App(App(Con(T), x), m)
+        // - T x m a (fully applied): App(App(App(Con(T), x), m), a)
+        match ty {
+            Ty::Con(tycon) if tycon.name.as_str() == "IO" => Some(TransformerLayer::IO),
+            Ty::App(inner, _arg) => {
+                // Check if inner is IO (for IO a)
+                if let Ty::Con(tycon) = inner.as_ref() {
+                    if tycon.name.as_str() == "IO" {
+                        return Some(TransformerLayer::IO);
+                    }
+                }
+
+                // For T x m (two-param transformers), inner = App(Con(T), x)
+                // This handles partial application: StateT s m
+                if let Ty::App(con, _param) = inner.as_ref() {
+                    if let Ty::Con(tycon) = con.as_ref() {
+                        let result = match tycon.name.as_str() {
+                            "StateT" => Some(TransformerLayer::StateT),
+                            "ReaderT" => Some(TransformerLayer::ReaderT),
+                            "ExceptT" => Some(TransformerLayer::ExceptT),
+                            "WriterT" => Some(TransformerLayer::WriterT),
+                            _ => None,
+                        };
+                        if result.is_some() {
+                            return result;
+                        }
+                    }
+
+                    // For T x m a (fully applied), go one level deeper
+                    // inner = App(App(Con(T), x), m), so we look at inner.inner
+                    if let Ty::App(con2, _param2) = con.as_ref() {
+                        if let Ty::Con(tycon) = con2.as_ref() {
+                            return match tycon.name.as_str() {
+                                "StateT" => Some(TransformerLayer::StateT),
+                                "ReaderT" => Some(TransformerLayer::ReaderT),
+                                "ExceptT" => Some(TransformerLayer::ExceptT),
+                                "WriterT" => Some(TransformerLayer::WriterT),
+                                _ => None,
+                            };
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// evalStateT for StateT s (ReaderT r IO) - returns a ReaderT closure.
+    ///
+    /// The returned closure takes reader_env and executes the StateT computation
+    /// with combined (state, reader_env) context.
+    fn lower_eval_state_t_over_reader_t(
+        &mut self,
+        m_expr: &Expr,
+        s_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Lower m and s - the StateT computation needs nested context pushed
+        // so that operations like ask/get use the 3-arg calling convention
+        self.push_transformer_layer(TransformerLayer::StateT);
+        self.push_transformer_layer(TransformerLayer::ReaderT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("evalStateT/ReaderT: m has no value".to_string()))?;
+        self.pop_transformer_layer(); // pop ReaderT
+        self.pop_transformer_layer(); // pop StateT
+        let s_val = self.lower_expr(s_expr)?
+            .ok_or_else(|| CodegenError::Internal("evalStateT/ReaderT: s has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_eval_state_t_over_reader_t";
+
+        // Create the wrapper function that takes reader_env and runs the StateT computation
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            // Parameters: (env, reader_env)
+            // env contains: [m, init_state]
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let reader_env = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let init_state = self.extract_closure_env_elem(env, 2, 1)?;
+
+            // Call m with (m, init_state, reader_env) - 3-arg nested calling convention
+            // m :: StateT s (ReaderT r IO) a uses nested closures that need reader_env
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), init_state.into(), reader_env.into()], "eval_st_pair")
+                .map_err(|e| CodegenError::Internal(format!("evalStateT/ReaderT call m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("evalStateT/ReaderT m: void".to_string()))?
+                .into_pointer_value();
+
+            // Extract fst (the result)
+            let result = self.extract_pair_fst(pair)?;
+
+            self.builder().build_return(Some(&result))
+                .map_err(|e| CodegenError::Internal(format!("evalStateT/ReaderT return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        // Create a ReaderT closure that captures m and init_state
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let s_ptr = self.value_to_ptr(s_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), s_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
     }
 
     /// execStateT m s = snd(m(s))
+    /// execStateT m s = snd(m(s))
+    ///
+    /// For nested transformers like `StateT s (ReaderT r IO)`, this returns
+    /// a ReaderT closure that produces just the final state.
     fn lower_builtin_exec_state_t(
         &mut self,
         m_expr: &Expr,
         s_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        let result = self.lower_builtin_run_state_t(m_expr, s_expr)?;
-        let pair = result
-            .ok_or_else(|| CodegenError::Internal("execStateT: no result".to_string()))?
-            .into_pointer_value();
-        let snd = self.extract_pair_snd(pair)?;
-        Ok(Some(snd.into()))
+        // Check if this is a nested transformer
+        let m_ty = m_expr.ty();
+        let inner_monad = self.extract_inner_monad_from_state_t(&m_ty);
+
+        match inner_monad {
+            Some(TransformerLayer::ReaderT) => {
+                // StateT s (ReaderT r IO) - return a ReaderT closure that produces final state
+                self.lower_exec_state_t_over_reader_t(m_expr, s_expr)
+            }
+            Some(TransformerLayer::IO) | None => {
+                // StateT s IO - direct execution (current behavior)
+                let result = self.lower_run_state_t_direct(m_expr, s_expr)?;
+                let pair = result
+                    .ok_or_else(|| CodegenError::Internal("execStateT: no result".to_string()))?
+                    .into_pointer_value();
+                let snd = self.extract_pair_snd(pair)?;
+                Ok(Some(snd.into()))
+            }
+            Some(_other) => {
+                Err(CodegenError::Internal(
+                    "execStateT over non-IO/ReaderT inner monad not yet supported".to_string(),
+                ))
+            }
+        }
+    }
+
+    /// execStateT for StateT s (ReaderT r IO) - returns a ReaderT closure that produces final state.
+    fn lower_exec_state_t_over_reader_t(
+        &mut self,
+        m_expr: &Expr,
+        s_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        self.push_transformer_layer(TransformerLayer::StateT);
+        let m_val = self.lower_expr(m_expr)?
+            .ok_or_else(|| CodegenError::Internal("execStateT/ReaderT: m has no value".to_string()))?;
+        self.pop_transformer_layer();
+        let s_val = self.lower_expr(s_expr)?
+            .ok_or_else(|| CodegenError::Internal("execStateT/ReaderT: s has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_name = "bhc_exec_state_t_over_reader_t";
+
+        let func = self.get_or_create_transformer_fn(fn_name);
+        if func.count_basic_blocks() == 0 {
+            let entry = self.llvm_ctx.append_basic_block(func, "entry");
+            let saved_bb = self.builder().get_insert_block();
+            self.builder().position_at_end(entry);
+
+            let env = func.get_nth_param(0).unwrap().into_pointer_value();
+            let reader_env = func.get_nth_param(1).unwrap();
+            let m = self.extract_closure_env_elem(env, 2, 0)?;
+            let init_state = self.extract_closure_env_elem(env, 2, 1)?;
+
+            let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+            let m_fn = self.extract_closure_fn_ptr(m)?;
+            let pair = self.builder()
+                .build_indirect_call(fn_type, m_fn, &[m.into(), init_state.into()], "exec_st_pair")
+                .map_err(|e| CodegenError::Internal(format!("execStateT/ReaderT call m: {:?}", e)))?
+                .try_as_basic_value().basic()
+                .ok_or_else(|| CodegenError::Internal("execStateT/ReaderT m: void".to_string()))?
+                .into_pointer_value();
+
+            // Extract snd (the final state)
+            let final_state = self.extract_pair_snd(pair)?;
+
+            let _ = reader_env;
+            self.builder().build_return(Some(&final_state))
+                .map_err(|e| CodegenError::Internal(format!("execStateT/ReaderT return: {:?}", e)))?;
+            if let Some(bb) = saved_bb { self.builder().position_at_end(bb); }
+        }
+
+        let fn_ptr = func.as_global_value().as_pointer_value();
+        let m_ptr = self.value_to_ptr(m_val)?;
+        let s_ptr = self.value_to_ptr(s_val)?;
+        let closure_ptr = self.alloc_closure(fn_ptr, &[
+            (VarId::new(900000), m_ptr.into()),
+            (VarId::new(900001), s_ptr.into()),
+        ])?;
+        Ok(Some(closure_ptr.into()))
     }
 
     // ========================================================================
@@ -18768,17 +19414,46 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let entry = self.llvm_context().append_basic_block(fn_val, "entry");
         self.builder().position_at_end(entry);
 
-        // Detect if this function body uses StateT/ReaderT operations.
-        // If so, push the appropriate transformer layer so that >>= and >>
-        // dispatch correctly for user-defined helper functions, and record
-        // this function as a StateT/ReaderT function so callers can detect it.
+        // Detect if this function uses StateT/ReaderT context.
+        // We check TWO sources:
+        // 1. The function's type signature (for functions like `comp = return 42` where the
+        //    body doesn't have transformer-specific operations but the type is a transformer)
+        // 2. The function body (for functions that use get/put/ask/etc.)
         //
-        // Note: We only push the OUTERMOST transformer layer, not the full stack.
-        // Cross-transformer operations (e.g., ask inside StateT over ReaderT) are
-        // handled by the MTL typeclass system at the type level, but the codegen
-        // for nested transformers is not yet fully supported.
-        let transformer_layer = self.detect_transformer_for_body(expr);
-        if let Some(layer) = transformer_layer {
+        // For nested transformers like StateT s (ReaderT r IO), we need to push the FULL
+        // transformer stack so that operations like `ask` can detect they're in a nested context.
+        let return_type = self.get_return_type_from_function_type(&var.ty);
+        let mut transformer_stack_from_type = self.extract_transformer_stack_from_type(return_type);
+
+        // Remove IO from the end since it's already the base of our stack
+        // The stack is [StateT, ReaderT, IO], we want to push [StateT, ReaderT]
+        if transformer_stack_from_type.last() == Some(&TransformerLayer::IO) {
+            transformer_stack_from_type.pop();
+        }
+
+        // We need to push in REVERSE order since push() inserts at position 0
+        // For [StateT, ReaderT], we push ReaderT first, then StateT, resulting in [StateT, ReaderT, IO]
+        let layers_to_push: Vec<_> = transformer_stack_from_type.iter().rev().cloned().collect();
+        let pushed_count = layers_to_push.len();
+
+        // Push the full transformer stack (innermost first since push inserts at position 0)
+        for layer in &layers_to_push {
+            let fn_name = var.name.as_str().to_string();
+            match layer {
+                TransformerLayer::StateT => { self.state_t_functions.insert(fn_name.clone()); }
+                TransformerLayer::ReaderT => { self.reader_t_functions.insert(fn_name.clone()); }
+                _ => {}
+            }
+            self.push_transformer_layer(*layer);
+        }
+
+        // If type didn't indicate transformers, fall back to body detection
+        let extra_layer = if pushed_count == 0 {
+            self.detect_transformer_for_body(expr)
+        } else {
+            None
+        };
+        if let Some(layer) = extra_layer {
             let fn_name = var.name.as_str().to_string();
             match layer {
                 TransformerLayer::StateT => { self.state_t_functions.insert(fn_name); }
@@ -18791,7 +19466,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Lower the function body, handling lambda parameters
         let result = self.lower_function_body(fn_val, expr)?;
 
-        if transformer_layer.is_some() {
+        // Pop all the pushed layers
+        if extra_layer.is_some() {
+            self.pop_transformer_layer();
+        }
+        for _ in 0..pushed_count {
             self.pop_transformer_layer();
         }
 
@@ -20352,23 +21031,27 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 Ok(result.into())
             }
 
-            // Boolean operations
+            // Boolean operations - Bool is an ADT where False=tag 0, True=tag 1
             PrimOp::And => {
-                let lhs = self.ptr_to_int(args[0].into_pointer_value())?;
-                let rhs = self.ptr_to_int(args[1].into_pointer_value())?;
+                // Extract tags from Bool ADT pointers
+                let lhs_tag = self.extract_adt_tag(args[0].into_pointer_value())?;
+                let rhs_tag = self.extract_adt_tag(args[1].into_pointer_value())?;
+                // AND the tags (0 & anything = 0, 1 & 1 = 1)
                 let result = self
                     .builder()
-                    .build_and(lhs, rhs, "and")
+                    .build_and(lhs_tag, rhs_tag, "and")
                     .map_err(|e| CodegenError::Internal(format!("failed to build and: {:?}", e)))?;
                 Ok(result.into())
             }
 
             PrimOp::Or => {
-                let lhs = self.ptr_to_int(args[0].into_pointer_value())?;
-                let rhs = self.ptr_to_int(args[1].into_pointer_value())?;
+                // Extract tags from Bool ADT pointers
+                let lhs_tag = self.extract_adt_tag(args[0].into_pointer_value())?;
+                let rhs_tag = self.extract_adt_tag(args[1].into_pointer_value())?;
+                // OR the tags (0 | 0 = 0, anything | 1 = 1)
                 let result = self
                     .builder()
-                    .build_or(lhs, rhs, "or")
+                    .build_or(lhs_tag, rhs_tag, "or")
                     .map_err(|e| CodegenError::Internal(format!("failed to build or: {:?}", e)))?;
                 Ok(result.into())
             }
@@ -21033,17 +21716,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Lower a binary boolean operation.
+    /// Returns a proper Bool ADT pointer (not just an integer tag).
     fn lower_binary_bool(
         &self,
         op: PrimOp,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
-        // Convert to i64 if needed, then perform operation
-        let l = self.to_int_value(lhs)?;
-        let r = self.to_int_value(rhs)?;
+        // Extract the boolean value (tag) from each operand
+        // Bool is an ADT with False=tag 0, True=tag 1
+        let l = self.extract_bool_value(lhs)?;
+        let r = self.extract_bool_value(rhs)?;
 
-        // Convert to i1 for boolean operations
+        // Convert to i1 for boolean operations (compare to zero)
         let zero = self.type_mapper().i64_type().const_zero();
         let l_bool = self
             .builder()
@@ -21063,13 +21748,137 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let bool_result = result
             .map_err(|e| CodegenError::Internal(format!("failed to build bool op: {:?}", e)))?;
 
-        // Extend back to i64
-        let extended = self
+        // Extend to i64 (0 or 1)
+        let tag = self
             .builder()
             .build_int_z_extend(bool_result, self.type_mapper().i64_type(), "bool_ext")
             .map_err(|e| CodegenError::Internal(format!("failed to extend bool: {:?}", e)))?;
 
-        Ok(Some(extended.into()))
+        // Allocate and return a proper Bool ADT
+        // We need to select between True (tag 1) and False (tag 0) ADTs
+        let current_fn = self
+            .builder()
+            .get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+            .get_parent()
+            .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+
+        let true_block = self.llvm_ctx.append_basic_block(current_fn, "bool_true_alloc");
+        let false_block = self.llvm_ctx.append_basic_block(current_fn, "bool_false_alloc");
+        let merge_block = self.llvm_ctx.append_basic_block(current_fn, "bool_alloc_merge");
+
+        self.builder()
+            .build_conditional_branch(bool_result, true_block, false_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+
+        // True case: allocate True ADT (tag 1, arity 0)
+        self.builder().position_at_end(true_block);
+        let true_adt = self.alloc_adt(1, 0)?;
+        self.builder()
+            .build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        let true_end = self.builder().get_insert_block().unwrap();
+
+        // False case: allocate False ADT (tag 0, arity 0)
+        self.builder().position_at_end(false_block);
+        let false_adt = self.alloc_adt(0, 0)?;
+        self.builder()
+            .build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("failed to build branch: {:?}", e)))?;
+        let false_end = self.builder().get_insert_block().unwrap();
+
+        // Merge and return the ADT pointer
+        self.builder().position_at_end(merge_block);
+        let phi = self
+            .builder()
+            .build_phi(self.type_mapper().ptr_type(), "bool_adt")
+            .map_err(|e| CodegenError::Internal(format!("failed to build phi: {:?}", e)))?;
+        phi.add_incoming(&[(&true_adt, true_end), (&false_adt, false_end)]);
+
+        Ok(Some(phi.as_basic_value()))
+    }
+
+    /// Extract the boolean value (as i64 tag: 0 for False, 1 for True) from a value.
+    /// Handles both raw integer booleans and Bool ADT pointers.
+    fn extract_bool_value(&self, val: BasicValueEnum<'ctx>) -> CodegenResult<IntValue<'ctx>> {
+        match val {
+            BasicValueEnum::IntValue(i) => Ok(i),
+            BasicValueEnum::PointerValue(p) => {
+                // The pointer might be:
+                // 1. A valid Bool ADT pointer (from constructor allocation)
+                // 2. A small integer (0 or 1) cast to pointer (from primop result)
+                let ptr_as_int = self
+                    .builder()
+                    .build_ptr_to_int(p, self.type_mapper().i64_type(), "ptr_as_int")
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to convert ptr to int: {:?}", e))
+                    })?;
+
+                // Check if it's a small integer (0 or 1)
+                let is_raw_bool = self
+                    .builder()
+                    .build_int_compare(
+                        inkwell::IntPredicate::ULE,
+                        ptr_as_int,
+                        self.type_mapper().i64_type().const_int(1, false),
+                        "is_raw_bool",
+                    )
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to compare ptr: {:?}", e))
+                    })?;
+
+                // Create blocks for the two cases
+                let current_fn = self
+                    .builder()
+                    .get_insert_block()
+                    .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+                    .get_parent()
+                    .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+                let raw_bool_block = self.llvm_ctx.append_basic_block(current_fn, "raw_bool_ext");
+                let adt_bool_block = self.llvm_ctx.append_basic_block(current_fn, "adt_bool_ext");
+                let merge_block = self.llvm_ctx.append_basic_block(current_fn, "bool_ext_merge");
+
+                self.builder()
+                    .build_conditional_branch(is_raw_bool, raw_bool_block, adt_bool_block)
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to build cond branch: {:?}", e))
+                    })?;
+
+                // Raw bool case: pointer value IS the boolean (0 or 1)
+                self.builder().position_at_end(raw_bool_block);
+                let raw_val = ptr_as_int;
+                self.builder()
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to build branch: {:?}", e))
+                    })?;
+                let raw_bool_end = self.builder().get_insert_block().unwrap();
+
+                // ADT bool case: load the tag from the ADT structure
+                self.builder().position_at_end(adt_bool_block);
+                let adt_val = self.extract_adt_tag(p)?;
+                self.builder()
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to build branch: {:?}", e))
+                    })?;
+                let adt_bool_end = self.builder().get_insert_block().unwrap();
+
+                // Merge
+                self.builder().position_at_end(merge_block);
+                let phi = self
+                    .builder()
+                    .build_phi(self.type_mapper().i64_type(), "bool_val_ext")
+                    .map_err(|e| {
+                        CodegenError::Internal(format!("failed to build phi: {:?}", e))
+                    })?;
+                phi.add_incoming(&[(&raw_val, raw_bool_end), (&adt_val, adt_bool_end)]);
+                Ok(phi.as_basic_value().into_int_value())
+            }
+            _ => Err(CodegenError::TypeError(
+                "expected Bool value in boolean operation".to_string(),
+            )),
+        }
     }
 
     /// Lower a binary bitwise operation.
@@ -22017,8 +22826,61 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             let int_scrut = match scrut_val {
                 BasicValueEnum::IntValue(_) => scrut_val,
                 BasicValueEnum::PointerValue(p) => {
-                    // Boxed boolean - load the tag from the ADT
-                    // Bool is arity 0, so ADT structure is { i64 tag, [0 x ptr] }
+                    // The pointer might be:
+                    // 1. A valid Bool ADT pointer (from constructor allocation)
+                    // 2. A small integer (0 or 1) cast to pointer (from primop result)
+                    //
+                    // We need to distinguish these cases. Check if pointer value <= 1,
+                    // in which case it's a raw boolean, otherwise load from the ADT.
+                    let ptr_as_int = self
+                        .builder()
+                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "ptr_as_int")
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to convert ptr to int: {:?}", e))
+                        })?;
+
+                    // Check if it's a small integer (0 or 1)
+                    let is_raw_bool = self
+                        .builder()
+                        .build_int_compare(
+                            inkwell::IntPredicate::ULE,
+                            ptr_as_int,
+                            self.type_mapper().i64_type().const_int(1, false),
+                            "is_raw_bool",
+                        )
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to compare ptr: {:?}", e))
+                        })?;
+
+                    // Create blocks for the two cases
+                    let current_fn = self
+                        .builder()
+                        .get_insert_block()
+                        .ok_or_else(|| CodegenError::Internal("no insert block".to_string()))?
+                        .get_parent()
+                        .ok_or_else(|| CodegenError::Internal("no parent function".to_string()))?;
+                    let raw_bool_block = self.llvm_ctx.append_basic_block(current_fn, "raw_bool");
+                    let adt_bool_block = self.llvm_ctx.append_basic_block(current_fn, "adt_bool");
+                    let merge_block = self.llvm_ctx.append_basic_block(current_fn, "bool_merge");
+
+                    self.builder()
+                        .build_conditional_branch(is_raw_bool, raw_bool_block, adt_bool_block)
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to build cond branch: {:?}", e))
+                        })?;
+
+                    // Raw bool case: pointer value IS the boolean (0 or 1)
+                    self.builder().position_at_end(raw_bool_block);
+                    let raw_val = ptr_as_int;
+                    self.builder()
+                        .build_unconditional_branch(merge_block)
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to build branch: {:?}", e))
+                        })?;
+                    let raw_bool_end = self.builder().get_insert_block().unwrap();
+
+                    // ADT bool case: load the tag from the ADT structure
+                    self.builder().position_at_end(adt_bool_block);
                     let adt_ty = self.adt_type(0);
                     let tag_ptr = self
                         .builder()
@@ -22026,13 +22888,30 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         .map_err(|e| {
                             CodegenError::Internal(format!("failed to get bool tag ptr: {:?}", e))
                         })?;
-                    let tag_val = self
+                    let adt_val = self
                         .builder()
                         .build_load(self.type_mapper().i64_type(), tag_ptr, "bool_tag")
                         .map_err(|e| {
                             CodegenError::Internal(format!("failed to load bool tag: {:?}", e))
+                        })?
+                        .into_int_value();
+                    self.builder()
+                        .build_unconditional_branch(merge_block)
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to build branch: {:?}", e))
                         })?;
-                    tag_val
+                    let adt_bool_end = self.builder().get_insert_block().unwrap();
+
+                    // Merge
+                    self.builder().position_at_end(merge_block);
+                    let phi = self
+                        .builder()
+                        .build_phi(self.type_mapper().i64_type(), "bool_val")
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to build phi: {:?}", e))
+                        })?;
+                    phi.add_incoming(&[(&raw_val, raw_bool_end), (&adt_val, adt_bool_end)]);
+                    phi.as_basic_value()
                 }
                 _ => scrut_val, // Fall through to datacon handling
             };
