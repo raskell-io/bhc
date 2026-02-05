@@ -18,12 +18,21 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 37 native E2E tests passing (including monad transformers, file IO, markdown parser)
+- 38 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - 19 WASM E2E tests passing
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
-- Milestone D (CSV parser with StateT) complete
+- Milestone E (JSON parser) complete — all intermediate milestones A–E done
+
+### Gap to Pandoc
+
+**Completed:** Self-contained single-file programs with transformers, parsing, file IO
+**Missing for Pandoc:**
+1. **Package system** — Can't import from Hackage packages yet
+2. **Data.Text** — Pandoc uses Text everywhere, we only have String
+3. **Exception handling** — Need catch/throw/bracket for robust code
+4. **GHC.Generics or TH** — Required for aeson JSON deriving
 
 ---
 
@@ -292,6 +301,24 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] Compile a program that parses JSON, extracts fields, writes output
 - [x] Self-contained JSON parser without external dependencies
 - [x] E2E test: `tier3_io/milestone_e_json` passes (outputs "Alice" and "30" from `{"name": "Alice", "age": 30}`)
+
+### Milestone E.5: Exception Handling
+- [ ] Implement `throw`, `catch`, `try` for IO exceptions
+- [ ] Implement `bracket` for resource management
+- [ ] Exception hierarchy: `SomeException`, `IOException`, `ErrorCall`
+- [ ] E2E test: program that opens file, handles "file not found", cleans up
+
+### Milestone E.6: Multi-Package Program
+- [ ] Wire `bhc-package` into `bhc-driver`
+- [ ] Parse minimal `.cabal` files (exposed-modules, build-depends, hs-source-dirs)
+- [ ] Compile a program that imports from 2-3 simple Hackage packages
+- [ ] Example: use `filepath` and `directory` packages
+
+### Milestone E.7: Data.Text Foundation
+- [ ] Implement packed UTF-8 `Text` type (not `[Char]`)
+- [ ] Core API: pack, unpack, append, length, null, map, filter
+- [ ] Text.IO: readFile, writeFile
+- [ ] E2E test: read file as Text, process, write output
 
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
