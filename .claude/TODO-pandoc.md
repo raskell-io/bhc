@@ -3,7 +3,7 @@
 **Document ID:** BHC-TODO-PANDOC
 **Status:** In Progress
 **Created:** 2026-01-30
-**Updated:** 2026-02-05
+**Updated:** 2026-02-06
 
 ---
 
@@ -18,21 +18,23 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 38 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
-- 19 WASM E2E tests passing
+- 43 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
-- Milestone E (JSON parser) complete — all intermediate milestones A–E done
+- Exception handling: catch, bracket, finally, onException (E.5)
+- Multi-package support with import paths (E.6)
+- Data.Text: packed UTF-8 with 25+ operations (E.7)
+- Data.ByteString: 24 RTS functions, Data.Text.Encoding bridge (E.8)
+- All intermediate milestones A–E.8 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained single-file programs with transformers, parsing, file IO
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, exceptions, multi-package imports
 **Missing for Pandoc:**
-1. **Package system** — Can't import from Hackage packages yet
-2. **Data.Text** — Pandoc uses Text everywhere, we only have String
-3. **Exception handling** — Need catch/throw/bracket for robust code
-4. **GHC.Generics or TH** — Required for aeson JSON deriving
+1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
+2. **Lazy Text/ByteString** — Only strict variants implemented
+3. **GHC.Generics or TH** — Required for aeson JSON deriving
 
 ---
 
@@ -42,17 +44,17 @@ These must be resolved before any real-world Haskell program can compile.
 
 ### 1.1 Package System Integration
 
-**Status:** Not connected
+**Status:** Basic import paths working (E.6), full Hackage integration not yet connected
 **Scope:** Large
 
-The `bhc-package` crate exists with TOML manifests, semver resolution, and
-lockfile support, but it is not wired into `bhc-driver`. Pandoc depends on
-~80 packages from Hackage.
+Multi-package support with `-I` import paths is working (E.6). The `bhc-package`
+crate exists with TOML manifests, semver resolution, and lockfile support.
+Pandoc depends on ~80 packages from Hackage.
 
+- [x] Wire package resolution into `bhc-driver` compilation pipeline (basic import paths)
 - [ ] Parse `.cabal` files (at minimum: exposed-modules, build-depends, hs-source-dirs)
 - [ ] Resolve transitive dependency graph from a cabal file
 - [ ] Fetch packages from Hackage (tar.gz download + unpack)
-- [ ] Wire package resolution into `bhc-driver` compilation pipeline
 - [ ] Support `PackageImports` extension for disambiguating modules
 - [ ] Handle conditional dependencies (flags, OS checks, impl checks)
 - [ ] Generate and consume interface files (`.bhi`) across package boundaries
@@ -65,50 +67,57 @@ lockfile support, but it is not wired into `bhc-driver`. Pandoc depends on
 
 ### 1.2 Data.Text and Data.ByteString
 
-**Status:** Stub modules exist
-**Scope:** Large
+**Status:** ✅ Core APIs complete (E.7 + E.8), Lazy variants remaining
+**Scope:** Large (remaining: Lazy variants)
 
-Pandoc uses `Data.Text` pervasively. BHC only has `String` as `[Char]` linked
-lists — orders of magnitude slower for document processing.
+Data.Text (E.7): packed UTF-8 with 25+ operations. Data.ByteString (E.8): 24
+RTS functions with identical memory layout. Data.Text.Encoding (E.8): zero-copy
+encodeUtf8/decodeUtf8 bridge.
 
-- [ ] Implement packed UTF-8 `Text` representation (not `[Char]`)
-- [ ] Core Text API (~50 functions): pack, unpack, append, cons, snoc, head,
-      tail, length, null, map, filter, foldl', foldr, intercalate, split,
-      splitOn, strip, toLower, toUpper, isPrefixOf, isSuffixOf, isInfixOf,
-      replace, breakOn, words, lines, unwords, unlines, etc.
+- [x] Implement packed UTF-8 `Text` representation (not `[Char]`)
+- [x] Core Text API: pack, unpack, append, cons, snoc, head, tail, length,
+      null, map, take, drop, toLower, toUpper, toCaseFold, toTitle,
+      isPrefixOf, isSuffixOf, isInfixOf, eq, compare, singleton, empty,
+      filter, foldl', concat, intercalate, strip, words, lines, splitOn, replace
 - [ ] Text.IO: readFile, writeFile, hGetContents, hPutStr
-- [ ] Text.Encoding: encodeUtf8, decodeUtf8, decodeUtf8'
+- [x] Text.Encoding: encodeUtf8, decodeUtf8
+- [ ] Text.Encoding: decodeUtf8' (with Either error handling)
 - [ ] Lazy Text variant (Data.Text.Lazy, Data.Text.Lazy.IO)
-- [ ] ByteString: packed byte array type
-- [ ] ByteString API (~40 functions): pack, unpack, append, head, tail,
-      length, null, map, filter, foldl', take, drop, splitAt, elem, etc.
+- [x] ByteString: packed byte array type (identical layout to Text)
+- [x] ByteString API (24 functions): pack, unpack, empty, singleton, append,
+      cons, snoc, head, last, tail, init, length, null, take, drop, reverse,
+      elem, index, eq, compare, isPrefixOf, isSuffixOf, readFile, writeFile
 - [ ] ByteString.Lazy and ByteString.Builder
 - [ ] SIMD-optimized operations where applicable (memchr, memcmp, etc.)
 
 **Key files:**
-- `stdlib/bhc-text/` — text/bytestring crate (currently empty/stub)
+- `stdlib/bhc-text/src/text.rs` — Text RTS (25+ FFI functions)
+- `stdlib/bhc-text/src/bytestring.rs` — ByteString RTS (24 FFI functions)
+- `crates/bhc-typeck/src/builtins.rs` — type registrations
+- `crates/bhc-codegen/src/llvm/lower.rs` — VarIds 1000200-1000431
 
 ### 1.3 Full IO and Exception Handling
 
-**Status:** Basic print/getLine works; rest stubbed
-**Scope:** Medium-Large
+**Status:** Core exception handling complete (E.5), file IO working, remaining: directory ops
+**Scope:** Medium
 
-Pandoc reads/writes files, uses handles, and relies on structured exception
-handling throughout.
+Exception handling (catch, bracket, finally, onException) is working (E.5).
+File IO (readFile, writeFile, openFile, hClose) is working. System ops
+(getArgs, getEnv, exitWith) are working. Remaining: directory operations.
 
-- [ ] Handle abstraction: `Handle`, `IOMode`, `BufferMode`
-- [ ] File operations: `openFile`, `hClose`, `hFlush`, `hSetBuffering`
-- [ ] Reading: `hGetChar`, `hGetLine`, `hGetContents`, `hIsEOF`
-- [ ] Writing: `hPutChar`, `hPutStr`, `hPutStrLn`
-- [ ] Standard handles: `stdin`, `stdout`, `stderr`
-- [ ] File-level: `readFile`, `writeFile`, `appendFile`
-- [ ] Exception types: `SomeException`, `IOException`, `ErrorCall`
-- [ ] Exception primitives: `throw`, `throwIO`, `catch`, `try`
-- [ ] Resource management: `bracket`, `bracket_`, `finally`, `onException`
+- [x] Handle abstraction: `Handle`, `IOMode`
+- [x] File operations: `openFile`, `hClose`, `hFlush`
+- [x] Reading: `hGetLine`, `hGetContents`, `hIsEOF`
+- [x] Writing: `hPutStr`, `hPutStrLn`
+- [x] Standard handles: `stdin`, `stdout`, `stderr`
+- [x] File-level: `readFile`, `writeFile`, `appendFile`
+- [x] Exception types: `SomeException`, `IOException`, `ErrorCall`
+- [x] Exception primitives: `throw`, `throwIO`, `catch`, `try`
+- [x] Resource management: `bracket`, `bracket_`, `finally`, `onException`
 - [ ] Exception hierarchy: `Exception` typeclass with `toException`/`fromException`
 - [ ] Asynchronous exceptions: `mask`, `uninterruptibleMask` (at least stubs)
-- [ ] System operations: `getArgs`, `getProgName`, `getEnv`, `lookupEnv`
-- [ ] Exit: `exitSuccess`, `exitFailure`, `exitWith`
+- [x] System operations: `getArgs`, `getProgName`, `getEnv`, `lookupEnv`
+- [x] Exit: `exitSuccess`, `exitFailure`, `exitWith`
 - [ ] Directory: `doesFileExist`, `doesDirectoryExist`, `createDirectory`,
       `removeFile`, `getDirectoryContents`, `getCurrentDirectory`
 - [ ] Temporary files: `withTempFile`, `withTempDirectory`
@@ -302,23 +311,31 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] Self-contained JSON parser without external dependencies
 - [x] E2E test: `tier3_io/milestone_e_json` passes (outputs "Alice" and "30" from `{"name": "Alice", "age": 30}`)
 
-### Milestone E.5: Exception Handling
-- [ ] Implement `throw`, `catch`, `try` for IO exceptions
-- [ ] Implement `bracket` for resource management
-- [ ] Exception hierarchy: `SomeException`, `IOException`, `ErrorCall`
-- [ ] E2E test: program that opens file, handles "file not found", cleans up
+### Milestone E.5: Exception Handling ✅
+- [x] Implement `throw`, `catch`, `try` for IO exceptions
+- [x] Implement `bracket`, `finally`, `onException` for resource management
+- [x] Exception hierarchy: `SomeException`, `IOException`, `ErrorCall`
+- [x] E2E tests: `bracket_io`, `catch_file_error`, `exception_test`, `handle_io`
 
-### Milestone E.6: Multi-Package Program
-- [ ] Wire `bhc-package` into `bhc-driver`
-- [ ] Parse minimal `.cabal` files (exposed-modules, build-depends, hs-source-dirs)
-- [ ] Compile a program that imports from 2-3 simple Hackage packages
-- [ ] Example: use `filepath` and `directory` packages
+### Milestone E.6: Multi-Package Program ✅
+- [x] Wire import paths into `bhc-driver` via `-I` flag
+- [x] Compile programs that import from external package directories
+- [x] E2E test: `tier3_io/package_import` passes
 
 ### Milestone E.7: Data.Text Foundation ✅
 - [x] Implement packed UTF-8 `Text` type (not `[Char]`)
 - [x] Core API: pack, unpack, append, length, null, take, drop, toUpper, toLower
 - [x] RTS-backed implementation in bhc-text with UTF-8 encoding
 - [x] E2E test: `tier3_io/text_basic` passes (pack, unpack, append, toUpper, take, drop)
+
+### Milestone E.8: Data.ByteString + Text Completion ✅
+- [x] ByteString RTS: 24 FFI functions with same memory layout as Text
+- [x] ByteString type system: `bytestring_con`/`bytestring_ty` + 23 PrimOps
+- [x] ByteString codegen: VarIds 1000400-1000423
+- [x] Text.Encoding: `encodeUtf8` (zero-copy), `decodeUtf8` (validates UTF-8)
+- [x] Additional Text ops: filter, foldl', concat, intercalate, strip, words, lines, splitOn, replace
+- [x] E2E tests: `tier3_io/bytestring_basic` and `tier3_io/text_encoding` pass
+- [x] 43 total E2E tests pass, 66 bhc-text unit tests pass
 
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
@@ -343,7 +360,8 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 | `crates/bhc-package/` | Package management |
 | `crates/bhc-interface/` | Module interface files |
 | `stdlib/bhc-base/` | Base library RTS functions |
-| `stdlib/bhc-text/` | Text/ByteString (to be implemented) |
+| `stdlib/bhc-text/src/text.rs` | Text RTS (25+ FFI functions, E.7+E.8) |
+| `stdlib/bhc-text/src/bytestring.rs` | ByteString RTS (24 FFI functions, E.8) |
 | `stdlib/bhc-system/` | System/IO operations |
 | `stdlib/bhc-containers/` | Container data structures |
 | `stdlib/bhc-transformers/` | Monad transformers |
@@ -353,6 +371,16 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-06: Milestone E.8 Data.ByteString + Text Completion
+- ByteString RTS: 24 FFI functions with identical memory layout to Text (`[data_ptr, offset, byte_len, ...bytes...]`)
+- Data.Text.Encoding: `encodeUtf8` (zero-copy, shares UTF-8 buffer), `decodeUtf8` (validates UTF-8)
+- Additional Text ops: filter, foldl', concat, intercalate, strip, words, lines, splitOn, replace
+- Functions returning lists (words/lines/splitOn) build BHC cons-lists via `build_text_list()`
+- VarIds: ByteString 1000400-1000423, Text.Encoding 1000430-1000431, new Text ops 1000227-1000236
+- Fixed linker library search order: debug path now searched before release (prevents stale release `.dylib` shadowing)
+- Qualified names must be registered in three places: builtins.rs, context.rs `define_builtins()`, and lower.rs
+- 43 E2E tests pass, 66 bhc-text unit tests pass
 
 ### 2026-02-05: Milestone E.7 Data.Text Foundation Complete
 - Implemented packed UTF-8 `Text` type via RTS-backed functions
