@@ -3,7 +3,7 @@
 **Document ID:** BHC-TODO-PANDOC
 **Status:** In Progress
 **Created:** 2026-01-30
-**Updated:** 2026-02-06
+**Updated:** 2026-02-07
 
 ---
 
@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 43 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 46 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -26,11 +26,13 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Multi-package support with import paths (E.6)
 - Data.Text: packed UTF-8 with 25+ operations (E.7)
 - Data.ByteString: 24 RTS functions, Data.Text.Encoding bridge (E.8)
-- All intermediate milestones A–E.8 done
+- Data.Char predicates, type-specialized show functions (E.9)
+- Data.Text.IO: native Text file/handle I/O (E.10)
+- All intermediate milestones A–E.10 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, exceptions, multi-package imports
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, exceptions, multi-package imports
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -67,8 +69,8 @@ Pandoc depends on ~80 packages from Hackage.
 
 ### 1.2 Data.Text and Data.ByteString
 
-**Status:** ✅ Core APIs complete (E.7 + E.8), Lazy variants remaining
-**Scope:** Large (remaining: Lazy variants)
+**Status:** ✅ Core APIs complete (E.7 + E.8), Text.IO complete (E.10), Lazy variants remaining
+**Scope:** Medium (remaining: Lazy variants)
 
 Data.Text (E.7): packed UTF-8 with 25+ operations. Data.ByteString (E.8): 24
 RTS functions with identical memory layout. Data.Text.Encoding (E.8): zero-copy
@@ -79,7 +81,7 @@ encodeUtf8/decodeUtf8 bridge.
       null, map, take, drop, toLower, toUpper, toCaseFold, toTitle,
       isPrefixOf, isSuffixOf, isInfixOf, eq, compare, singleton, empty,
       filter, foldl', concat, intercalate, strip, words, lines, splitOn, replace
-- [ ] Text.IO: readFile, writeFile, hGetContents, hPutStr
+- [x] Text.IO: readFile, writeFile, appendFile, hGetContents, hGetLine, hPutStr, hPutStrLn, putStr, putStrLn, getLine, getContents
 - [x] Text.Encoding: encodeUtf8, decodeUtf8
 - [ ] Text.Encoding: decodeUtf8' (with Either error handling)
 - [ ] Lazy Text variant (Data.Text.Lazy, Data.Text.Lazy.IO)
@@ -265,11 +267,13 @@ compiled from Hackage source.
 
 ### 3.2 Numeric and Conversion Operations
 
-- [ ] `show` for all standard types (Int, Float, Double, Char, Bool, lists)
+- [x] `show` for standard types: showInt, showBool, showChar, showFloat (type-specialized, E.9)
+- [ ] `show` for remaining types: Double, lists, tuples, Maybe, Either
 - [ ] `read` / `reads` for parsing
 - [ ] `fromIntegral`, `realToFrac`, `toInteger`, `fromInteger`
 - [ ] `Rational` type and operations
-- [ ] `Data.Char` Unicode categories (full Unicode, not just ASCII)
+- [x] `Data.Char` predicates: isAlpha, isDigit, isUpper, isLower, isAlphaNum, isSpace, isPunctuation, toUpper, toLower, ord, chr, digitToInt, intToDigit (E.9)
+- [ ] `Data.Char` full Unicode categories (currently ASCII-only)
 
 ### 3.3 Performance
 
@@ -337,6 +341,23 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E tests: `tier3_io/bytestring_basic` and `tier3_io/text_encoding` pass
 - [x] 43 total E2E tests pass, 66 bhc-text unit tests pass
 
+### Milestone E.9: Data.Char + Type-Specialized Show ✅
+- [x] Data.Char predicates: isAlpha, isDigit, isUpper, isLower, isAlphaNum, isSpace, isPunctuation
+- [x] Data.Char conversions: toUpper, toLower, ord, chr, digitToInt, intToDigit
+- [x] Type-specialized show: showInt, showBool, showChar, showFloat
+- [x] Proper ADT boolean returns from char predicates (tag 0=False, 1=True)
+- [x] bhc-base linked, VarId bug fixes
+- [x] E2E tests: `tier3_io/char_predicates`, `tier3_io/show_types`
+- [x] 45 total E2E tests pass
+
+### Milestone E.10: Data.Text.IO ✅
+- [x] 7 RTS functions in bhc-text: readFile, writeFile, appendFile, hGetContents, hGetLine, hPutStr, hPutStrLn
+- [x] 4 codegen-composed convenience functions: putStr, putStrLn, getLine, getContents
+- [x] Handle functions use sentinel-pointer pattern (1=stdin, 2=stdout, 3=stderr)
+- [x] Fixed import shadowing bug in register_standard_module_exports
+- [x] E2E test: `tier3_io/text_io`
+- [x] 46 total E2E tests pass
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -361,7 +382,9 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 | `crates/bhc-interface/` | Module interface files |
 | `stdlib/bhc-base/` | Base library RTS functions |
 | `stdlib/bhc-text/src/text.rs` | Text RTS (25+ FFI functions, E.7+E.8) |
+| `stdlib/bhc-text/src/text_io.rs` | Text.IO RTS (7 FFI functions, E.10) |
 | `stdlib/bhc-text/src/bytestring.rs` | ByteString RTS (24 FFI functions, E.8) |
+| `stdlib/bhc-base/` | Base library: Data.Char predicates, show functions (E.9) |
 | `stdlib/bhc-system/` | System/IO operations |
 | `stdlib/bhc-containers/` | Container data structures |
 | `stdlib/bhc-transformers/` | Monad transformers |
@@ -371,6 +394,23 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-07: Milestone E.10 Data.Text.IO
+- 7 RTS functions in `stdlib/bhc-text/src/text_io.rs`: readFile, writeFile, appendFile, hGetContents, hGetLine, hPutStr, hPutStrLn
+- 4 codegen-composed convenience functions: putStr, putStrLn, getLine, getContents
+- Handle functions use same sentinel-pointer pattern as bhc-rts (1=stdin, 2=stdout, 3=stderr)
+- VarIds 1000240-1000246, DefIds 10300-10310
+- Fixed import shadowing bug: `register_standard_module_exports` must not call `register_qualified_name` when the qualified name is already directly bound — otherwise it redirects to the Prelude version
+- 46 E2E tests pass
+
+### 2026-02-06: Milestone E.9 Data.Char + Type-Specialized Show
+- Data.Char predicates: isAlpha, isDigit, isUpper, isLower, isAlphaNum, isSpace, isPunctuation
+- Data.Char conversions: toUpper, toLower, ord, chr, digitToInt, intToDigit
+- Type-specialized show: showInt, showBool, showChar, showFloat with ShowCoerce enum
+- Char predicates return proper ADT booleans (tag 0=False, 1=True) for showBool compatibility
+- Fixed VarId 1000091 for showBool (was incorrectly 1000075), added showFloat at VarId 1000090
+- bhc-base linked for char/show RTS functions
+- 45 E2E tests pass
 
 ### 2026-02-06: Milestone E.8 Data.ByteString + Text Completion
 - ByteString RTS: 24 FFI functions with identical memory layout to Text (`[data_ptr, offset, byte_len, ...bytes...]`)
