@@ -335,6 +335,61 @@ fn test_tier3_guard_basic_native() {
     run_native_test("tier3_io/guard_basic", Profile::Default);
 }
 
+#[test]
+fn test_tier3_when_unless_native() {
+    run_native_test("tier3_io/when_unless", Profile::Default);
+}
+
+#[test]
+fn test_tier3_mapm_basic_native() {
+    run_native_test("tier3_io/mapm_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_any_all_native() {
+    run_native_test("tier3_io/any_all", Profile::Default);
+}
+
+#[test]
+fn test_tier3_scanr_basic_native() {
+    run_native_test("tier3_io/scanr_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_unfoldr_basic_native() {
+    run_native_test("tier3_io/unfoldr_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_zip3_basic_native() {
+    run_native_test("tier3_io/zip3_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_take_iterate_native() {
+    run_native_test("tier3_io/take_iterate", Profile::Default);
+}
+
+#[test]
+fn test_tier3_intersect_basic_native() {
+    run_native_test("tier3_io/intersect_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_max_min_and_or_native() {
+    run_native_test("tier3_io/max_min_and_or", Profile::Default);
+}
+
+#[test]
+fn test_tier3_elem_index_prefix_native() {
+    run_native_test("tier3_io/elem_index_prefix", Profile::Default);
+}
+
+#[test]
+fn test_tier3_tails_inits_native() {
+    run_native_test("tier3_io/tails_inits", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

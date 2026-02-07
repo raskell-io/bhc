@@ -4205,6 +4205,256 @@ impl Builtins {
             );
         }
 
+        // Data.List completions at fixed DefIds 10700-10706
+        {
+            let a = TyVar::new_star(BUILTIN_TYVAR_A);
+            let b = TyVar::new_star(BUILTIN_TYVAR_B);
+            let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+            let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
+
+            // scanr :: (a -> b -> b) -> b -> [a] -> [b]
+            env.register_value(
+                DefId::new(10700),
+                Symbol::intern("scanr"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(
+                            Ty::List(Box::new(Ty::Var(a.clone()))),
+                            Ty::List(Box::new(Ty::Var(b.clone()))),
+                        )),
+                    ),
+                ),
+            );
+            // scanl1 :: (a -> a -> a) -> [a] -> [a]
+            env.register_value(
+                DefId::new(10701),
+                Symbol::intern("scanl1"),
+                {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                            Ty::fun(list_a.clone(), list_a),
+                        ),
+                    )
+                },
+            );
+            // scanr1 :: (a -> a -> a) -> [a] -> [a]
+            env.register_value(
+                DefId::new(10702),
+                Symbol::intern("scanr1"),
+                {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                            Ty::fun(list_a.clone(), list_a),
+                        ),
+                    )
+                },
+            );
+            // unfoldr :: (b -> Maybe (a, b)) -> b -> [a]
+            env.register_value(
+                DefId::new(10703),
+                Symbol::intern("unfoldr"),
+                {
+                    let pair_ab = Ty::Tuple(vec![Ty::Var(a.clone()), Ty::Var(b.clone())]);
+                    let maybe_pair = Ty::App(
+                        Box::new(Ty::Con(self.maybe_con.clone())),
+                        Box::new(pair_ab),
+                    );
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(b.clone()), maybe_pair),
+                            Ty::fun(Ty::Var(b.clone()), list_a),
+                        ),
+                    )
+                },
+            );
+            // intersect :: Eq a => [a] -> [a] -> [a]
+            env.register_value(
+                DefId::new(10704),
+                Symbol::intern("intersect"),
+                {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::qualified(
+                        vec![a.clone()],
+                        vec![eq_constraint(Ty::Var(a.clone()))],
+                        Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), list_a)),
+                    )
+                },
+            );
+            // zip3 :: [a] -> [b] -> [c] -> [(a, b, c)]
+            env.register_value(
+                DefId::new(10705),
+                Symbol::intern("zip3"),
+                {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                    let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
+                    let triple_ty = Ty::Tuple(vec![
+                        Ty::Var(a.clone()),
+                        Ty::Var(b.clone()),
+                        Ty::Var(c.clone()),
+                    ]);
+                    let list_triple = Ty::List(Box::new(triple_ty));
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone()],
+                        Ty::fun(list_a, Ty::fun(list_b, Ty::fun(list_c, list_triple))),
+                    )
+                },
+            );
+            // zipWith3 :: (a -> b -> c -> d) -> [a] -> [b] -> [c] -> [d]
+            env.register_value(
+                DefId::new(10706),
+                Symbol::intern("zipWith3"),
+                {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                    let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
+                    let list_d = Ty::List(Box::new(Ty::Var(d.clone())));
+                    Scheme::poly(
+                        vec![a.clone(), b.clone(), c.clone(), d.clone()],
+                        Ty::fun(
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c.clone()), Ty::Var(d.clone()))),
+                            ),
+                            Ty::fun(list_a, Ty::fun(list_b, Ty::fun(list_c, list_d))),
+                        ),
+                    )
+                },
+            );
+        }
+
+        // E.16: List operations and Foldable basics at fixed DefIds 10800-10809
+        {
+            let a = TyVar::new_star(BUILTIN_TYVAR_A);
+            let b = TyVar::new_star(BUILTIN_TYVAR_B);
+            let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+            let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+            let int_ty = self.int_ty.clone();
+            let bool_ty = self.bool_ty.clone();
+            let ordering_ty = Ty::Con(TyCon::new(Symbol::intern("Ordering"), Kind::Star));
+            let maybe_int = Ty::App(
+                Box::new(Ty::Con(self.maybe_con.clone())),
+                Box::new(int_ty.clone()),
+            );
+
+            // elemIndex :: Eq a => a -> [a] -> Maybe Int
+            env.register_value(
+                DefId::new(10800),
+                Symbol::intern("elemIndex"),
+                Scheme::qualified(
+                    vec![a.clone()],
+                    vec![eq_constraint(Ty::Var(a.clone()))],
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(list_a.clone(), maybe_int.clone())),
+                ),
+            );
+            // findIndex :: (a -> Bool) -> [a] -> Maybe Int
+            env.register_value(
+                DefId::new(10801),
+                Symbol::intern("findIndex"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), bool_ty.clone()),
+                        Ty::fun(list_a.clone(), maybe_int.clone()),
+                    ),
+                ),
+            );
+            // isPrefixOf :: Eq a => [a] -> [a] -> Bool
+            env.register_value(
+                DefId::new(10802),
+                Symbol::intern("isPrefixOf"),
+                Scheme::qualified(
+                    vec![a.clone()],
+                    vec![eq_constraint(Ty::Var(a.clone()))],
+                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), bool_ty.clone())),
+                ),
+            );
+            // isSuffixOf :: Eq a => [a] -> [a] -> Bool
+            env.register_value(
+                DefId::new(10803),
+                Symbol::intern("isSuffixOf"),
+                Scheme::qualified(
+                    vec![a.clone()],
+                    vec![eq_constraint(Ty::Var(a.clone()))],
+                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), bool_ty.clone())),
+                ),
+            );
+            // isInfixOf :: Eq a => [a] -> [a] -> Bool
+            env.register_value(
+                DefId::new(10804),
+                Symbol::intern("isInfixOf"),
+                Scheme::qualified(
+                    vec![a.clone()],
+                    vec![eq_constraint(Ty::Var(a.clone()))],
+                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), bool_ty.clone())),
+                ),
+            );
+            // tails :: [a] -> [[a]]
+            env.register_value(
+                DefId::new(10805),
+                Symbol::intern("tails"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(list_a.clone(), Ty::List(Box::new(list_a.clone()))),
+                ),
+            );
+            // inits :: [a] -> [[a]]
+            env.register_value(
+                DefId::new(10806),
+                Symbol::intern("inits"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(list_a.clone(), Ty::List(Box::new(list_a.clone()))),
+                ),
+            );
+            // maximumBy :: (a -> a -> Ordering) -> [a] -> a
+            env.register_value(
+                DefId::new(10807),
+                Symbol::intern("maximumBy"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), ordering_ty.clone())),
+                        Ty::fun(list_a.clone(), Ty::Var(a.clone())),
+                    ),
+                ),
+            );
+            // minimumBy :: (a -> a -> Ordering) -> [a] -> a
+            env.register_value(
+                DefId::new(10808),
+                Symbol::intern("minimumBy"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), ordering_ty.clone())),
+                        Ty::fun(list_a.clone(), Ty::Var(a.clone())),
+                    ),
+                ),
+            );
+            // foldMap :: (a -> [b]) -> [a] -> [b] (simplified for list Foldable)
+            env.register_value(
+                DefId::new(10809),
+                Symbol::intern("foldMap"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), list_b.clone()),
+                        Ty::fun(list_a.clone(), list_b.clone()),
+                    ),
+                ),
+            );
+        }
+
         // Register transformer types and operations at fixed DefIds (10000+)
         self.register_transformer_ops(env);
 

@@ -1209,9 +1209,48 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // Data.List completions at fixed DefIds 10700-10706
+        let list_completions_builtins: &[(usize, &str)] = &[
+            (10700, "scanr"),
+            (10701, "scanl1"),
+            (10702, "scanr1"),
+            (10703, "unfoldr"),
+            (10704, "intersect"),
+            (10705, "zip3"),
+            (10706, "zipWith3"),
+        ];
+
+        for &(id, name) in list_completions_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
+        // E.16: List operations and Foldable basics at fixed DefIds 10800-10809
+        let e16_builtins: &[(usize, &str)] = &[
+            (10800, "elemIndex"),
+            (10801, "findIndex"),
+            (10802, "isPrefixOf"),
+            (10803, "isSuffixOf"),
+            (10804, "isInfixOf"),
+            (10805, "tails"),
+            (10806, "inits"),
+            (10807, "maximumBy"),
+            (10808, "minimumBy"),
+            (10809, "foldMap"),
+        ];
+
+        for &(id, name) in e16_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 10623 {
-            self.next_def_id = 10623;
+        if self.next_def_id <= 10810 {
+            self.next_def_id = 10810;
         }
     }
 
