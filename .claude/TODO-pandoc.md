@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 52 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 55 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -29,11 +29,12 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Data.Char predicates, type-specialized show functions (E.9)
 - Data.Text.IO: native Text file/handle I/O (E.10)
 - Show for compound types: String, [a], Maybe, Either, (a,b), () (E.11)
-- All intermediate milestones A–E.11 done
+- Numeric ops: even/odd, gcd/lcm, divMod/quotRem, fromIntegral + IORef (E.12)
+- All intermediate milestones A–E.12 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, exceptions, multi-package imports
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -272,7 +273,12 @@ compiled from Hackage source.
 - [x] `show` for compound types: String, [a], Maybe, Either, (a,b), () (E.11)
 - [ ] `show` for remaining types: Double, nested compound types
 - [ ] `read` / `reads` for parsing
-- [ ] `fromIntegral`, `realToFrac`, `toInteger`, `fromInteger`
+- [x] `fromIntegral`, `toInteger`, `fromInteger` (identity pass-through, E.12)
+- [x] `even`, `odd` (inline LLVM srem, E.12)
+- [x] `gcd`, `lcm` (RTS functions, E.12)
+- [x] `divMod`, `quotRem` (floor-division / truncation, returns tuple, E.12)
+- [x] `IORef`: newIORef, readIORef, writeIORef, modifyIORef (E.12)
+- [ ] `realToFrac`
 - [ ] `Rational` type and operations
 - [x] `Data.Char` predicates: isAlpha, isDigit, isUpper, isLower, isAlphaNum, isSpace, isPunctuation, toUpper, toLower, ord, chr, digitToInt, intToDigit (E.9)
 - [ ] `Data.Char` full Unicode categories (currently ASCII-only)
@@ -369,6 +375,18 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E tests: show_string, show_list, show_maybe, show_either, show_tuple, show_unit
 - [x] 52 total E2E tests pass
 
+### Milestone E.12: Numeric Conversions + IORef ✅
+- [x] `fromIntegral`/`toInteger`/`fromInteger` as identity pass-through
+- [x] `even`/`odd` via inline LLVM srem, returning proper Bool ADT
+- [x] `gcd`/`lcm` via RTS functions (VarIds 1000500-1000501)
+- [x] `divMod` with floor-division semantics (sign adjustment for negative dividends)
+- [x] `quotRem` with truncation-toward-zero (LLVM sdiv/srem)
+- [x] IORef: newIORef, readIORef, writeIORef, modifyIORef (VarIds 1000502-1000504, DefIds 10400-10404)
+- [x] Fixed DefIds 10500-10507 for numeric ops (bypasses 30-entry sequential array misalignment)
+- [x] Show inference for Bool/Int-returning functions (expr_returns_bool, expr_returns_int)
+- [x] E2E tests: numeric_ops, divmod, ioref_basic
+- [x] 55 total E2E tests pass
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -405,6 +423,19 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-07: Milestone E.12 Numeric Conversions + IORef
+- Numeric conversions: `fromIntegral`/`toInteger`/`fromInteger` as identity pass-through (BHC only has Int/Double/Float)
+- `even`/`odd` via inline LLVM `srem(n, 2)`, returns proper Bool ADT via `allocate_bool_adt()`
+- `gcd`/`lcm` via RTS functions `bhc_gcd`/`bhc_lcm` (Euclidean algorithm)
+- `divMod` with floor-division semantics: adjusts quotient/remainder when signs differ
+- `quotRem` with truncation-toward-zero: direct LLVM `sdiv`/`srem`
+- Both return `(Int, Int)` tuples via `allocate_int_pair_tuple()` (24 bytes: tag + two int-as-ptr fields)
+- IORef: 3 RTS functions (`bhc_new_ioref`/`bhc_read_ioref`/`bhc_write_ioref`) + codegen-composed `modifyIORef`
+- Fixed DefIds 10500-10507 for numeric ops to bypass 30-entry sequential array misalignment bug
+- Added `expr_returns_bool()`/`expr_returns_int()` to `infer_show_from_expr` for proper show dispatch
+- VarIds 1000500-1000504, DefIds 10400-10404 (IORef) and 10500-10507 (numeric ops)
+- 55 E2E tests pass (52 existing + 3 new: numeric_ops, divmod, ioref_basic)
 
 ### 2026-02-07: Milestone E.11 Show Compound Types
 - 6 RTS show functions: bhc_show_string, bhc_show_list, bhc_show_maybe, bhc_show_either, bhc_show_tuple2, bhc_show_unit
