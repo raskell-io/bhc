@@ -687,6 +687,48 @@ pub extern "C" fn bhc_integer_to_int(a: i64) -> i64 {
     a
 }
 
+/// GCD (Euclidean algorithm)
+#[no_mangle]
+pub extern "C" fn bhc_gcd(a: i64, b: i64) -> i64 {
+    let mut x = a.abs();
+    let mut y = b.abs();
+    while y != 0 {
+        let t = y;
+        y = x % y;
+        x = t;
+    }
+    x
+}
+
+/// LCM
+#[no_mangle]
+pub extern "C" fn bhc_lcm(a: i64, b: i64) -> i64 {
+    if a == 0 || b == 0 {
+        0
+    } else {
+        (a / bhc_gcd(a, b) * b).abs()
+    }
+}
+
+/// Create a new IORef (mutable reference cell)
+#[no_mangle]
+pub extern "C" fn bhc_new_ioref(val: *const u8) -> *mut u8 {
+    let cell = Box::new(val);
+    Box::into_raw(cell) as *mut u8
+}
+
+/// Read the value from an IORef
+#[no_mangle]
+pub extern "C" fn bhc_read_ioref(ref_ptr: *const u8) -> *const u8 {
+    unsafe { *(ref_ptr as *const *const u8) }
+}
+
+/// Write a value to an IORef
+#[no_mangle]
+pub extern "C" fn bhc_write_ioref(ref_ptr: *mut u8, val: *const u8) {
+    unsafe { *(ref_ptr as *mut *const u8) = val; }
+}
+
 /// Show Int - returns a heap-allocated string
 #[no_mangle]
 pub extern "C" fn bhc_show_int(n: i64) -> *mut c_char {

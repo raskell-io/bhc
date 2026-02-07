@@ -1545,6 +1545,28 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let show_unit = self.module.llvm_module().add_function("bhc_show_unit", ptr_to_ptr, None);
         self.functions.insert(VarId::new(1000097), show_unit);
 
+        // bhc_gcd(i64, i64) -> i64
+        let i64_i64_to_i64 = i64_type.fn_type(&[i64_type.into(), i64_type.into()], false);
+        let gcd_fn = self.module.llvm_module().add_function("bhc_gcd", i64_i64_to_i64, None);
+        self.functions.insert(VarId::new(1000500), gcd_fn);
+
+        // bhc_lcm(i64, i64) -> i64
+        let lcm_fn = self.module.llvm_module().add_function("bhc_lcm", i64_i64_to_i64, None);
+        self.functions.insert(VarId::new(1000501), lcm_fn);
+
+        // bhc_new_ioref(ptr) -> ptr
+        let new_ioref = self.module.llvm_module().add_function("bhc_new_ioref", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000502), new_ioref);
+
+        // bhc_read_ioref(ptr) -> ptr
+        let read_ioref = self.module.llvm_module().add_function("bhc_read_ioref", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000503), read_ioref);
+
+        // bhc_write_ioref(ptr, ptr) -> void
+        let ptr_ptr_to_void = self.llvm_context().void_type().fn_type(&[i8_ptr_type.into(), i8_ptr_type.into()], false);
+        let write_ioref = self.module.llvm_module().add_function("bhc_write_ioref", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1000504), write_ioref);
+
         // bhc_char_to_int(u32) -> i64 (ord)
         let u32_to_i64 = i64_type.fn_type(&[u32_type.into()], false);
         let char_to_int = self.module.llvm_module().add_function("bhc_char_to_int", u32_to_i64, None);
@@ -2558,6 +2580,18 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "truncate" => Some(1),
             "fromIntegral" => Some(1),
             "toInteger" => Some(1),
+            "fromInteger" => Some(1),
+            "even" => Some(1),
+            "odd" => Some(1),
+            "gcd" => Some(2),
+            "lcm" => Some(2),
+            "divMod" => Some(2),
+            "quotRem" => Some(2),
+            "newIORef" => Some(1),
+            "readIORef" => Some(1),
+            "writeIORef" => Some(2),
+            "modifyIORef" => Some(2),
+            "modifyIORef'" => Some(2),
 
             // Character operations
             "ord" => Some(1),
@@ -3147,6 +3181,27 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "floor" => self.lower_builtin_float_to_int(args[0], 1024, "floor"),
             "round" => self.lower_builtin_float_to_int(args[0], 1025, "round"),
             "truncate" => self.lower_builtin_float_to_int(args[0], 1026, "truncate"),
+
+            // Numeric conversions (identity for BHC's single Int type)
+            "fromIntegral" | "toInteger" | "fromInteger" => self.lower_expr(args[0]),
+
+            // Integer predicates
+            "even" => self.lower_builtin_even(args[0]),
+            "odd" => self.lower_builtin_odd(args[0]),
+
+            // Integer operations via RTS
+            "gcd" => self.lower_builtin_int_binop_rts(args[0], args[1], 1000500, "gcd"),
+            "lcm" => self.lower_builtin_int_binop_rts(args[0], args[1], 1000501, "lcm"),
+
+            // Division with tuples
+            "divMod" => self.lower_builtin_divmod(args[0], args[1]),
+            "quotRem" => self.lower_builtin_quotrem(args[0], args[1]),
+
+            // IORef operations
+            "newIORef" => self.lower_builtin_new_ioref(args[0]),
+            "readIORef" => self.lower_builtin_read_ioref(args[0]),
+            "writeIORef" => self.lower_builtin_write_ioref(args[0], args[1]),
+            "modifyIORef" | "modifyIORef'" => self.lower_builtin_modify_ioref(args[0], args[1]),
 
             // Character operations
             "ord" => self.lower_builtin_ord(args[0]),
@@ -8778,6 +8833,79 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         0 // default to Int
     }
 
+    /// Check if a function expression (in App position) returns Bool when fully applied.
+    fn expr_returns_bool(&self, func_expr: &Expr) -> bool {
+        match func_expr {
+            // Unary Bool-returning functions: even, odd, not, null, isAlpha, etc.
+            Expr::Var(var, _) => {
+                let name = var.name.as_str();
+                matches!(
+                    name,
+                    "even" | "odd" | "not" | "null"
+                        | "isAlpha" | "isAlphaNum" | "isAscii" | "isControl"
+                        | "isDigit" | "isHexDigit" | "isLetter" | "isLower"
+                        | "isNumber" | "isPrint" | "isPunctuation" | "isSpace"
+                        | "isSymbol" | "isUpper"
+                        | "isJust" | "isNothing" | "isLeft" | "isRight"
+                )
+            }
+            // Binary Bool-returning: fully applied comparison operators
+            // e.g. App(App(==, x), y) — here func_expr is App(==, x)
+            Expr::App(f, _, _) => {
+                match f.as_ref() {
+                    Expr::Var(var, _) => {
+                        let name = var.name.as_str();
+                        matches!(
+                            name,
+                            "==" | "/=" | "<" | ">" | "<=" | ">="
+                                | "&&" | "||" | "and" | "or"
+                                | "elem" | "notElem"
+                        )
+                    }
+                    _ => false,
+                }
+            }
+            Expr::TyApp(inner, _, _) => self.expr_returns_bool(inner),
+            _ => false,
+        }
+    }
+
+    /// Check if a fully-applied expression returns Int (e.g., gcd 12 8).
+    fn expr_returns_int(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::App(f, _, _) => {
+                match f.as_ref() {
+                    // Fully applied binary Int ops: gcd, lcm, div, mod, etc.
+                    Expr::App(ff, _, _) => {
+                        match ff.as_ref() {
+                            Expr::Var(var, _) => {
+                                let name = var.name.as_str();
+                                matches!(
+                                    name,
+                                    "gcd" | "lcm" | "quot" | "rem"
+                                        | "+" | "-" | "*" | "div" | "mod"
+                                )
+                            }
+                            _ => false,
+                        }
+                    }
+                    // Unary Int ops
+                    Expr::Var(var, _) => {
+                        let name = var.name.as_str();
+                        matches!(
+                            name,
+                            "length" | "ord" | "abs" | "signum" | "negate"
+                                | "fromIntegral" | "toInteger" | "fromInteger"
+                                | "digitToInt"
+                        )
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
     /// Check if an expression looks like a list based on its structure.
     /// This is used when type information is unavailable (Error type).
     fn expr_looks_like_list(&self, expr: &Expr) -> bool {
@@ -12129,6 +12257,323 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         self.lower_expr(expr)
     }
 
+    /// Lower `even n` — returns Bool ADT (tag 0=False, 1=True).
+    fn lower_builtin_even(
+        &mut self,
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal("even: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i64_type = self.type_mapper().i64_type();
+        let two = i64_type.const_int(2, false);
+        let rem = self.builder()
+            .build_int_signed_rem(int_val, two, "even_rem")
+            .map_err(|e| CodegenError::Internal(format!("even: srem failed: {:?}", e)))?;
+        let is_even = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, rem, i64_type.const_zero(), "is_even")
+            .map_err(|e| CodegenError::Internal(format!("even: cmp failed: {:?}", e)))?;
+        let tag = self.builder()
+            .build_int_z_extend(is_even, i64_type, "even_tag")
+            .map_err(|e| CodegenError::Internal(format!("even: extend failed: {:?}", e)))?;
+        self.allocate_bool_adt(tag, "even")
+    }
+
+    /// Lower `odd n` — returns Bool ADT (tag 0=False, 1=True).
+    fn lower_builtin_odd(
+        &mut self,
+        expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal("odd: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let i64_type = self.type_mapper().i64_type();
+        let two = i64_type.const_int(2, false);
+        let rem = self.builder()
+            .build_int_signed_rem(int_val, two, "odd_rem")
+            .map_err(|e| CodegenError::Internal(format!("odd: srem failed: {:?}", e)))?;
+        let is_odd = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, rem, i64_type.const_zero(), "is_odd")
+            .map_err(|e| CodegenError::Internal(format!("odd: cmp failed: {:?}", e)))?;
+        let tag = self.builder()
+            .build_int_z_extend(is_odd, i64_type, "odd_tag")
+            .map_err(|e| CodegenError::Internal(format!("odd: extend failed: {:?}", e)))?;
+        self.allocate_bool_adt(tag, "odd")
+    }
+
+    /// Allocate a Bool ADT with dynamic tag (0=False, 1=True).
+    fn allocate_bool_adt(
+        &mut self,
+        tag: inkwell::values::IntValue<'ctx>,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let adt_ty = self.adt_type(0);
+        let size_val = self.type_mapper().i64_type().const_int(8, false);
+        let alloc_fn = self.functions.get(&VarId::new(1000005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+        let raw_ptr = self.builder()
+            .build_call(*alloc_fn, &[size_val.into()], &format!("{}_alloc", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: alloc failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: alloc returned void", name)))?;
+        let ptr = raw_ptr.into_pointer_value();
+        let tag_ptr = self.builder()
+            .build_struct_gep(adt_ty, ptr, 0, &format!("{}_tag_ptr", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: gep failed: {:?}", name, e)))?;
+        self.builder()
+            .build_store(tag_ptr, tag)
+            .map_err(|e| CodegenError::Internal(format!("{}: store failed: {:?}", name, e)))?;
+        Ok(Some(ptr.into()))
+    }
+
+    /// Lower a binary integer RTS operation (gcd, lcm).
+    fn lower_builtin_int_binop_rts(
+        &mut self,
+        a_expr: &Expr,
+        b_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no a", name)))?;
+        let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no b", name)))?;
+        let a_int = self.coerce_to_int(a_val)?;
+        let b_int = self.coerce_to_int(b_val)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[a_int.into(), b_int.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let result_int = result.into_int_value();
+        let ptr = self.int_to_ptr(result_int)?;
+        Ok(Some(ptr.into()))
+    }
+
+    /// Lower `divMod a b` — returns (Int, Int) tuple with floor-division semantics.
+    fn lower_builtin_divmod(
+        &mut self,
+        a_expr: &Expr,
+        b_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal("divMod: no a".to_string()))?;
+        let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal("divMod: no b".to_string()))?;
+        let a_int = self.coerce_to_int(a_val)?;
+        let b_int = self.coerce_to_int(b_val)?;
+
+        // Haskell divMod uses floor-division: div rounds toward negative infinity
+        // d = floor(a/b), m = a - d*b
+        let i64_type = self.type_mapper().i64_type();
+
+        // Compute truncated quotient and remainder
+        let q = self.builder().build_int_signed_div(a_int, b_int, "divmod_q")
+            .map_err(|e| CodegenError::Internal(format!("divMod: sdiv failed: {:?}", e)))?;
+        let r = self.builder().build_int_signed_rem(a_int, b_int, "divmod_r")
+            .map_err(|e| CodegenError::Internal(format!("divMod: srem failed: {:?}", e)))?;
+
+        // Adjust for floor division: if remainder != 0 and signs differ, subtract 1 from quotient and add b to remainder
+        let r_nonzero = self.builder().build_int_compare(inkwell::IntPredicate::NE, r, i64_type.const_zero(), "r_nz")
+            .map_err(|e| CodegenError::Internal(format!("divMod: cmp1 failed: {:?}", e)))?;
+        // XOR a and b, check sign bit (if signs differ, xor is negative)
+        let xor_ab = self.builder().build_xor(a_int, b_int, "xor_ab")
+            .map_err(|e| CodegenError::Internal(format!("divMod: xor failed: {:?}", e)))?;
+        let signs_differ = self.builder().build_int_compare(inkwell::IntPredicate::SLT, xor_ab, i64_type.const_zero(), "signs_diff")
+            .map_err(|e| CodegenError::Internal(format!("divMod: cmp2 failed: {:?}", e)))?;
+        let needs_adjust = self.builder().build_and(r_nonzero, signs_differ, "needs_adj")
+            .map_err(|e| CodegenError::Internal(format!("divMod: and failed: {:?}", e)))?;
+
+        let one = i64_type.const_int(1, false);
+        let q_minus_1 = self.builder().build_int_sub(q, one, "q_m1")
+            .map_err(|e| CodegenError::Internal(format!("divMod: sub failed: {:?}", e)))?;
+        let r_plus_b = self.builder().build_int_add(r, b_int, "r_pb")
+            .map_err(|e| CodegenError::Internal(format!("divMod: add failed: {:?}", e)))?;
+
+        let div_result = self.builder().build_select(needs_adjust, q_minus_1, q, "div_res")
+            .map_err(|e| CodegenError::Internal(format!("divMod: select1 failed: {:?}", e)))?
+            .into_int_value();
+        let mod_result = self.builder().build_select(needs_adjust, r_plus_b, r, "mod_res")
+            .map_err(|e| CodegenError::Internal(format!("divMod: select2 failed: {:?}", e)))?
+            .into_int_value();
+
+        self.allocate_int_pair_tuple(div_result, mod_result, "divmod")
+    }
+
+    /// Lower `quotRem a b` — returns (Int, Int) tuple with truncation-toward-zero semantics.
+    fn lower_builtin_quotrem(
+        &mut self,
+        a_expr: &Expr,
+        b_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal("quotRem: no a".to_string()))?;
+        let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal("quotRem: no b".to_string()))?;
+        let a_int = self.coerce_to_int(a_val)?;
+        let b_int = self.coerce_to_int(b_val)?;
+
+        let q = self.builder().build_int_signed_div(a_int, b_int, "quotrem_q")
+            .map_err(|e| CodegenError::Internal(format!("quotRem: sdiv failed: {:?}", e)))?;
+        let r = self.builder().build_int_signed_rem(a_int, b_int, "quotrem_r")
+            .map_err(|e| CodegenError::Internal(format!("quotRem: srem failed: {:?}", e)))?;
+
+        self.allocate_int_pair_tuple(q, r, "quotrem")
+    }
+
+    /// Allocate a (Int, Int) tuple: 24 bytes, tag=0 at offset 0, fst at offset 8, snd at offset 16.
+    fn allocate_int_pair_tuple(
+        &mut self,
+        fst: inkwell::values::IntValue<'ctx>,
+        snd: inkwell::values::IntValue<'ctx>,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let i64_type = self.type_mapper().i64_type();
+        let ptr_type = self.type_mapper().ptr_type();
+        let size_val = i64_type.const_int(24, false);
+        let alloc_fn = self.functions.get(&VarId::new(1000005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+        let raw_ptr = self.builder()
+            .build_call(*alloc_fn, &[size_val.into()], &format!("{}_alloc", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: alloc failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: alloc returned void", name)))?;
+        let tuple_ptr = raw_ptr.into_pointer_value();
+
+        // Store tag=0 at offset 0
+        let adt_ty = self.adt_type(0);
+        let tag_ptr = self.builder()
+            .build_struct_gep(adt_ty, tuple_ptr, 0, &format!("{}_tag", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: tag gep failed: {:?}", name, e)))?;
+        self.builder()
+            .build_store(tag_ptr, i64_type.const_zero())
+            .map_err(|e| CodegenError::Internal(format!("{}: tag store failed: {:?}", name, e)))?;
+
+        // Store fst as ptr at offset 8
+        let fst_ptr = self.int_to_ptr(fst)?;
+        let field1_ptr = self.builder()
+            .build_struct_gep(adt_ty, tuple_ptr, 1, &format!("{}_fst", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: fst gep failed: {:?}", name, e)))?;
+        self.builder()
+            .build_store(field1_ptr, fst_ptr)
+            .map_err(|e| CodegenError::Internal(format!("{}: fst store failed: {:?}", name, e)))?;
+
+        // Store snd as ptr at offset 16
+        let snd_ptr = self.int_to_ptr(snd)?;
+        let field2_gep = unsafe {
+            self.builder()
+                .build_gep(ptr_type, tuple_ptr, &[i64_type.const_int(2, false)], &format!("{}_snd_gep", name))
+                .map_err(|e| CodegenError::Internal(format!("{}: snd gep failed: {:?}", name, e)))?
+        };
+        self.builder()
+            .build_store(field2_gep, snd_ptr)
+            .map_err(|e| CodegenError::Internal(format!("{}: snd store failed: {:?}", name, e)))?;
+
+        Ok(Some(tuple_ptr.into()))
+    }
+
+    /// Lower `newIORef val` — create a new mutable reference.
+    fn lower_builtin_new_ioref(
+        &mut self,
+        val_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?.ok_or_else(|| CodegenError::Internal("newIORef: no value".to_string()))?;
+        let val_ptr = self.value_to_ptr(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1000502)).ok_or_else(|| {
+            CodegenError::Internal("bhc_new_ioref not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[val_ptr.into()], "new_ioref")
+            .map_err(|e| CodegenError::Internal(format!("newIORef call failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("newIORef: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `readIORef ref` — read the current value.
+    fn lower_builtin_read_ioref(
+        &mut self,
+        ref_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ref_val = self.lower_expr(ref_expr)?.ok_or_else(|| CodegenError::Internal("readIORef: no ref".to_string()))?;
+        let ref_ptr = match ref_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("readIORef expects pointer".to_string())) };
+        let rts_fn = self.functions.get(&VarId::new(1000503)).ok_or_else(|| {
+            CodegenError::Internal("bhc_read_ioref not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[ref_ptr.into()], "read_ioref")
+            .map_err(|e| CodegenError::Internal(format!("readIORef call failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("readIORef: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `writeIORef ref val` — overwrite the value.
+    fn lower_builtin_write_ioref(
+        &mut self,
+        ref_expr: &Expr,
+        val_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ref_val = self.lower_expr(ref_expr)?.ok_or_else(|| CodegenError::Internal("writeIORef: no ref".to_string()))?;
+        let ref_ptr = match ref_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("writeIORef expects pointer".to_string())) };
+        let val = self.lower_expr(val_expr)?.ok_or_else(|| CodegenError::Internal("writeIORef: no value".to_string()))?;
+        let val_ptr = self.value_to_ptr(val)?;
+        let rts_fn = self.functions.get(&VarId::new(1000504)).ok_or_else(|| {
+            CodegenError::Internal("bhc_write_ioref not declared".to_string())
+        })?;
+        self.builder()
+            .build_call(*rts_fn, &[ref_ptr.into(), val_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("writeIORef call failed: {:?}", e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `modifyIORef ref f` — read, apply f, write back.
+    fn lower_builtin_modify_ioref(
+        &mut self,
+        ref_expr: &Expr,
+        func_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ref_val = self.lower_expr(ref_expr)?.ok_or_else(|| CodegenError::Internal("modifyIORef: no ref".to_string()))?;
+        let ref_ptr = match ref_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("modifyIORef expects pointer".to_string())) };
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("modifyIORef: no function".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("modifyIORef: function must be closure".to_string())) };
+
+        // Read current value
+        let read_fn = self.functions.get(&VarId::new(1000503)).ok_or_else(|| {
+            CodegenError::Internal("bhc_read_ioref not declared".to_string())
+        })?;
+        let current_val = self.builder()
+            .build_call(*read_fn, &[ref_ptr.into()], "modify_read")
+            .map_err(|e| CodegenError::Internal(format!("modifyIORef read failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("modifyIORef: read returned void".to_string()))?;
+
+        // Apply function: f(current_val)
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let new_val = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), current_val.into()], "modify_apply")
+            .map_err(|e| CodegenError::Internal(format!("modifyIORef apply failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("modifyIORef: apply returned void".to_string()))?;
+
+        // Write new value
+        let write_fn = self.functions.get(&VarId::new(1000504)).ok_or_else(|| {
+            CodegenError::Internal("bhc_write_ioref not declared".to_string())
+        })?;
+        let new_val_ptr = self.value_to_ptr(new_val)?;
+        self.builder()
+            .build_call(*write_fn, &[ref_ptr.into(), new_val_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("modifyIORef write failed: {:?}", e)))?;
+
+        Ok(Some(ptr_type.const_null().into()))
+    }
+
     /// Lower a character predicate (isAlpha, isDigit, isSpace, etc.)
     /// Returns a proper Bool ADT (tag 0=False, 1=True) for consistency with True/False constructors.
     fn lower_builtin_char_pred(
@@ -12694,8 +13139,16 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 // Could be [a] for any a - use List with Int default
                 Some((ShowCoerce::List, 1000093, "show_list"))
             }
-            // Constructor applications
-            Expr::App(f, arg, _) => {
+            // Function applications returning known types
+            Expr::App(f, _arg, _) => {
+                // Check if it's a function that returns Bool
+                if self.expr_returns_bool(f) {
+                    return Some((ShowCoerce::Bool, 1000091, "show_bool"));
+                }
+                // Check if it's a function that returns Int (fully applied binary int op)
+                if self.expr_returns_int(expr) {
+                    return Some((ShowCoerce::Int, 1000072, "show_int"));
+                }
                 match f.as_ref() {
                     // Just x
                     Expr::Var(var, _) if var.name.as_str() == "Just" => {

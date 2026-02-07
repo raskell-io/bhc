@@ -305,6 +305,21 @@ fn test_tier3_show_unit_native() {
     run_native_test("tier3_io/show_unit", Profile::Default);
 }
 
+#[test]
+fn test_tier3_numeric_ops_native() {
+    run_native_test("tier3_io/numeric_ops", Profile::Default);
+}
+
+#[test]
+fn test_tier3_divmod_native() {
+    run_native_test("tier3_io/divmod", Profile::Default);
+}
+
+#[test]
+fn test_tier3_ioref_basic_native() {
+    run_native_test("tier3_io/ioref_basic", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

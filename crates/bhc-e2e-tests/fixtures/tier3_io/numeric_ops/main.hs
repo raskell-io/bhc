@@ -1,0 +1,10 @@
+main :: IO ()
+main = do
+    putStrLn (show (even 4))
+    putStrLn (show (even 7))
+    putStrLn (show (odd 3))
+    putStrLn (show (odd 8))
+    putStrLn (show (gcd 12 8))
+    putStrLn (show (gcd 0 5))
+    putStrLn (show (lcm 4 6))
+    putStrLn (show (lcm 0 5))

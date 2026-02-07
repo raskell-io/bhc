@@ -1147,9 +1147,44 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // Numeric operations at fixed DefIds 10500-10507
+        let numeric_builtins: &[(usize, &str)] = &[
+            (10500, "even"),
+            (10501, "odd"),
+            (10502, "gcd"),
+            (10503, "lcm"),
+            (10504, "quot"),
+            (10505, "rem"),
+            (10506, "quotRem"),
+            (10507, "divMod"),
+        ];
+
+        for &(id, name) in numeric_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
+        // IORef operations at fixed DefIds 10400-10404
+        let ioref_builtins: &[(usize, &str)] = &[
+            (10400, "newIORef"),
+            (10401, "readIORef"),
+            (10402, "writeIORef"),
+            (10403, "modifyIORef"),
+            (10404, "modifyIORef'"),
+        ];
+
+        for &(id, name) in ioref_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 10311 {
-            self.next_def_id = 10311;
+        if self.next_def_id <= 10508 {
+            self.next_def_id = 10508;
         }
     }
 

@@ -2574,35 +2574,21 @@ impl Builtins {
                 // floor :: Float -> Int
                 Scheme::mono(Ty::fun(self.float_ty.clone(), self.int_ty.clone()))
             }),
-            (
-                "even",
-                Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone())),
-            ),
-            (
-                "odd",
-                Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone())),
-            ),
+            // even/odd/gcd/lcm/quot/rem/quotRem/divMod moved to fixed DefIds 10500+
+            // Keep placeholders to maintain sequential alignment
+            ("even", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
+            ("odd", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
             ("gcd", num_binop()),
             ("lcm", num_binop()),
             ("quot", num_binop()),
             ("rem", num_binop()),
             ("quotRem", {
-                // quotRem :: Integral a => a -> a -> (a, a)
-                // Using Int for now (no type class constraints)
                 let pair = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
-                Scheme::mono(Ty::fun(
-                    self.int_ty.clone(),
-                    Ty::fun(self.int_ty.clone(), pair),
-                ))
+                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), pair)))
             }),
             ("divMod", {
-                // divMod :: Integral a => a -> a -> (a, a)
-                // Using Int for now (no type class constraints)
                 let pair = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
-                Scheme::mono(Ty::fun(
-                    self.int_ty.clone(),
-                    Ty::fun(self.int_ty.clone(), pair),
-                ))
+                Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), pair)))
             }),
             ("recip", {
                 // recip :: Fractional a => a -> a
@@ -3928,6 +3914,89 @@ impl Builtins {
                 DefId::new(10310),
                 Symbol::intern("Data.Text.IO.getContents"),
                 Scheme::mono(io_text),
+            );
+        }
+
+        // Numeric operations at fixed DefIds 10500-10507
+        // These are registered at fixed DefIds to avoid sequential alignment issues
+        {
+            let int_pair = Ty::Tuple(vec![self.int_ty.clone(), self.int_ty.clone()]);
+            let numeric_ops: &[(usize, &str, Scheme)] = &[
+                (10500, "even", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
+                (10501, "odd", Scheme::mono(Ty::fun(self.int_ty.clone(), self.bool_ty.clone()))),
+                (10502, "gcd", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), self.int_ty.clone())))),
+                (10503, "lcm", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), self.int_ty.clone())))),
+                (10504, "quot", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), self.int_ty.clone())))),
+                (10505, "rem", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), self.int_ty.clone())))),
+                (10506, "quotRem", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), int_pair.clone())))),
+                (10507, "divMod", Scheme::mono(Ty::fun(self.int_ty.clone(), Ty::fun(self.int_ty.clone(), int_pair)))),
+            ];
+            for (id, name, scheme) in numeric_ops {
+                env.register_value(
+                    DefId::new(*id),
+                    Symbol::intern(name),
+                    scheme.clone(),
+                );
+            }
+        }
+
+        // IORef operations at fixed DefIds 10400-10404
+        {
+            let a = TyVar::new_star(BUILTIN_TYVAR_A);
+            let a_ty = Ty::Var(a.clone());
+            let io_a = Ty::App(
+                Box::new(Ty::Con(self.io_con.clone())),
+                Box::new(a_ty.clone()),
+            );
+            let io_unit = Ty::App(
+                Box::new(Ty::Con(self.io_con.clone())),
+                Box::new(Ty::unit()),
+            );
+
+            // newIORef :: a -> IO a
+            env.register_value(
+                DefId::new(10400),
+                Symbol::intern("newIORef"),
+                Scheme::poly(vec![a.clone()], Ty::fun(a_ty.clone(), io_a.clone())),
+            );
+            // readIORef :: a -> IO a (IORef is opaque ptr, treated as `a`)
+            env.register_value(
+                DefId::new(10401),
+                Symbol::intern("readIORef"),
+                Scheme::poly(vec![a.clone()], Ty::fun(a_ty.clone(), io_a.clone())),
+            );
+            // writeIORef :: a -> a -> IO ()
+            env.register_value(
+                DefId::new(10402),
+                Symbol::intern("writeIORef"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(a_ty.clone(), Ty::fun(a_ty.clone(), io_unit.clone())),
+                ),
+            );
+            // modifyIORef :: a -> (a -> a) -> IO ()
+            env.register_value(
+                DefId::new(10403),
+                Symbol::intern("modifyIORef"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        a_ty.clone(),
+                        Ty::fun(Ty::fun(a_ty.clone(), a_ty.clone()), io_unit.clone()),
+                    ),
+                ),
+            );
+            // modifyIORef' :: a -> (a -> a) -> IO ()
+            env.register_value(
+                DefId::new(10404),
+                Symbol::intern("modifyIORef'"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        a_ty.clone(),
+                        Ty::fun(Ty::fun(a_ty.clone(), a_ty.clone()), io_unit),
+                    ),
+                ),
             );
         }
 
