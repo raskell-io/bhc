@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 46 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 52 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -28,11 +28,12 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Data.ByteString: 24 RTS functions, Data.Text.Encoding bridge (E.8)
 - Data.Char predicates, type-specialized show functions (E.9)
 - Data.Text.IO: native Text file/handle I/O (E.10)
-- All intermediate milestones A–E.10 done
+- Show for compound types: String, [a], Maybe, Either, (a,b), () (E.11)
+- All intermediate milestones A–E.11 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, exceptions, multi-package imports
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, exceptions, multi-package imports
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -268,7 +269,8 @@ compiled from Hackage source.
 ### 3.2 Numeric and Conversion Operations
 
 - [x] `show` for standard types: showInt, showBool, showChar, showFloat (type-specialized, E.9)
-- [ ] `show` for remaining types: Double, lists, tuples, Maybe, Either
+- [x] `show` for compound types: String, [a], Maybe, Either, (a,b), () (E.11)
+- [ ] `show` for remaining types: Double, nested compound types
 - [ ] `read` / `reads` for parsing
 - [ ] `fromIntegral`, `realToFrac`, `toInteger`, `fromInteger`
 - [ ] `Rational` type and operations
@@ -358,6 +360,15 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E test: `tier3_io/text_io`
 - [x] 46 total E2E tests pass
 
+### Milestone E.11: Show Compound Types ✅
+- [x] 6 RTS show functions: bhc_show_string, bhc_show_list, bhc_show_maybe, bhc_show_either, bhc_show_tuple2, bhc_show_unit
+- [x] Expression-based type inference (infer_show_from_expr) since expr.ty() returns Error in Core IR
+- [x] ShowCoerce extended: StringList, List, MaybeOf, EitherOf, Tuple2Of, Unit
+- [x] RTS type tags: 0=Int, 1=Double, 2=Float, 3=Bool, 4=Char, 5=String for element formatting
+- [x] VarIds 1000092-1000097, DefIds 10105-10110
+- [x] E2E tests: show_string, show_list, show_maybe, show_either, show_tuple, show_unit
+- [x] 52 total E2E tests pass
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -394,6 +405,14 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-07: Milestone E.11 Show Compound Types
+- 6 RTS show functions: bhc_show_string, bhc_show_list, bhc_show_maybe, bhc_show_either, bhc_show_tuple2, bhc_show_unit
+- Expression-based type inference (`infer_show_from_expr`) as fallback since `expr.ty()` returns `Ty::Error` in Core IR
+- ShowCoerce extended with 6 compound variants; RTS type tags (0-5) passed as i64 args for element formatting
+- `bhc_show_list` special-cases tag==4 (Char) to format as String `"abc"` instead of `['a','b','c']`
+- VarIds 1000092-1000097, DefIds 10105-10110
+- 52 E2E tests pass (46 existing + 6 new show_* tests)
 
 ### 2026-02-07: Milestone E.10 Data.Text.IO
 - 7 RTS functions in `stdlib/bhc-text/src/text_io.rs`: readFile, writeFile, appendFile, hGetContents, hGetLine, hPutStr, hPutStrLn
