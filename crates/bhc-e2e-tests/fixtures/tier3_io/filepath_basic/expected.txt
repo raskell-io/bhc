@@ -1,0 +1,13 @@
+ghc
+/usr/local/bin
+.gz
+report.tar
+file
+file.md
+True
+True
+True
+False
+archive.tar
+.gz
+/usr/local

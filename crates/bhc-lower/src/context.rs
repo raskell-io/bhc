@@ -1278,9 +1278,36 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.19: System.FilePath + System.Directory at fixed DefIds
+        let e19_builtins: &[(usize, &str)] = &[
+            (11100, "takeFileName"),
+            (11101, "takeDirectory"),
+            (11102, "takeExtension"),
+            (11103, "dropExtension"),
+            (11104, "takeBaseName"),
+            (11105, "replaceExtension"),
+            (11106, "isAbsolute"),
+            (11107, "isRelative"),
+            (11108, "hasExtension"),
+            (11109, "splitExtension"),
+            (11110, "setCurrentDirectory"),
+            (11111, "removeDirectory"),
+            (11112, "renameFile"),
+            (11113, "copyFile"),
+            (11114, "listDirectory"),
+            (11115, "</>"),
+        ];
+
+        for &(id, name) in e19_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 11007 {
-            self.next_def_id = 11007;
+        if self.next_def_id <= 11116 {
+            self.next_def_id = 11116;
         }
     }
 

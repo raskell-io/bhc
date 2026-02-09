@@ -4685,6 +4685,108 @@ impl Builtins {
             );
         }
 
+        // E.19: System.FilePath + System.Directory at fixed DefIds
+        {
+            let io_unit = Ty::App(
+                Box::new(Ty::Con(self.io_con.clone())),
+                Box::new(Ty::unit()),
+            );
+            let io_list_string = Ty::App(
+                Box::new(Ty::Con(self.io_con.clone())),
+                Box::new(Ty::List(Box::new(self.string_ty.clone()))),
+            );
+            let tuple2_string_string = Ty::Tuple(vec![
+                self.string_ty.clone(),
+                self.string_ty.clone(),
+            ]);
+
+            // FilePath: String -> String (5 functions)
+            for (id, name) in [
+                (11100, "takeFileName"),
+                (11101, "takeDirectory"),
+                (11102, "takeExtension"),
+                (11103, "dropExtension"),
+                (11104, "takeBaseName"),
+            ] {
+                env.register_value(
+                    DefId::new(id),
+                    Symbol::intern(name),
+                    Scheme::mono(Ty::fun(self.string_ty.clone(), self.string_ty.clone())),
+                );
+            }
+
+            // FilePath: String -> String -> String
+            env.register_value(
+                DefId::new(11105),
+                Symbol::intern("replaceExtension"),
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::fun(self.string_ty.clone(), self.string_ty.clone()),
+                )),
+            );
+
+            // FilePath: String -> Bool (3 functions)
+            for (id, name) in [
+                (11106, "isAbsolute"),
+                (11107, "isRelative"),
+                (11108, "hasExtension"),
+            ] {
+                env.register_value(
+                    DefId::new(id),
+                    Symbol::intern(name),
+                    Scheme::mono(Ty::fun(self.string_ty.clone(), self.bool_ty.clone())),
+                );
+            }
+
+            // splitExtension: String -> (String, String)
+            env.register_value(
+                DefId::new(11109),
+                Symbol::intern("splitExtension"),
+                Scheme::mono(Ty::fun(self.string_ty.clone(), tuple2_string_string)),
+            );
+
+            // Directory: String -> IO () (2 functions)
+            for (id, name) in [
+                (11110, "setCurrentDirectory"),
+                (11111, "removeDirectory"),
+            ] {
+                env.register_value(
+                    DefId::new(id),
+                    Symbol::intern(name),
+                    Scheme::mono(Ty::fun(self.string_ty.clone(), io_unit.clone())),
+                );
+            }
+
+            // Directory: String -> String -> IO () (2 functions)
+            for (id, name) in [(11112, "renameFile"), (11113, "copyFile")] {
+                env.register_value(
+                    DefId::new(id),
+                    Symbol::intern(name),
+                    Scheme::mono(Ty::fun(
+                        self.string_ty.clone(),
+                        Ty::fun(self.string_ty.clone(), io_unit.clone()),
+                    )),
+                );
+            }
+
+            // listDirectory: String -> IO [String]
+            env.register_value(
+                DefId::new(11114),
+                Symbol::intern("listDirectory"),
+                Scheme::mono(Ty::fun(self.string_ty.clone(), io_list_string)),
+            );
+
+            // </> : String -> String -> String (filepath combine)
+            env.register_value(
+                DefId::new(11115),
+                Symbol::intern("</>"),
+                Scheme::mono(Ty::fun(
+                    self.string_ty.clone(),
+                    Ty::fun(self.string_ty.clone(), self.string_ty.clone()),
+                )),
+            );
+        }
+
         // Register transformer types and operations at fixed DefIds (10000+)
         self.register_transformer_ops(env);
 

@@ -2145,6 +2145,43 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // bhc_get_current_directory() -> *i8
         let get_cur_dir = self.module.llvm_module().add_function("bhc_get_current_directory", void_to_ptr, None);
         self.functions.insert(VarId::new(1000317), get_cur_dir);
+
+        // E.19: System.FilePath + System.Directory FFI functions
+        let ptr_ptr_to_ptr_type = i8_ptr_type.fn_type(&[i8_ptr_type.into(), i8_ptr_type.into()], false);
+        // FilePath: </> (combine two paths)
+        let combine_fn = self.module.llvm_module().add_function("bhc_combine", ptr_ptr_to_ptr_type, None);
+        self.functions.insert(VarId::new(1000534), combine_fn);
+        // FilePath: String -> String (5 functions)
+        let take_file_name = self.module.llvm_module().add_function("bhc_take_file_name", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000520), take_file_name);
+        let take_directory = self.module.llvm_module().add_function("bhc_take_directory", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000521), take_directory);
+        let take_extension = self.module.llvm_module().add_function("bhc_take_extension", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000522), take_extension);
+        let drop_extension = self.module.llvm_module().add_function("bhc_drop_extension", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000523), drop_extension);
+        let take_base_name = self.module.llvm_module().add_function("bhc_take_base_name", ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000524), take_base_name);
+        // FilePath: String -> String -> String
+        let replace_extension = self.module.llvm_module().add_function("bhc_replace_extension", ptr_ptr_to_ptr_type, None);
+        self.functions.insert(VarId::new(1000525), replace_extension);
+        // FilePath: String -> Bool (i32)
+        let is_absolute = self.module.llvm_module().add_function("bhc_is_absolute", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1000526), is_absolute);
+        let is_relative = self.module.llvm_module().add_function("bhc_is_relative", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1000527), is_relative);
+        let has_extension = self.module.llvm_module().add_function("bhc_has_extension", ptr_to_i32, None);
+        self.functions.insert(VarId::new(1000528), has_extension);
+        // Directory: String -> IO ()
+        let set_cur_dir = self.module.llvm_module().add_function("bhc_set_current_directory", ptr_to_void, None);
+        self.functions.insert(VarId::new(1000529), set_cur_dir);
+        let remove_dir = self.module.llvm_module().add_function("bhc_remove_directory", ptr_to_void, None);
+        self.functions.insert(VarId::new(1000530), remove_dir);
+        // Directory: String -> String -> IO ()
+        let rename_file = self.module.llvm_module().add_function("bhc_rename_file", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1000531), rename_file);
+        let copy_file = self.module.llvm_module().add_function("bhc_copy_file", ptr_ptr_to_void, None);
+        self.functions.insert(VarId::new(1000532), copy_file);
     }
 
     // ========================================================================
@@ -2721,6 +2758,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "getCurrentDirectory" => Some(0),
             "createDirectory" => Some(1),
             "listDirectory" => Some(1),
+
+            // E.19: FilePath + Directory operations
+            "</>" => Some(2),
+            "takeFileName" => Some(1),
+            "takeDirectory" => Some(1),
+            "takeExtension" => Some(1),
+            "dropExtension" => Some(1),
+            "takeBaseName" => Some(1),
+            "replaceExtension" => Some(2),
+            "isAbsolute" => Some(1),
+            "isRelative" => Some(1),
+            "hasExtension" => Some(1),
+            "splitExtension" => Some(1),
+            "setCurrentDirectory" => Some(1),
+            "removeDirectory" => Some(1),
+            "renameFile" => Some(2),
+            "copyFile" => Some(2),
 
             // Monadic / higher-order operations
             "fmap" => Some(2),
@@ -3313,6 +3367,25 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "getCurrentDirectory" => self.lower_builtin_get_current_directory(),
             "createDirectory" => self.lower_builtin_create_directory(args[0]),
             "listDirectory" => self.lower_builtin_list_directory(args[0]),
+
+            // E.19: FilePath operations
+            "</>" => self.lower_builtin_filepath_two_str_to_str(args[0], args[1], 1000534, "combine"),
+            "takeFileName" => self.lower_builtin_filepath_str_to_str(args[0], 1000520, "takeFileName"),
+            "takeDirectory" => self.lower_builtin_filepath_str_to_str(args[0], 1000521, "takeDirectory"),
+            "takeExtension" => self.lower_builtin_filepath_str_to_str(args[0], 1000522, "takeExtension"),
+            "dropExtension" => self.lower_builtin_filepath_str_to_str(args[0], 1000523, "dropExtension"),
+            "takeBaseName" => self.lower_builtin_filepath_str_to_str(args[0], 1000524, "takeBaseName"),
+            "replaceExtension" => self.lower_builtin_filepath_two_str_to_str(args[0], args[1], 1000525, "replaceExtension"),
+            "isAbsolute" => self.lower_builtin_file_pred(args[0], 1000526, "is_absolute"),
+            "isRelative" => self.lower_builtin_file_pred(args[0], 1000527, "is_relative"),
+            "hasExtension" => self.lower_builtin_file_pred(args[0], 1000528, "has_extension"),
+            "splitExtension" => self.lower_builtin_split_extension(args[0]),
+
+            // E.19: Directory operations
+            "setCurrentDirectory" => self.lower_builtin_dir_str_to_io_unit(args[0], 1000529, "setCurrentDirectory"),
+            "removeDirectory" => self.lower_builtin_dir_str_to_io_unit(args[0], 1000530, "removeDirectory"),
+            "renameFile" => self.lower_builtin_dir_two_str_to_io_unit(args[0], args[1], 1000531, "renameFile"),
+            "copyFile" => self.lower_builtin_dir_two_str_to_io_unit(args[0], args[1], 1000532, "copyFile"),
 
             // Higher-order / Monadic operations
             "fmap" | "<$>" => self.lower_builtin_fmap(args[0], args[1]),
@@ -10268,6 +10341,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         | "isNumber" | "isPrint" | "isPunctuation" | "isSpace"
                         | "isSymbol" | "isUpper"
                         | "isJust" | "isNothing" | "isLeft" | "isRight"
+                        | "isAbsolute" | "isRelative" | "hasExtension"
+                        | "doesFileExist" | "doesDirectoryExist"
                 )
             }
             // Binary Bool-returning: fully applied comparison operators
@@ -14438,9 +14513,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     /// Lower `removeFile`.
     fn lower_builtin_remove_file(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("removeFile: no path".to_string()))?;
-        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("removeFile expects string".to_string())) };
+        let path_ptr = self.value_to_ptr(path_val)?;
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
         let rts_fn = self.functions.get(&VarId::new(1000312)).ok_or_else(|| CodegenError::Internal("bhc_remove_file not declared".to_string()))?;
-        self.builder().build_call(*rts_fn, &[path_ptr.into()], "")
+        self.builder().build_call(*rts_fn, &[path_cstr.into()], "")
             .map_err(|e| CodegenError::Internal(format!("removeFile call failed: {:?}", e)))?;
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
     }
@@ -14535,9 +14611,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     /// Lower `createDirectory`.
     fn lower_builtin_create_directory(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("createDirectory: no path".to_string()))?;
-        let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("createDirectory expects string".to_string())) };
+        let path_ptr = self.value_to_ptr(path_val)?;
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
         let rts_fn = self.functions.get(&VarId::new(1000311)).ok_or_else(|| CodegenError::Internal("bhc_create_directory not declared".to_string()))?;
-        self.builder().build_call(*rts_fn, &[path_ptr.into()], "")
+        self.builder().build_call(*rts_fn, &[path_cstr.into()], "")
             .map_err(|e| CodegenError::Internal(format!("createDirectory call failed: {:?}", e)))?;
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
     }
@@ -14546,12 +14623,179 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     fn lower_builtin_list_directory(&mut self, path_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let path_val = self.lower_expr(path_expr)?.ok_or_else(|| CodegenError::Internal("listDirectory: no path".to_string()))?;
         let path_ptr = match path_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("listDirectory expects string".to_string())) };
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
         let rts_fn = self.functions.get(&VarId::new(1000313)).ok_or_else(|| CodegenError::Internal("bhc_list_directory not declared".to_string()))?;
-        let result = self.builder().build_call(*rts_fn, &[path_ptr.into()], "listdir")
+        let result = self.builder().build_call(*rts_fn, &[path_cstr.into()], "listdir")
             .map_err(|e| CodegenError::Internal(format!("listDirectory call failed: {:?}", e)))?
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("listDirectory: returned void".to_string()))?;
         Ok(Some(result))
+    }
+
+    // ========================================================================
+    // E.19: System.FilePath + System.Directory codegen
+    // ========================================================================
+
+    /// Lower a filepath function that takes String and returns String.
+    /// Pattern: char_list_to_cstring -> call RTS -> cstring_to_char_list.
+    fn lower_builtin_filepath_str_to_str(
+        &mut self,
+        path_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no path", name))
+        })?;
+        let path_ptr = self.value_to_ptr(path_val)?;
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let cstr_result = self
+            .builder()
+            .build_call(*rts_fn, &[path_cstr.into()], name)
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+        let result_ptr = cstr_result.into_pointer_value();
+        let char_list = self.cstring_to_char_list(result_ptr)?;
+        Ok(Some(char_list.into()))
+    }
+
+    /// Lower a filepath function that takes two Strings and returns String.
+    /// Pattern: char_list_to_cstring on both -> call RTS -> cstring_to_char_list.
+    fn lower_builtin_filepath_two_str_to_str(
+        &mut self,
+        arg1_expr: &Expr,
+        arg2_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let arg1_val = self.lower_expr(arg1_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no arg1", name))
+        })?;
+        let arg2_val = self.lower_expr(arg2_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no arg2", name))
+        })?;
+        let arg1_ptr = self.value_to_ptr(arg1_val)?;
+        let arg1_cstr = self.char_list_to_cstring(arg1_ptr)?;
+        let arg2_ptr = self.value_to_ptr(arg2_val)?;
+        let arg2_cstr = self.char_list_to_cstring(arg2_ptr)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        let cstr_result = self
+            .builder()
+            .build_call(*rts_fn, &[arg1_cstr.into(), arg2_cstr.into()], name)
+            .map_err(|e| {
+                CodegenError::Internal(format!("{} call failed: {:?}", name, e))
+            })?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| {
+                CodegenError::Internal(format!("{}: returned void", name))
+            })?;
+        let result_ptr = cstr_result.into_pointer_value();
+        let char_list = self.cstring_to_char_list(result_ptr)?;
+        Ok(Some(char_list.into()))
+    }
+
+    /// Lower `splitExtension`: takes String, returns (String, String) tuple.
+    /// Codegen-composed: calls dropExtension and takeExtension, packs into tuple.
+    fn lower_builtin_split_extension(
+        &mut self,
+        path_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Evaluate path once
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| {
+            CodegenError::Internal("splitExtension: no path".to_string())
+        })?;
+        let path_ptr = self.value_to_ptr(path_val)?;
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
+
+        // Call bhc_drop_extension for the base part
+        let drop_ext_fn = self.functions.get(&VarId::new(1000523)).ok_or_else(|| {
+            CodegenError::Internal("bhc_drop_extension not declared".to_string())
+        })?;
+        let base_cstr = self
+            .builder()
+            .build_call(*drop_ext_fn, &[path_cstr.into()], "split_base")
+            .map_err(|e| CodegenError::Internal(format!("splitExtension base: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("splitExtension base: void".to_string()))?
+            .into_pointer_value();
+        let base_list = self.cstring_to_char_list(base_cstr)?;
+
+        // Call bhc_take_extension for the extension part
+        let take_ext_fn = self.functions.get(&VarId::new(1000522)).ok_or_else(|| {
+            CodegenError::Internal("bhc_take_extension not declared".to_string())
+        })?;
+        let ext_cstr = self
+            .builder()
+            .build_call(*take_ext_fn, &[path_cstr.into()], "split_ext")
+            .map_err(|e| CodegenError::Internal(format!("splitExtension ext: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("splitExtension ext: void".to_string()))?
+            .into_pointer_value();
+        let ext_list = self.cstring_to_char_list(ext_cstr)?;
+
+        // Pack into a (String, String) tuple using alloc_pair
+        let pair_ptr = self.alloc_pair(base_list.into(), ext_list.into())?;
+        Ok(Some(pair_ptr.into()))
+    }
+
+    /// Lower a directory function that takes String and returns IO ().
+    /// Pattern: char_list_to_cstring -> call void RTS -> return unit.
+    fn lower_builtin_dir_str_to_io_unit(
+        &mut self,
+        path_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let path_val = self.lower_expr(path_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no path", name))
+        })?;
+        let path_ptr = self.value_to_ptr(path_val)?;
+        let path_cstr = self.char_list_to_cstring(path_ptr)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        self.builder()
+            .build_call(*rts_fn, &[path_cstr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower a directory function that takes two Strings and returns IO ().
+    /// Pattern: char_list_to_cstring on both -> call void RTS -> return unit.
+    fn lower_builtin_dir_two_str_to_io_unit(
+        &mut self,
+        src_expr: &Expr,
+        dst_expr: &Expr,
+        rts_id: usize,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let src_val = self.lower_expr(src_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no src", name))
+        })?;
+        let dst_val = self.lower_expr(dst_expr)?.ok_or_else(|| {
+            CodegenError::Internal(format!("{}: no dst", name))
+        })?;
+        let src_ptr = self.value_to_ptr(src_val)?;
+        let src_cstr = self.char_list_to_cstring(src_ptr)?;
+        let dst_ptr = self.value_to_ptr(dst_val)?;
+        let dst_cstr = self.char_list_to_cstring(dst_ptr)?;
+        let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+            CodegenError::Internal(format!("{} RTS function not declared", name))
+        })?;
+        self.builder()
+            .build_call(*rts_fn, &[src_cstr.into(), dst_cstr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
     }
 
     /// Lower `show` — type-aware dispatch to the correct show function.

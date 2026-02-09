@@ -2647,10 +2647,11 @@ pub unsafe extern "C" fn bhc_list_directory(path: *const c_char) -> *mut u8 {
     };
     match std::fs::read_dir(path_str) {
         Ok(entries) => {
-            let names: Vec<String> = entries
+            let mut names: Vec<String> = entries
                 .filter_map(|e| e.ok())
                 .map(|e| e.file_name().to_string_lossy().into_owned())
                 .collect();
+            names.sort(); // deterministic order for tests
             let mut list = unsafe { alloc_nil() };
             for name in names.iter().rev() {
                 let cs = CString::new(name.as_str()).unwrap_or_default();
@@ -2660,6 +2661,260 @@ pub unsafe extern "C" fn bhc_list_directory(path: *const c_char) -> *mut u8 {
         }
         Err(_) => unsafe { alloc_nil() },
     }
+}
+
+// ----------------------------------------------------------------------------
+// System.FilePath operations
+// ----------------------------------------------------------------------------
+
+/// Join two path components (Haskell's `</>` operator).
+/// Returns heap-allocated C string.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_combine(base: *const c_char, path: *const c_char) -> *mut c_char {
+    let base_str = if base.is_null() {
+        ""
+    } else {
+        match unsafe { CStr::from_ptr(base) }.to_str() {
+            Ok(s) => s,
+            Err(_) => "",
+        }
+    };
+    let path_str = if path.is_null() {
+        ""
+    } else {
+        match unsafe { CStr::from_ptr(path) }.to_str() {
+            Ok(s) => s,
+            Err(_) => "",
+        }
+    };
+    let result = std::path::Path::new(base_str)
+        .join(path_str)
+        .to_string_lossy()
+        .into_owned();
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Get the file name component of a path (e.g., "/usr/local/bin/ghc" -> "ghc").
+#[no_mangle]
+pub unsafe extern "C" fn bhc_take_file_name(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let result = std::path::Path::new(path_str)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Get the directory component of a path (e.g., "/usr/local/bin/ghc" -> "/usr/local/bin").
+#[no_mangle]
+pub unsafe extern "C" fn bhc_take_directory(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return CString::new(".").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new(".").unwrap_or_default().into_raw(),
+    };
+    let result = std::path::Path::new(path_str)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".".to_string());
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Get the extension of a path WITH leading dot (e.g., "report.tar.gz" -> ".gz").
+/// Returns empty string if no extension.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_take_extension(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let result = match std::path::Path::new(path_str).extension().and_then(|s| s.to_str()) {
+        Some(ext) => format!(".{}", ext),
+        None => String::new(),
+    };
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Drop the extension from a path (e.g., "report.tar.gz" -> "report.tar").
+#[no_mangle]
+pub unsafe extern "C" fn bhc_drop_extension(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let p = std::path::Path::new(path_str);
+    let result = match (p.parent(), p.file_stem()) {
+        (Some(parent), Some(stem)) if !parent.as_os_str().is_empty() => {
+            parent.join(stem).to_string_lossy().into_owned()
+        }
+        (_, Some(stem)) => stem.to_string_lossy().into_owned(),
+        _ => path_str.to_string(),
+    };
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Get the base name without extension (e.g., "/path/to/file.txt" -> "file").
+#[no_mangle]
+pub unsafe extern "C" fn bhc_take_base_name(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let result = std::path::Path::new(path_str)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Replace the extension of a path (e.g., replaceExtension "file.txt" ".md" -> "file.md").
+/// The new extension may or may not have a leading dot.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_replace_extension(
+    path: *const c_char,
+    ext: *const c_char,
+) -> *mut c_char {
+    if path.is_null() {
+        return CString::new("").unwrap_or_default().into_raw();
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return CString::new("").unwrap_or_default().into_raw(),
+    };
+    let ext_str = if ext.is_null() {
+        ""
+    } else {
+        match unsafe { CStr::from_ptr(ext) }.to_str() {
+            Ok(s) => s,
+            Err(_) => "",
+        }
+    };
+    let new_ext = ext_str.trim_start_matches('.');
+    let result = std::path::Path::new(path_str)
+        .with_extension(new_ext)
+        .to_string_lossy()
+        .into_owned();
+    CString::new(result).unwrap_or_default().into_raw()
+}
+
+/// Check if a path is absolute. Returns 1 if absolute, 0 if relative.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_is_absolute(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return 0;
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    std::path::Path::new(path_str).is_absolute() as c_int
+}
+
+/// Check if a path is relative. Returns 1 if relative, 0 if absolute.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_is_relative(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return 1;
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 1,
+    };
+    std::path::Path::new(path_str).is_relative() as c_int
+}
+
+/// Check if a path has an extension. Returns 1 if it has one, 0 otherwise.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_has_extension(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return 0;
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    std::path::Path::new(path_str).extension().is_some() as c_int
+}
+
+// ----------------------------------------------------------------------------
+// System.Directory additional operations
+// ----------------------------------------------------------------------------
+
+/// Set the current working directory.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_set_current_directory(path: *const c_char) {
+    if path.is_null() {
+        return;
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = std::env::set_current_dir(path_str);
+}
+
+/// Remove a directory (must be empty).
+#[no_mangle]
+pub unsafe extern "C" fn bhc_remove_directory(path: *const c_char) {
+    if path.is_null() {
+        return;
+    }
+    let path_str = match unsafe { CStr::from_ptr(path) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = std::fs::remove_dir(path_str);
+}
+
+/// Rename (move) a file.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_rename_file(src: *const c_char, dst: *const c_char) {
+    if src.is_null() || dst.is_null() {
+        return;
+    }
+    let src_str = match unsafe { CStr::from_ptr(src) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let dst_str = match unsafe { CStr::from_ptr(dst) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = std::fs::rename(src_str, dst_str);
+}
+
+/// Copy a file.
+#[no_mangle]
+pub unsafe extern "C" fn bhc_copy_file(src: *const c_char, dst: *const c_char) {
+    if src.is_null() || dst.is_null() {
+        return;
+    }
+    let src_str = match unsafe { CStr::from_ptr(src) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let dst_str = match unsafe { CStr::from_ptr(dst) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let _ = std::fs::copy(src_str, dst_str);
 }
 
 /// Exit with success (code 0).

@@ -405,6 +405,18 @@ fn test_tier3_zipwithm_basic_native() {
     run_native_test("tier3_io/zipwithm_basic", Profile::Default);
 }
 
+// System.FilePath operations
+#[test]
+fn test_tier3_filepath_basic_native() {
+    run_native_test("tier3_io/filepath_basic", Profile::Default);
+}
+
+// System.Directory operations
+#[test]
+fn test_tier3_directory_ops_native() {
+    run_native_test("tier3_io/directory_ops", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

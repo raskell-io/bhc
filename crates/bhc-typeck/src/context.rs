@@ -1749,6 +1749,66 @@ impl TyCtxt {
                     );
                     Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), io_bool))
                 }
+                // E.19: System.Directory — String -> IO ()
+                "createDirectory" | "removeFile" | "removeDirectory" | "setCurrentDirectory" => {
+                    let io_unit = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::unit()),
+                    );
+                    Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), io_unit))
+                }
+                // E.19: System.Directory — String -> String -> IO ()
+                "renameFile" | "copyFile" => {
+                    let io_unit = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::unit()),
+                    );
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        Ty::fun(self.builtins.string_ty.clone(), io_unit),
+                    ))
+                }
+                // E.19: System.Directory — listDirectory :: String -> IO [String]
+                "listDirectory" => {
+                    let io_list_string = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::List(Box::new(self.builtins.string_ty.clone()))),
+                    );
+                    Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), io_list_string))
+                }
+                // E.19: System.FilePath — String -> String
+                "takeFileName" | "takeDirectory" | "takeExtension"
+                | "dropExtension" | "takeBaseName" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        self.builtins.string_ty.clone(),
+                    ))
+                }
+                // E.19: System.FilePath — String -> String -> String
+                "replaceExtension" | "</>" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        Ty::fun(
+                            self.builtins.string_ty.clone(),
+                            self.builtins.string_ty.clone(),
+                        ),
+                    ))
+                }
+                // E.19: System.FilePath — String -> Bool
+                "isAbsolute" | "isRelative" | "hasExtension" => {
+                    Scheme::mono(Ty::fun(
+                        self.builtins.string_ty.clone(),
+                        self.builtins.bool_ty.clone(),
+                    ))
+                }
+                // E.19: System.FilePath — splitExtension :: String -> (String, String)
+                "splitExtension" => {
+                    let tuple_ss = Ty::Tuple(vec![
+                        self.builtins.string_ty.clone(),
+                        self.builtins.string_ty.clone(),
+                    ]);
+                    Scheme::mono(Ty::fun(self.builtins.string_ty.clone(), tuple_ss))
+                }
                 // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };
