@@ -3,7 +3,7 @@
 **Document ID:** BHC-TODO-PANDOC
 **Status:** In Progress
 **Created:** 2026-01-30
-**Updated:** 2026-02-07
+**Updated:** 2026-02-09
 
 ---
 
@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 69 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 70 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -32,22 +32,23 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Numeric ops: even/odd, gcd/lcm, divMod/quotRem, fromIntegral + IORef (E.12)
 - Data.Maybe: fromMaybe, maybe, listToMaybe, maybeToList, catMaybes, mapMaybe (E.13)
 - Data.Either: either, fromLeft, fromRight, lefts, rights, partitionEithers (E.13)
-- Control.Monad: when, unless, guard, mapM_, any, all (E.13, E.14)
+- Control.Monad: when, unless, guard, mapM_, any, all, filterM, foldM, foldM_, replicateM, replicateM_, zipWithM, zipWithM_ (E.13, E.14, E.18)
 - Data.List: scanr, scanl1, scanr1, unfoldr, intersect, zip3, zipWith3 (E.15)
 - Data.List: take-fused iterate, repeat, cycle (E.15)
 - Data.List: elemIndex, findIndex, isPrefixOf, isSuffixOf, isInfixOf, tails, inits (E.16)
 - Fixed stubs: maximum, minimum, and, or, Data.Map.notMember (E.16)
 - maximumBy, minimumBy, foldMap (E.16)
-- All intermediate milestones A–E.16 done
+- Ordering ADT (LT/EQ/GT), compare returning Ordering (E.17)
+- All intermediate milestones A–E.18 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
 3. **GHC.Generics or TH** — Required for aeson JSON deriving
-4. **show for Bool from builtins** — `show (and [...])` doesn't dispatch correctly; `compare` returns Int not Ordering ADT
+4. **show for Bool from builtins** — `show (and [...])` doesn't dispatch correctly (workaround: use if-then-else)
 
 ---
 
@@ -265,12 +266,13 @@ compiled from Hackage source.
 
 ### 3.1 Remaining Codegen Builtins
 
-**Status:** ~400+ of 587 builtins lowered (E.13–E.16 added ~40 functions)
+**Status:** ~450+ of 587 builtins lowered (E.13–E.18 added ~50 functions)
 **Scope:** Small-Medium (ongoing)
 
 - [ ] Monadic codegen: general `>>=`, `>>`, `return` via dictionary dispatch
 - [x] `mapM_` (E.14), `when`, `unless` (E.14), `guard` (E.13)
-- [ ] `mapM`, `forM`, `forM_`, `sequence`, `sequence_`, `void`
+- [x] `mapM`, `forM`, `forM_`, `sequence`, `sequence_`, `void`
+- [x] `filterM`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `zipWithM`, `zipWithM_` (E.18)
 - [x] `foldMap` (delegates to concatMap, E.16)
 - [ ] Foldable/Traversable: `traverse`, `sequenceA`, `toList`
 - [x] Data.Maybe: fromMaybe, maybe, listToMaybe, maybeToList, catMaybes, mapMaybe (E.13)
@@ -278,12 +280,12 @@ compiled from Hackage source.
 - [x] Data.List: any, all (E.14), scanr, scanl1, scanr1, unfoldr, intersect, zip3, zipWith3 (E.15)
 - [x] Data.List: iterate, repeat, cycle (take-fused, E.15)
 - [x] Data.List: elemIndex, findIndex, isPrefixOf, isSuffixOf, isInfixOf, tails, inits (E.16)
-- [x] maximumBy, minimumBy (E.16) — note: `compare` returns Int not Ordering ADT, so these await Ordering fix
+- [x] maximumBy, minimumBy (E.16), compare returns Ordering ADT (E.17)
 - [x] Fixed stubs: maximum, minimum, and, or, Data.Map.notMember (E.16)
 - [ ] Data.Map.update, Data.Map.alter, Data.Map.unions
 - [ ] Data.Set.unions, Data.Set.partition
 - [ ] `show` dispatch for Bool-returning builtins (and/or/isPrefixOf etc. — works via if-then-else workaround)
-- [ ] `compare` should return Ordering ADT instead of Int
+- [x] `compare` returns Ordering ADT (LT/EQ/GT) with proper show support (E.17)
 
 ### 3.2 Numeric and Conversion Operations
 
