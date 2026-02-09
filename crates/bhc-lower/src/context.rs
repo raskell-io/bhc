@@ -1260,9 +1260,27 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.18: Monadic combinators at fixed DefIds
+        let e18_builtins: &[(usize, &str)] = &[
+            (11000, "filterM"),
+            (11001, "foldM"),
+            (11002, "foldM_"),
+            (11003, "replicateM"),
+            (11004, "replicateM_"),
+            (11005, "zipWithM"),
+            (11006, "zipWithM_"),
+        ];
+
+        for &(id, name) in e18_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 10901 {
-            self.next_def_id = 10901;
+        if self.next_def_id <= 11007 {
+            self.next_def_id = 11007;
         }
     }
 

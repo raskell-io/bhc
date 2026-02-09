@@ -901,6 +901,94 @@ impl Builtins {
                 let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a, io_unit))
             }),
+            ("filterM", {
+                // filterM :: (a -> IO Bool) -> [a] -> IO [a]
+                let io_bool = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.bool_ty.clone()));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                let io_list_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a.clone()));
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), io_bool),
+                        Ty::fun(list_a, io_list_a),
+                    ),
+                )
+            }),
+            ("foldM", {
+                // foldM :: (b -> a -> IO b) -> b -> [a] -> IO b
+                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), io_b.clone())),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, io_b)),
+                    ),
+                )
+            }),
+            ("foldM_", {
+                // foldM_ :: (b -> a -> IO b) -> b -> [a] -> IO ()
+                let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), io_b)),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, io_unit)),
+                    ),
+                )
+            }),
+            ("replicateM", {
+                // replicateM :: Int -> IO a -> IO [a]
+                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                let io_list_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a));
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(io_a, io_list_a)),
+                )
+            }),
+            ("replicateM_", {
+                // replicateM_ :: Int -> IO a -> IO ()
+                let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(io_a, io_unit)),
+                )
+            }),
+            ("zipWithM", {
+                // zipWithM :: (a -> b -> IO c) -> [a] -> [b] -> IO [c]
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+                let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
+                let io_list_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_c));
+                Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), io_c)),
+                        Ty::fun(list_a, Ty::fun(list_b, io_list_c)),
+                    ),
+                )
+            }),
+            ("zipWithM_", {
+                // zipWithM_ :: (a -> b -> IO c) -> [a] -> [b] -> IO ()
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+                let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
+                Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), io_c)),
+                        Ty::fun(list_a, Ty::fun(list_b, io_unit)),
+                    ),
+                )
+            }),
             ("liftIO", {
                 // liftIO :: IO a -> IO a (identity for base IO)
                 let io_a = Ty::App(
@@ -4490,6 +4578,110 @@ impl Builtins {
                     self.int_ty.clone(),
                     Ty::fun(self.int_ty.clone(), self.ordering_ty.clone()),
                 )),
+            );
+        }
+
+        // E.18: Monadic combinators at fixed DefIds
+        {
+            let a = TyVar::new_star(BUILTIN_TYVAR_A);
+            let b = TyVar::new_star(BUILTIN_TYVAR_B);
+            let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+
+            // filterM :: (a -> IO Bool) -> [a] -> IO [a]
+            let io_bool = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(self.bool_ty.clone()));
+            let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+            let io_list_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a.clone()));
+            env.register_value(
+                DefId::new(11000),
+                Symbol::intern("filterM"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), io_bool),
+                        Ty::fun(list_a.clone(), io_list_a),
+                    ),
+                ),
+            );
+
+            // foldM :: (b -> a -> IO b) -> b -> [a] -> IO b
+            let io_b = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(b.clone())));
+            let list_a2 = Ty::List(Box::new(Ty::Var(a.clone())));
+            env.register_value(
+                DefId::new(11001),
+                Symbol::intern("foldM"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), io_b.clone())),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a2.clone(), io_b.clone())),
+                    ),
+                ),
+            );
+
+            // foldM_ :: (b -> a -> IO b) -> b -> [a] -> IO ()
+            let io_unit = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::unit()));
+            env.register_value(
+                DefId::new(11002),
+                Symbol::intern("foldM_"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), io_b.clone())),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a2.clone(), io_unit.clone())),
+                    ),
+                ),
+            );
+
+            // replicateM :: Int -> IO a -> IO [a]
+            let io_a = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(a.clone())));
+            let io_list_a2 = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_a.clone()));
+            env.register_value(
+                DefId::new(11003),
+                Symbol::intern("replicateM"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(io_a.clone(), io_list_a2)),
+                ),
+            );
+
+            // replicateM_ :: Int -> IO a -> IO ()
+            env.register_value(
+                DefId::new(11004),
+                Symbol::intern("replicateM_"),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(self.int_ty.clone(), Ty::fun(io_a, io_unit.clone())),
+                ),
+            );
+
+            // zipWithM :: (a -> b -> IO c) -> [a] -> [b] -> IO [c]
+            let io_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(Ty::Var(c.clone())));
+            let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+            let list_c = Ty::List(Box::new(Ty::Var(c.clone())));
+            let io_list_c = Ty::App(Box::new(Ty::Con(self.io_con.clone())), Box::new(list_c));
+            env.register_value(
+                DefId::new(11005),
+                Symbol::intern("zipWithM"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), io_c.clone())),
+                        Ty::fun(list_a, Ty::fun(list_b.clone(), io_list_c)),
+                    ),
+                ),
+            );
+
+            // zipWithM_ :: (a -> b -> IO c) -> [a] -> [b] -> IO ()
+            env.register_value(
+                DefId::new(11006),
+                Symbol::intern("zipWithM_"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone(), c.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), io_c)),
+                        Ty::fun(list_a2, Ty::fun(list_b, io_unit)),
+                    ),
+                ),
             );
         }
 
