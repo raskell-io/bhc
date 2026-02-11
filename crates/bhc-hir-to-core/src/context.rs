@@ -1295,6 +1295,7 @@ impl LowerContext {
 
         // Second pass: lower all items
         let mut bindings = Vec::new();
+        let mut deriv_ctx = DerivingContext::new();
 
         for item in &module.items {
             match item {
@@ -1354,7 +1355,6 @@ impl LowerContext {
 
                     // Process deriving clauses
                     if !data_def.deriving.is_empty() {
-                        let mut deriv_ctx = DerivingContext::new();
                         let derived_instances: Vec<_> = data_def
                             .deriving
                             .iter()
@@ -1375,7 +1375,6 @@ impl LowerContext {
 
                     // Process deriving clauses
                     if !newtype_def.deriving.is_empty() {
-                        let mut deriv_ctx = DerivingContext::new();
                         let derived_instances: Vec<_> = newtype_def
                             .deriving
                             .iter()

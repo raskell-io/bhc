@@ -48,17 +48,18 @@ impl DerivingContext {
     /// Create a new deriving context.
     pub fn new() -> Self {
         Self {
-            fresh_counter: 10000, // Start high to avoid collisions
+            fresh_counter: 50000, // Start above all fixed DefId ranges (highest is ~11273)
         }
     }
 
     /// Generate a fresh variable.
     fn fresh_var(&mut self, prefix: &str, ty: Ty) -> Var {
-        let name = Symbol::intern(&format!("{}_{}", prefix, self.fresh_counter));
+        let n = self.fresh_counter;
         self.fresh_counter += 1;
+        let name = Symbol::intern(&format!("{}_{}", prefix, n));
         Var {
             name,
-            id: VarId::new(self.fresh_counter as usize),
+            id: VarId::new(n as usize),
             ty,
         }
     }

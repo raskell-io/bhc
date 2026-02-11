@@ -72,6 +72,8 @@ pub struct ConstructorMeta {
     pub tag: u32,
     /// The number of fields this constructor has.
     pub arity: u32,
+    /// The data type this constructor belongs to (if known).
+    pub type_name: Option<String>,
 }
 
 /// A symbol exported by an already-compiled module, used for cross-module linking.
@@ -223,6 +225,10 @@ pub struct Lowering<'ctx, 'm> {
     except_t_functions: FxHashSet<String>,
     /// Set of function names whose bodies use WriterT operations.
     writer_t_functions: FxHashSet<String>,
+    /// Map from type name → VarId of the $derived_show_TypeName function.
+    derived_show_fns: FxHashMap<String, VarId>,
+    /// Map from type name → VarId of the $derived_eq_TypeName function.
+    derived_eq_fns: FxHashMap<String, VarId>,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -243,6 +249,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             reader_t_functions: FxHashSet::default(),
             except_t_functions: FxHashSet::default(),
             writer_t_functions: FxHashSet::default(),
+            derived_show_fns: FxHashMap::default(),
+            derived_eq_fns: FxHashMap::default(),
         };
         lowering.declare_rts_functions();
         lowering
@@ -273,6 +281,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             reader_t_functions: FxHashSet::default(),
             except_t_functions: FxHashSet::default(),
             writer_t_functions: FxHashSet::default(),
+            derived_show_fns: FxHashMap::default(),
+            derived_eq_fns: FxHashMap::default(),
         };
         lowering.declare_rts_functions();
         lowering.declare_external_symbols(imported_symbols)?;
@@ -1116,9 +1126,17 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     }
 
     /// Register a constructor's metadata for later use.
+    /// Preserves existing type_name if already set (e.g., by detect_derived_instance_methods).
     pub fn register_constructor(&mut self, name: &str, tag: u32, arity: u32) {
-        self.constructor_metadata
-            .insert(name.to_string(), ConstructorMeta { tag, arity });
+        let key = name.to_string();
+        if let Some(existing) = self.constructor_metadata.get_mut(&key) {
+            existing.tag = tag;
+            existing.arity = arity;
+            // Preserve type_name if already set
+        } else {
+            self.constructor_metadata
+                .insert(key, ConstructorMeta { tag, arity, type_name: None });
+        }
     }
 
     /// Declare external RTS functions.
@@ -14845,6 +14863,32 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             return self.lower_builtin_show_typed(expr, var_id, label, coerce);
         }
 
+        // Check if the expression is a user-defined ADT with derived Show
+        if let Some(type_name) = self.infer_adt_type_from_expr(expr) {
+            if let Some(show_var_id) = self.derived_show_fns.get(&type_name).copied() {
+                if let Some(show_fn) = self.functions.get(&show_var_id).copied() {
+                    let value = self.lower_expr(expr)?.ok_or_else(|| {
+                        CodegenError::Internal("show: failed to lower ADT value".to_string())
+                    })?;
+                    // Call derived show: fn(env_ptr, value) -> string_ptr
+                    // All BHC functions use (env, args...) calling convention
+                    let null_env = self.type_mapper().ptr_type().const_null();
+                    let fn_ptr = show_fn.as_global_value().as_pointer_value();
+                    let fn_type = self.type_mapper().ptr_type().fn_type(
+                        &[self.type_mapper().ptr_type().into(), self.type_mapper().ptr_type().into()],
+                        false,
+                    );
+                    let result = self
+                        .builder()
+                        .build_indirect_call(fn_type, fn_ptr, &[null_env.into(), value.into()], "derived_show")
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("derived show call: {:?}", e))
+                        })?;
+                    return Ok(result.try_as_basic_value().basic());
+                }
+            }
+        }
+
         // Default: Int
         self.lower_builtin_show_typed(expr, 1000072, "show_int", ShowCoerce::Int)
     }
@@ -25533,6 +25577,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // can detect the correct transformer layer.
         self.detect_transformer_functions(&core_module.bindings);
 
+        // Pre-pass: detect derived instance methods (e.g., $derived_show_Color)
+        // and populate dispatch tables + constructor-to-type mappings.
+        self.detect_derived_instance_methods(&core_module.bindings);
+
         // First pass: declare all top-level functions
         for bind in &core_module.bindings {
             self.declare_binding(bind)?;
@@ -25697,6 +25745,116 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
+    /// Detect derived instance methods by naming convention ($derived_show_*, $derived_eq_*).
+    /// Populates the derived_show_fns/derived_eq_fns dispatch tables and
+    /// constructor_metadata.type_name from case alternatives in derived bindings.
+    fn detect_derived_instance_methods(&mut self, bindings: &[Bind]) {
+        for bind in bindings {
+            if let Bind::NonRec(var, expr) = bind {
+                let name = var.name.as_str();
+                if let Some(remainder) = name.strip_prefix("$derived_show_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_show_fns.insert(type_name.clone(), var.id);
+                    // Tag constructors found in this binding with their type_name
+                    self.tag_constructors_with_type(expr, &type_name);
+                } else if let Some(remainder) = name.strip_prefix("$derived_eq_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_eq_fns.insert(type_name.clone(), var.id);
+                    self.tag_constructors_with_type(expr, &type_name);
+                }
+            }
+        }
+    }
+
+    /// Strip the counter suffix from a derived binding name.
+    /// e.g., "Color_50000" → "Color", "My_Type_50002" → "My_Type"
+    fn strip_deriving_counter_suffix(name: &str) -> String {
+        if let Some((prefix, suffix)) = name.rsplit_once('_') {
+            if suffix.chars().all(|c| c.is_ascii_digit()) {
+                return prefix.to_string();
+            }
+        }
+        name.to_string()
+    }
+
+    /// Walk an expression and tag any constructors in case alternatives with the given type name.
+    fn tag_constructors_with_type(&mut self, expr: &Expr, type_name: &str) {
+        match expr {
+            Expr::Lam(_, body, _) => self.tag_constructors_with_type(body, type_name),
+            Expr::Case(_, alts, _, _) => {
+                for alt in alts {
+                    if let AltCon::DataCon(con) = &alt.con {
+                        let con_name = con.name.as_str().to_string();
+                        if let Some(meta) = self.constructor_metadata.get_mut(&con_name) {
+                            meta.type_name = Some(type_name.to_string());
+                        }
+                    }
+                    self.tag_constructors_with_type(&alt.rhs, type_name);
+                }
+            }
+            Expr::Let(bind, body, _) => {
+                if let Bind::NonRec(_, e) = bind.as_ref() {
+                    self.tag_constructors_with_type(e, type_name);
+                }
+                self.tag_constructors_with_type(body, type_name);
+            }
+            Expr::App(f, arg, _) => {
+                self.tag_constructors_with_type(f, type_name);
+                self.tag_constructors_with_type(arg, type_name);
+            }
+            _ => {}
+        }
+    }
+
+    /// Infer the user ADT type name from an expression, for derived method dispatch.
+    fn infer_adt_type_from_expr(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            // A bare constructor: e.g., `Red`
+            Expr::Var(var, _) => {
+                let name = var.name.as_str();
+                if let Some(meta) = self.constructor_metadata.get(name) {
+                    return meta.type_name.clone();
+                }
+                None
+            }
+            // A constructor application: e.g., `Circle 5`
+            Expr::App(f, _, _) => self.infer_adt_type_from_expr(f),
+            // Let binding: check body
+            Expr::Let(_, body, _) => self.infer_adt_type_from_expr(body),
+            // Case expression: check any alternative's DataCon for type info
+            Expr::Case(_, alts, _, _) => {
+                for alt in alts {
+                    if let AltCon::DataCon(con) = &alt.con {
+                        let con_name = con.name.as_str();
+                        if let Some(meta) = self.constructor_metadata.get(con_name) {
+                            if let Some(ref tn) = meta.type_name {
+                                return Some(tn.clone());
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if an expression is a user ADT value (for Eq dispatch).
+    fn is_user_adt_expr(expr: &Expr, constructor_metadata: &FxHashMap<String, ConstructorMeta>) -> Option<String> {
+        match expr {
+            Expr::Var(var, _) => {
+                let name = var.name.as_str();
+                if let Some(meta) = constructor_metadata.get(name) {
+                    return meta.type_name.clone();
+                }
+                None
+            }
+            Expr::App(f, _, _) => Self::is_user_adt_expr(f, constructor_metadata),
+            Expr::Let(_, body, _) => Self::is_user_adt_expr(body, constructor_metadata),
+            _ => None,
+        }
+    }
+
     /// Collect constructor metadata from a binding's expression.
     fn collect_constructors_from_binding(&mut self, bind: &Bind) {
         match bind {
@@ -25809,8 +25967,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Fallback for Error types only - use pointers for uniform calling convention
             let tm = self.type_mapper();
 
-            // Use pointer type for all parameters (handles closures, polymorphic values)
-            let param_types: Vec<_> = (0..param_count).map(|_| tm.ptr_type().into()).collect();
+            // All functions take (env_ptr, args...) for uniform closure calling convention
+            let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+            param_types.push(tm.ptr_type().into()); // env/closure pointer
+            for _ in 0..param_count {
+                param_types.push(tm.ptr_type().into());
+            }
 
             // Default return type is pointer
             tm.ptr_type().fn_type(&param_types, false)
@@ -27940,6 +28102,53 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         CodegenError::Internal("primop arg has no value".to_string())
                     })?;
                     return self.lower_list_comparison(op, lhs, rhs);
+                }
+
+                // Check if we're comparing user ADTs with derived Eq
+                if matches!(op, PrimOp::Eq | PrimOp::Ne) {
+                    let adt_type = Self::is_user_adt_expr(args[0], &self.constructor_metadata)
+                        .or_else(|| Self::is_user_adt_expr(args[1], &self.constructor_metadata));
+                    if let Some(type_name) = adt_type {
+                        if let Some(eq_var_id) = self.derived_eq_fns.get(&type_name).copied() {
+                            if let Some(eq_fn) = self.functions.get(&eq_var_id).copied() {
+                                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                                    CodegenError::Internal("eq: no lhs value".to_string())
+                                })?;
+                                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                                    CodegenError::Internal("eq: no rhs value".to_string())
+                                })?;
+                                // Call $derived_eq_TypeName(env, lhs, rhs) → Bool ADT pointer
+                                // All BHC functions use (env, args...) calling convention
+                                let null_env = self.type_mapper().ptr_type().const_null();
+                                let fn_ptr = eq_fn.as_global_value().as_pointer_value();
+                                let fn_type = self.type_mapper().ptr_type().fn_type(
+                                    &[self.type_mapper().ptr_type().into(), self.type_mapper().ptr_type().into(), self.type_mapper().ptr_type().into()],
+                                    false,
+                                );
+                                let result = self
+                                    .builder()
+                                    .build_indirect_call(fn_type, fn_ptr, &[null_env.into(), lhs.into(), rhs.into()], "derived_eq")
+                                    .map_err(|e| {
+                                        CodegenError::Internal(format!("derived eq call: {:?}", e))
+                                    })?;
+                                let bool_ptr = result.try_as_basic_value().basic().ok_or_else(|| {
+                                    CodegenError::Internal("derived eq returned void".to_string())
+                                })?;
+                                // Derived eq returns Bool ADT (tag 0=False, 1=True).
+                                // Extract tag to get i64 result expected by comparison operators.
+                                let tag = self.extract_adt_tag(bool_ptr.into_pointer_value())?;
+                                if matches!(op, PrimOp::Ne) {
+                                    // Invert: 0→1, 1→0
+                                    let one = self.type_mapper().i64_type().const_int(1, false);
+                                    let inverted = self.builder()
+                                        .build_int_sub(one, tag, "ne_invert")
+                                        .map_err(|e| CodegenError::Internal(format!("ne invert: {:?}", e)))?;
+                                    return Ok(Some(inverted.into()));
+                                }
+                                return Ok(Some(tag.into()));
+                            }
+                        }
+                    }
                 }
 
                 let lhs = self

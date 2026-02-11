@@ -488,6 +488,20 @@ fn test_discover_tier2_fixtures() {
 }
 
 // =============================================================================
+// Deriving Tests (E.23)
+// =============================================================================
+
+#[test]
+fn test_tier3_derive_show() {
+    run_native_test("tier3_io/derive_show", Profile::Default);
+}
+
+#[test]
+fn test_tier2_derive_eq() {
+    run_native_test("tier2_functions/derive_eq", Profile::Default);
+}
+
+// =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
 

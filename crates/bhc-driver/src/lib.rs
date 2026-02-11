@@ -1115,6 +1115,7 @@ impl Compiler {
                         ConstructorMeta {
                             tag: con_info.tag,
                             arity: con_info.arity as u32,
+                            type_name: None,
                         },
                     )
                 })
