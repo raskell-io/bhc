@@ -3,7 +3,7 @@
 **Document ID:** BHC-TODO-PANDOC
 **Status:** In Progress
 **Created:** 2026-01-30
-**Updated:** 2026-02-10
+**Updated:** 2026-02-11
 
 ---
 
@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 76 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 78 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -42,12 +42,15 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - System.FilePath: takeFileName, takeDirectory, takeExtension, dropExtension, takeBaseName, replaceExtension, isAbsolute, isRelative, hasExtension, splitExtension, </> (E.19)
 - System.Directory: setCurrentDirectory, removeDirectory, renameFile, copyFile (E.19)
 - Data.Map: full operation set including update, alter, unions, keysSet (E.21)
+- Data.Set: full type support + unions, partition codegen (E.22)
+- Data.IntMap/Data.IntSet: full type support + filter, foldr codegen (E.22)
 - Fixed Bool ADT returns for container predicates (member, null, isSubmapOf) (E.21)
-- All intermediate milestones A–E.21 done
+- Fixed VarId suffix bug in Set/IntSet binary/predicate dispatches (E.22)
+- All intermediate milestones A–E.22 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21)
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22)
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -206,9 +209,9 @@ compiled from Hackage source.
 
 #### containers (Data.Map, Data.Set, Data.Sequence, Data.IntMap, Data.IntSet)
 - [x] Data.Map — RTS-backed BTreeMap (basic ops + WithKey variants done)
-- [x] Data.Set — RTS-backed BTreeSet (basic ops done)
-- [x] Data.IntMap — shares Map RTS (basic ops done)
-- [x] Data.IntSet — shares Set RTS (basic ops done)
+- [x] Data.Set — RTS-backed BTreeSet (full type support + unions/partition, E.22)
+- [x] Data.IntMap — shares Map RTS (full type support, E.22)
+- [x] Data.IntSet — shares Set RTS (full type support + filter/foldr, E.22)
 - [ ] Data.Sequence — finger tree (not started)
 - [x] Data.Map.update, Data.Map.alter, Data.Map.unions, Data.Map.keysSet (E.21)
 - [ ] Data.Graph, Data.Tree (used by some Pandoc deps)
@@ -288,7 +291,10 @@ compiled from Hackage source.
 - [x] maximumBy, minimumBy (E.16), compare returns Ordering ADT (E.17)
 - [x] Fixed stubs: maximum, minimum, and, or, Data.Map.notMember (E.16)
 - [x] Data.Map.update, Data.Map.alter, Data.Map.unions, Data.Map.keysSet (E.21)
-- [ ] Data.Set.unions, Data.Set.partition
+- [x] Data.Set.unions, Data.Set.partition (E.22)
+- [x] Data.IntSet.filter, Data.IntSet.foldr (reuse Set implementations, E.22)
+- [x] Full typeck/context.rs type entries for Data.Set (30), Data.IntMap (25), Data.IntSet (15) (E.22)
+- [x] Fixed VarId suffix bug in Set/IntSet binary/predicate/extremum dispatches (E.22)
 - [x] `show` dispatch for Bool-returning container builtins (Data.Map.member/null, Data.Set.member/null, etc.) (E.21)
 - [x] `compare` returns Ordering ADT (LT/EQ/GT) with proper show support (E.17)
 
@@ -485,6 +491,13 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E tests: map_basic (un-ignored), map_complete (new: update/alter/unions)
 - [x] 76 total E2E tests pass (74 existing + 2 new, 0 failures)
 
+### Milestone E.22: Data.Set/IntMap/IntSet Type Completion ✅
+- [x] Added ~70 type match entries to typeck/context.rs for Data.Set (30), Data.IntMap (25), Data.IntSet (15)
+- [x] Replaced 4 stub dispatches: Set.unions (cons-list walk + union accumulator), Set.partition (dual-accumulator with predicate + tuple return), IntSet.filter (reuse Set.filter), IntSet.foldr (reuse Set.foldr)
+- [x] Fixed pre-existing VarId suffix bug: Set/IntSet binary/predicate/extremum dispatches passed suffix (e.g., 1127) instead of full VarId (1000127) — 13 dispatch sites fixed
+- [x] E2E tests: set_basic (new: fromList/size/member/insert/delete/union/intersection/difference/filter/foldr), intmap_intset (new: IntSet size/member/filter/foldr + IntMap size/member/insert/delete)
+- [x] 78 total E2E tests pass (76 existing + 2 new, 0 failures)
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -522,6 +535,13 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-11: Milestone E.22 Data.Set/IntMap/IntSet Type Completion
+- Added ~70 type match entries to typeck/context.rs for Data.Set (30 entries), Data.IntMap (25 entries), Data.IntSet (15 entries) — fixes triple registration pitfall where functions were in builtins.rs and lower/context.rs but missing from typeck/context.rs
+- Replaced 4 stub dispatches in lower.rs: Set.unions (cons-list walk + bhc_set_union accumulator), Set.partition (dual-accumulator with predicate → tuple return via alloc_adt), IntSet.filter (reuse Set.filter), IntSet.foldr (reuse Set.foldr)
+- Discovered and fixed pre-existing VarId suffix bug: `lower_builtin_set_binary`, `lower_builtin_set_predicate`, etc. take `rts_id: usize` and do `VarId::new(rts_id)` — dispatch sites were passing suffixes (e.g., 1127) instead of full VarIds (1000127), creating non-existent VarIds. Fixed 13 dispatch sites for Set and IntSet operations.
+- E2E tests: set_basic (fromList/size/member/insert/delete/union/intersection/difference/filter/foldr), intmap_intset (IntSet size/member/filter/foldr + IntMap size/member/insert/delete)
+- 78 E2E tests pass (76 existing + 2 new, 0 failures)
 
 ### 2026-02-10: Milestone E.21 Data.Map Completion
 - Linked bhc-containers in driver so Data.Map RTS functions are available at link time
