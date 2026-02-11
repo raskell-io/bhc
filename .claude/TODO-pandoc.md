@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 80 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 81 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -46,12 +46,13 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Data.IntMap/Data.IntSet: full type support + filter, foldr codegen (E.22)
 - Fixed Bool ADT returns for container predicates (member, null, isSubmapOf) (E.21)
 - Fixed VarId suffix bug in Set/IntSet binary/predicate dispatches (E.22)
-- Stock deriving: Eq and Show for user-defined ADTs (E.23)
-- All intermediate milestones A–E.23 done
+- Stock deriving: Eq, Show, Ord for user-defined ADTs (E.23, E.24)
+- Polymorphic compare and comparison operators for derived Ord (E.24)
+- All intermediate milestones A–E.24 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22), stock deriving Eq/Show for user ADTs (E.23)
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22), stock deriving Eq/Show/Ord for user ADTs (E.23, E.24)
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -264,7 +265,8 @@ compiled from Hackage source.
 - [ ] `from` / `to` methods for converting to/from generic rep
 - [ ] Derive `Generic` for user-defined types
 - [x] Stock deriving: `Eq`, `Show` for simple enums and ADTs with fields (E.23)
-- [ ] Stock deriving: `Ord`, `Read`, `Bounded`, `Enum`, `Ix`
+- [x] Stock deriving: `Ord` for simple enums and ADTs with fields (E.24)
+- [ ] Stock deriving: `Read`, `Bounded`, `Enum`, `Ix`
 - [ ] `DerivingStrategies`: stock, newtype, anyclass, via
 - [ ] `DeriveAnyClass` for type classes with default method implementations
 - [ ] `DerivingVia` for newtype-based instance delegation
@@ -276,7 +278,7 @@ compiled from Hackage source.
 
 ### 3.1 Remaining Codegen Builtins
 
-**Status:** ~470+ of 587 builtins lowered (E.13–E.23 added ~60+ functions + derived dispatches)
+**Status:** ~470+ of 587 builtins lowered (E.13–E.24 added ~60+ functions + derived dispatches)
 **Scope:** Small-Medium (ongoing)
 
 - [ ] Monadic codegen: general `>>=`, `>>`, `return` via dictionary dispatch
@@ -515,6 +517,16 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E tests: derive_show (enum + ADT with fields), derive_eq (enum equality + inequality)
 - [x] 80 total E2E tests pass (78 existing + 2 new, 0 failures)
 
+### Milestone E.24: Stock Deriving — Ord for User ADTs ✅
+- [x] Added `derived_compare_fns` dispatch table mirroring `derived_show_fns`/`derived_eq_fns` pattern
+- [x] Extended `detect_derived_instance_methods` to detect `$derived_compare_*` bindings
+- [x] `lower_builtin_compare` dispatches to derived compare for user ADTs before falling through to Int comparison
+- [x] `PrimOp::Lt/Le/Gt/Ge` dispatch through derived compare: call → extract Ordering tag → compare tag
+- [x] Made `compare` polymorphic (`a -> a -> Ordering`) in builtins.rs + fixed DefId block
+- [x] Made `<`/`<=`/`>`/`>=` polymorphic (`a -> a -> Bool`) in builtins.rs + typeck/context.rs `cmp_binop()`
+- [x] E2E test: derive_ord (compare on enums + comparison operators + multiple types)
+- [x] 81 total E2E tests pass (80 existing + 1 new, 0 failures)
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -552,6 +564,15 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-12: Milestone E.24 Stock Deriving — Ord for User ADTs
+- Added `derived_compare_fns` dispatch table (mirrors derived_show_fns/derived_eq_fns from E.23)
+- Extended `detect_derived_instance_methods` to detect `$derived_compare_*` bindings
+- `lower_builtin_compare` checks for user ADTs with derived Ord before falling through to Int comparison
+- `PrimOp::Lt/Le/Gt/Ge` dispatch through derived compare: extract Ordering tag (0=LT, 1=EQ, 2=GT), compare (Lt: tag==0, Le: tag!=2, Gt: tag==2, Ge: tag!=0)
+- Made `compare` and comparison operators polymorphic in THREE places: `builtins.rs`, `typeck/context.rs` `cmp_binop()`, and fixed DefId block — previously monomorphic (`Int -> Int -> ...`)
+- E2E test: derive_ord (compare on enums, </<=/>/>=, multiple types)
+- 81 E2E tests pass (80 existing + 1 new, 0 failures)
 
 ### 2026-02-12: Milestone E.23 Stock Deriving — Eq, Show for User ADTs
 - Fixed `fresh_var` off-by-one in `deriving.rs`: name used counter value N but VarId used N+1 (counter incremented between them). Fixed by capturing counter before increment.
