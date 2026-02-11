@@ -428,6 +428,18 @@ fn test_tier3_map_complete_native() {
     run_native_test("tier3_io/map_complete", Profile::Default);
 }
 
+// Data.Set operations
+#[test]
+fn test_tier3_set_basic_native() {
+    run_native_test("tier3_io/set_basic", Profile::Default);
+}
+
+// Data.IntMap + Data.IntSet operations
+#[test]
+fn test_tier3_intmap_intset_native() {
+    run_native_test("tier3_io/intmap_intset", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

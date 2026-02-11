@@ -2284,6 +2284,269 @@ impl TyCtxt {
                         Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
                     )
                 }
+                // Data.Set operations
+                "Data.Set.empty" => {
+                    Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))
+                }
+                "Data.Set.singleton" | "Data.Set.toList" | "Data.Set.toAscList"
+                | "Data.Set.toDescList" | "Data.Set.fromList" | "Data.Set.elems"
+                | "Data.Set.findMin" | "Data.Set.findMax"
+                | "Data.Set.lookupMin" | "Data.Set.lookupMax"
+                | "Data.Set.unions" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                    )
+                }
+                "Data.Set.null" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                    )
+                }
+                "Data.Set.size" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.int_ty.clone()),
+                    )
+                }
+                "Data.Set.member" | "Data.Set.notMember" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), self.builtins.bool_ty.clone())),
+                    )
+                }
+                "Data.Set.insert" | "Data.Set.delete" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.Set.union" | "Data.Set.intersection" | "Data.Set.difference" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.Set.isSubsetOf" | "Data.Set.isProperSubsetOf" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone())),
+                    )
+                }
+                "Data.Set.deleteMin" | "Data.Set.deleteMax" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                    )
+                }
+                "Data.Set.map" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.Set.filter" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.Set.partition" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.Set.foldr" | "Data.Set.foldl" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+                    )
+                }
+
+                // Data.IntMap operations
+                "Data.IntMap.empty" => {
+                    Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))
+                }
+                "Data.IntMap.singleton" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntMap.null" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                    )
+                }
+                "Data.IntMap.size" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.int_ty.clone()),
+                    )
+                }
+                "Data.IntMap.member" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone())),
+                    )
+                }
+                "Data.IntMap.lookup" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.IntMap.findWithDefault" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))),
+                    )
+                }
+                "Data.IntMap.insert" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))),
+                    )
+                }
+                "Data.IntMap.insertWith" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())), Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))))),
+                    )
+                }
+                "Data.IntMap.delete" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntMap.adjust" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())), Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))),
+                    )
+                }
+                "Data.IntMap.union" | "Data.IntMap.intersection" | "Data.IntMap.difference" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntMap.unionWith" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())), Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())))),
+                    )
+                }
+                "Data.IntMap.map" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.IntMap.mapWithKey" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    )
+                }
+                "Data.IntMap.filter" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntMap.foldr" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+                    )
+                }
+                "Data.IntMap.foldlWithKey" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone())))), Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone())))),
+                    )
+                }
+                "Data.IntMap.keys" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                    )
+                }
+                "Data.IntMap.elems" | "Data.IntMap.toList"
+                | "Data.IntMap.toAscList" | "Data.IntMap.fromList" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                    )
+                }
+
+                // Data.IntSet operations
+                "Data.IntSet.empty" => {
+                    Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))
+                }
+                "Data.IntSet.singleton" => {
+                    Scheme::mono(Ty::fun(self.builtins.int_ty.clone(), Ty::Var(a.clone())))
+                }
+                "Data.IntSet.null" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                    )
+                }
+                "Data.IntSet.size" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), self.builtins.int_ty.clone()),
+                    )
+                }
+                "Data.IntSet.member" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone())),
+                    )
+                }
+                "Data.IntSet.insert" | "Data.IntSet.delete" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntSet.union" | "Data.IntSet.intersection" | "Data.IntSet.difference" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntSet.isSubsetOf" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone())),
+                    )
+                }
+                "Data.IntSet.filter" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::fun(self.builtins.int_ty.clone(), self.builtins.bool_ty.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                    )
+                }
+                "Data.IntSet.foldr" => {
+                    Scheme::poly(
+                        vec![a.clone(), b.clone()],
+                        Ty::fun(Ty::fun(self.builtins.int_ty.clone(), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+                    )
+                }
+                "Data.IntSet.toList" | "Data.IntSet.fromList" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                    )
+                }
+
                 // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };

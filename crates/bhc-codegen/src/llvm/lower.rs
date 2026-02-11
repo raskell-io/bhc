@@ -3550,25 +3550,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 "Data.Set.member" | "Data.Set.notMember" => self.lower_builtin_set_member(args[0], args[1]),
                 "Data.Set.insert" => self.lower_builtin_set_insert(args[0], args[1]),
                 "Data.Set.delete" => self.lower_builtin_set_delete(args[0], args[1]),
-                "Data.Set.union" => self.lower_builtin_set_binary(args[0], args[1], 1127, "set_union"),
-                "Data.Set.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1128, "set_intersection"),
-                "Data.Set.difference" => self.lower_builtin_set_binary(args[0], args[1], 1129, "set_difference"),
-                "Data.Set.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1130, "set_is_subset_of"),
-                "Data.Set.isProperSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1131, "set_is_proper_subset_of"),
+                "Data.Set.union" => self.lower_builtin_set_binary(args[0], args[1], 1000127, "set_union"),
+                "Data.Set.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1000128, "set_intersection"),
+                "Data.Set.difference" => self.lower_builtin_set_binary(args[0], args[1], 1000129, "set_difference"),
+                "Data.Set.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1000130, "set_is_subset_of"),
+                "Data.Set.isProperSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1000131, "set_is_proper_subset_of"),
                 "Data.Set.findMin" => self.lower_builtin_set_find_extremum(args[0], 1132, "set_find_min"),
                 "Data.Set.findMax" => self.lower_builtin_set_find_extremum(args[0], 1133, "set_find_max"),
-                "Data.Set.deleteMin" => self.lower_builtin_set_delete_extremum(args[0], 1134, "set_delete_min"),
-                "Data.Set.deleteMax" => self.lower_builtin_set_delete_extremum(args[0], 1135, "set_delete_max"),
-                "Data.Set.lookupMin" => self.lower_builtin_set_lookup_extremum(args[0], 1132, "set_lookup_min"),
-                "Data.Set.lookupMax" => self.lower_builtin_set_lookup_extremum(args[0], 1133, "set_lookup_max"),
+                "Data.Set.deleteMin" => self.lower_builtin_set_delete_extremum(args[0], 1000134, "set_delete_min"),
+                "Data.Set.deleteMax" => self.lower_builtin_set_delete_extremum(args[0], 1000135, "set_delete_max"),
+                "Data.Set.lookupMin" => self.lower_builtin_set_lookup_extremum(args[0], 1000132, "set_lookup_min"),
+                "Data.Set.lookupMax" => self.lower_builtin_set_lookup_extremum(args[0], 1000133, "set_lookup_max"),
                 "Data.Set.map" => self.lower_builtin_set_map(args[0], args[1]),
                 "Data.Set.filter" => self.lower_builtin_set_filter(args[0], args[1]),
                 "Data.Set.foldr" => self.lower_builtin_set_foldr(args[0], args[1], args[2]),
                 "Data.Set.foldl" => self.lower_builtin_set_foldl(args[0], args[1], args[2]),
-                "Data.Set.unions" | "Data.Set.partition" => {
-                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
-                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
-                }
+                "Data.Set.unions" => self.lower_builtin_set_unions(args[0]),
+                "Data.Set.partition" => self.lower_builtin_set_partition(args[0], args[1]),
                 "Data.Set.toList" | "Data.Set.toAscList" | "Data.Set.toDescList" | "Data.Set.elems" => {
                     self.lower_builtin_set_to_list(args[0])
                 }
@@ -3630,14 +3628,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 "Data.IntSet.member" => self.lower_builtin_set_member(args[0], args[1]),
                 "Data.IntSet.insert" => self.lower_builtin_set_insert(args[0], args[1]),
                 "Data.IntSet.delete" => self.lower_builtin_set_delete(args[0], args[1]),
-                "Data.IntSet.union" => self.lower_builtin_set_binary(args[0], args[1], 1155, "intset_union"),
-                "Data.IntSet.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1157, "intset_intersection"),
-                "Data.IntSet.difference" => self.lower_builtin_set_binary(args[0], args[1], 1158, "intset_difference"),
-                "Data.IntSet.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1159, "intset_is_subset_of"),
-                "Data.IntSet.filter" | "Data.IntSet.foldr" => {
-                    let arg_exprs: Vec<&Expr> = args.iter().copied().collect();
-                    self.lower_builtin_container_ho_stub(&arg_exprs, name)
-                }
+                "Data.IntSet.union" => self.lower_builtin_set_binary(args[0], args[1], 1000155, "intset_union"),
+                "Data.IntSet.intersection" => self.lower_builtin_set_binary(args[0], args[1], 1000157, "intset_intersection"),
+                "Data.IntSet.difference" => self.lower_builtin_set_binary(args[0], args[1], 1000158, "intset_difference"),
+                "Data.IntSet.isSubsetOf" => self.lower_builtin_set_predicate(args[0], args[1], 1000159, "intset_is_subset_of"),
+                "Data.IntSet.filter" => self.lower_builtin_set_filter(args[0], args[1]),
+                "Data.IntSet.foldr" => self.lower_builtin_set_foldr(args[0], args[1], args[2]),
                 "Data.IntSet.toList" => self.lower_builtin_set_to_list(args[0]),
                 "Data.IntSet.fromList" => self.lower_builtin_set_from_list(args[0]),
 
@@ -22866,6 +22862,238 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
 
         self.builder().position_at_end(loop_exit);
         Ok(Some(set_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Set.unions` — fold `union` over a list of sets.
+    /// unions :: [Set a] -> Set a
+    fn lower_builtin_set_unions(
+        &mut self,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let list_val = self.lower_expr(list_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_unions: no list".to_string()))?;
+        let list_ptr = self.value_to_ptr(list_val)?;
+
+        let tm = self.type_mapper();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Start with empty set
+        let empty_fn = self.functions.get(&VarId::new(1000120)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_empty not declared".to_string())
+        })?;
+        let empty_set = self.builder()
+            .build_call(*empty_fn, &[], "empty_set")
+            .map_err(|e| CodegenError::Internal(format!("empty call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("empty: void".to_string()))?;
+
+        let union_fn = *self.functions.get(&VarId::new(1000127)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_union not declared".to_string())
+        })?;
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "su_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "su_body");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "su_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop header
+        self.builder().position_at_end(loop_header);
+        let set_phi = self.builder().build_phi(tm.ptr_type(), "set_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let cur_phi = self.builder().build_phi(tm.ptr_type(), "cur_list")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        // Check if current list is nil (tag == 0)
+        let cur_ptr = cur_phi.as_basic_value().into_pointer_value();
+        let tag = self.builder()
+            .build_load(tm.i64_type(), cur_ptr, "tag")
+            .map_err(|e| CodegenError::Internal(format!("load tag failed: {:?}", e)))?
+            .into_int_value();
+        let is_nil = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_nil")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_nil, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: extract head (a set) and tail, union with accumulator
+        self.builder().position_at_end(loop_body);
+        let head_ptr = self.extract_adt_field(cur_ptr, 2, 0)?;
+        let tail_ptr = self.extract_adt_field(cur_ptr, 2, 1)?;
+
+        let set_ptr_val = set_phi.as_basic_value().into_pointer_value();
+        let new_set = self.builder()
+            .build_call(union_fn, &[set_ptr_val.into(), head_ptr.into()], "union_set")
+            .map_err(|e| CodegenError::Internal(format!("union call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("union: void".to_string()))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        set_phi.add_incoming(&[(&empty_set, entry_block), (&new_set, loop_body)]);
+        cur_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(set_phi.as_basic_value()))
+    }
+
+    /// Lower `Data.Set.partition` — split set into (matching, non-matching).
+    /// partition :: (a -> Bool) -> Set a -> (Set a, Set a)
+    fn lower_builtin_set_partition(
+        &mut self,
+        fn_expr: &Expr,
+        set_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fn_val = self.lower_expr(fn_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_partition: no function".to_string()))?;
+        let fn_ptr = self.value_to_ptr(fn_val)?;
+        let set_val = self.lower_expr(set_expr)?
+            .ok_or_else(|| CodegenError::Internal("set_partition: no set".to_string()))?;
+        let set_ptr = self.value_to_ptr(set_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let count_fn = self.functions.get(&VarId::new(1000163)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_elem_count not declared".to_string())
+        })?;
+        let count = self.builder()
+            .build_call(*count_fn, &[set_ptr.into()], "count")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+
+        let elem_at_fn = *self.functions.get(&VarId::new(1000164)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_elem_at not declared".to_string())
+        })?;
+        let insert_fn = *self.functions.get(&VarId::new(1000125)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_insert not declared".to_string())
+        })?;
+
+        let empty_fn = self.functions.get(&VarId::new(1000120)).ok_or_else(|| {
+            CodegenError::Internal("bhc_set_empty not declared".to_string())
+        })?;
+        let empty_yes = self.builder()
+            .build_call(*empty_fn, &[], "empty_yes")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        let empty_no = self.builder()
+            .build_call(*empty_fn, &[], "empty_no")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+
+        let closure_fn_ptr = self.extract_closure_fn_ptr(fn_ptr)?;
+        let call_fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+        let loop_header = self.llvm_context().append_basic_block(current_fn, "sp_header");
+        let loop_body = self.llvm_context().append_basic_block(current_fn, "sp_body");
+        let sp_yes = self.llvm_context().append_basic_block(current_fn, "sp_yes");
+        let sp_no = self.llvm_context().append_basic_block(current_fn, "sp_no");
+        let sp_merge = self.llvm_context().append_basic_block(current_fn, "sp_merge");
+        let loop_exit = self.llvm_context().append_basic_block(current_fn, "sp_exit");
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let yes_phi = self.builder().build_phi(ptr_type, "yes_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let no_phi = self.builder().build_phi(ptr_type, "no_acc")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(tm.i64_type(), "idx")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGE, idx, count, "done")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Loop body: get element, call predicate
+        self.builder().position_at_end(loop_body);
+        let elem_i64 = self.builder()
+            .build_call(elem_at_fn, &[set_ptr.into(), idx.into()], "elem")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?
+            .into_int_value();
+        let elem_ptr = self.int_to_ptr(elem_i64)?;
+
+        let pred_result = self.builder()
+            .build_indirect_call(call_fn_type, closure_fn_ptr, &[fn_ptr.into(), elem_ptr.into()], "pred")
+            .map_err(|e| CodegenError::Internal(format!("indirect call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("closure returned void".to_string()))?;
+
+        let pred_ptr = self.value_to_ptr(pred_result)?;
+        let pred_tag = self.extract_adt_tag(pred_ptr)?;
+        let is_true = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, pred_tag, tm.i64_type().const_zero(), "is_true")
+            .map_err(|e| CodegenError::Internal(format!("cmp failed: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_true, sp_yes, sp_no)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Yes branch: insert into yes_acc
+        self.builder().position_at_end(sp_yes);
+        let yes_ptr = yes_phi.as_basic_value().into_pointer_value();
+        let yes_inserted = self.builder()
+            .build_call(insert_fn, &[elem_i64.into(), yes_ptr.into()], "yes_ins")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(sp_merge)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // No branch: insert into no_acc
+        self.builder().position_at_end(sp_no);
+        let no_ptr = no_phi.as_basic_value().into_pointer_value();
+        let no_inserted = self.builder()
+            .build_call(insert_fn, &[elem_i64.into(), no_ptr.into()], "no_ins")
+            .map_err(|e| CodegenError::Internal(format!("call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("void".to_string()))?;
+        self.builder().build_unconditional_branch(sp_merge)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        // Merge: phi for yes_acc and no_acc
+        self.builder().position_at_end(sp_merge);
+        let yes_merge = self.builder().build_phi(ptr_type, "yes_merge")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        yes_merge.add_incoming(&[(&yes_inserted, sp_yes), (&yes_phi.as_basic_value(), sp_no)]);
+
+        let no_merge = self.builder().build_phi(ptr_type, "no_merge")
+            .map_err(|e| CodegenError::Internal(format!("phi failed: {:?}", e)))?;
+        no_merge.add_incoming(&[(&no_phi.as_basic_value(), sp_yes), (&no_inserted, sp_no)]);
+
+        let new_idx = self.builder()
+            .build_int_add(idx, tm.i64_type().const_int(1, false), "new_idx")
+            .map_err(|e| CodegenError::Internal(format!("add failed: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("branch failed: {:?}", e)))?;
+
+        yes_phi.add_incoming(&[(&empty_yes, entry_block), (&yes_merge.as_basic_value(), sp_merge)]);
+        no_phi.add_incoming(&[(&empty_no, entry_block), (&no_merge.as_basic_value(), sp_merge)]);
+        idx_phi.add_incoming(&[(&tm.i64_type().const_zero(), entry_block), (&new_idx, sp_merge)]);
+
+        // Exit: build tuple (yes_set, no_set)
+        self.builder().position_at_end(loop_exit);
+        let pair = self.alloc_adt(0, 2)?;
+        self.store_adt_field(pair, 2, 0, yes_phi.as_basic_value())?;
+        self.store_adt_field(pair, 2, 1, no_phi.as_basic_value())?;
+
+        Ok(Some(pair.into()))
     }
 
     /// Lower `Data.Map.update` — update a value at a key, possibly deleting it.
