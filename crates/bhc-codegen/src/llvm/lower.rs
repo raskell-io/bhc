@@ -229,6 +229,8 @@ pub struct Lowering<'ctx, 'm> {
     derived_show_fns: FxHashMap<String, VarId>,
     /// Map from type name → VarId of the $derived_eq_TypeName function.
     derived_eq_fns: FxHashMap<String, VarId>,
+    /// Map from type name → VarId of the $derived_compare_TypeName function.
+    derived_compare_fns: FxHashMap<String, VarId>,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -251,6 +253,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             writer_t_functions: FxHashSet::default(),
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
+            derived_compare_fns: FxHashMap::default(),
         };
         lowering.declare_rts_functions();
         lowering
@@ -283,6 +286,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             writer_t_functions: FxHashSet::default(),
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
+            derived_compare_fns: FxHashMap::default(),
         };
         lowering.declare_rts_functions();
         lowering.declare_external_symbols(imported_symbols)?;
@@ -13896,6 +13900,40 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         a_expr: &Expr,
         b_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if comparing user ADTs with derived Ord
+        let adt_type = Self::is_user_adt_expr(a_expr, &self.constructor_metadata)
+            .or_else(|| Self::is_user_adt_expr(b_expr, &self.constructor_metadata));
+        if let Some(type_name) = adt_type {
+            if let Some(cmp_var_id) = self.derived_compare_fns.get(&type_name).copied() {
+                if let Some(cmp_fn) = self.functions.get(&cmp_var_id).copied() {
+                    let lhs = self.lower_expr(a_expr)?.ok_or_else(|| {
+                        CodegenError::Internal("compare: no lhs".to_string())
+                    })?;
+                    let rhs = self.lower_expr(b_expr)?.ok_or_else(|| {
+                        CodegenError::Internal("compare: no rhs".to_string())
+                    })?;
+                    let null_env = self.type_mapper().ptr_type().const_null();
+                    let fn_ptr = cmp_fn.as_global_value().as_pointer_value();
+                    let fn_type = self.type_mapper().ptr_type().fn_type(
+                        &[self.type_mapper().ptr_type().into(),
+                          self.type_mapper().ptr_type().into(),
+                          self.type_mapper().ptr_type().into()],
+                        false,
+                    );
+                    let result = self.builder()
+                        .build_indirect_call(fn_type, fn_ptr,
+                            &[null_env.into(), lhs.into(), rhs.into()],
+                            "derived_compare")
+                        .map_err(|e| CodegenError::Internal(format!("derived compare: {:?}", e)))?;
+                    let ordering_ptr = result.try_as_basic_value().basic().ok_or_else(|| {
+                        CodegenError::Internal("derived compare returned void".to_string())
+                    })?;
+                    return Ok(Some(ordering_ptr));
+                }
+            }
+        }
+
+        // Integer comparison fallback
         let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal("compare: no lhs".to_string()))?;
         let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal("compare: no rhs".to_string()))?;
         let a_int = self.coerce_to_int(a_val)?;
@@ -25745,8 +25783,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         }
     }
 
-    /// Detect derived instance methods by naming convention ($derived_show_*, $derived_eq_*).
-    /// Populates the derived_show_fns/derived_eq_fns dispatch tables and
+    /// Detect derived instance methods by naming convention ($derived_show_*, $derived_eq_*, $derived_compare_*).
+    /// Populates the derived_show_fns/derived_eq_fns/derived_compare_fns dispatch tables and
     /// constructor_metadata.type_name from case alternatives in derived bindings.
     fn detect_derived_instance_methods(&mut self, bindings: &[Bind]) {
         for bind in bindings {
@@ -25760,6 +25798,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 } else if let Some(remainder) = name.strip_prefix("$derived_eq_") {
                     let type_name = Self::strip_deriving_counter_suffix(remainder);
                     self.derived_eq_fns.insert(type_name.clone(), var.id);
+                    self.tag_constructors_with_type(expr, &type_name);
+                } else if let Some(remainder) = name.strip_prefix("$derived_compare_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_compare_fns.insert(type_name.clone(), var.id);
                     self.tag_constructors_with_type(expr, &type_name);
                 }
             }
@@ -28146,6 +28188,63 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                     return Ok(Some(inverted.into()));
                                 }
                                 return Ok(Some(tag.into()));
+                            }
+                        }
+                    }
+                }
+
+                // Check if we're comparing user ADTs with derived Ord (for <, <=, >, >=)
+                if matches!(op, PrimOp::Lt | PrimOp::Le | PrimOp::Gt | PrimOp::Ge) {
+                    let adt_type = Self::is_user_adt_expr(args[0], &self.constructor_metadata)
+                        .or_else(|| Self::is_user_adt_expr(args[1], &self.constructor_metadata));
+                    if let Some(type_name) = adt_type {
+                        if let Some(cmp_var_id) = self.derived_compare_fns.get(&type_name).copied() {
+                            if let Some(cmp_fn) = self.functions.get(&cmp_var_id).copied() {
+                                let lhs = self.lower_expr(args[0])?.ok_or_else(|| {
+                                    CodegenError::Internal("ord: no lhs value".to_string())
+                                })?;
+                                let rhs = self.lower_expr(args[1])?.ok_or_else(|| {
+                                    CodegenError::Internal("ord: no rhs value".to_string())
+                                })?;
+                                // Call $derived_compare_TypeName(env, lhs, rhs) → Ordering ADT pointer
+                                let null_env = self.type_mapper().ptr_type().const_null();
+                                let fn_ptr = cmp_fn.as_global_value().as_pointer_value();
+                                let fn_type = self.type_mapper().ptr_type().fn_type(
+                                    &[self.type_mapper().ptr_type().into(), self.type_mapper().ptr_type().into(), self.type_mapper().ptr_type().into()],
+                                    false,
+                                );
+                                let result = self
+                                    .builder()
+                                    .build_indirect_call(fn_type, fn_ptr, &[null_env.into(), lhs.into(), rhs.into()], "derived_compare")
+                                    .map_err(|e| {
+                                        CodegenError::Internal(format!("derived compare call: {:?}", e))
+                                    })?;
+                                let ordering_ptr = result.try_as_basic_value().basic().ok_or_else(|| {
+                                    CodegenError::Internal("derived compare returned void".to_string())
+                                })?;
+                                // Ordering tag: 0=LT, 1=EQ, 2=GT
+                                let tag = self.extract_adt_tag(ordering_ptr.into_pointer_value())?;
+                                let i64_ty = self.type_mapper().i64_type();
+                                let bool_result = match op {
+                                    PrimOp::Lt => self.builder()
+                                        .build_int_compare(inkwell::IntPredicate::EQ, tag, i64_ty.const_int(0, false), "lt")
+                                        .map_err(|e| CodegenError::Internal(format!("lt cmp: {:?}", e)))?,
+                                    PrimOp::Le => self.builder()
+                                        .build_int_compare(inkwell::IntPredicate::NE, tag, i64_ty.const_int(2, false), "le")
+                                        .map_err(|e| CodegenError::Internal(format!("le cmp: {:?}", e)))?,
+                                    PrimOp::Gt => self.builder()
+                                        .build_int_compare(inkwell::IntPredicate::EQ, tag, i64_ty.const_int(2, false), "gt")
+                                        .map_err(|e| CodegenError::Internal(format!("gt cmp: {:?}", e)))?,
+                                    PrimOp::Ge => self.builder()
+                                        .build_int_compare(inkwell::IntPredicate::NE, tag, i64_ty.const_int(0, false), "ge")
+                                        .map_err(|e| CodegenError::Internal(format!("ge cmp: {:?}", e)))?,
+                                    _ => unreachable!(),
+                                };
+                                // Convert i1 to i64 (0 or 1)
+                                let result_i64 = self.builder()
+                                    .build_int_z_extend(bool_result, i64_ty, "cmp_ext")
+                                    .map_err(|e| CodegenError::Internal(format!("cmp ext: {:?}", e)))?;
+                                return Ok(Some(result_i64.into()));
                             }
                         }
                     }

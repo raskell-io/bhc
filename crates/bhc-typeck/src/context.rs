@@ -880,11 +880,14 @@ impl TyCtxt {
         };
 
         let cmp_binop = || {
-            // a -> a -> Bool (for Ord types, we simplify to Int for now)
-            Scheme::mono(Ty::fun(
-                self.builtins.int_ty.clone(),
-                Ty::fun(self.builtins.int_ty.clone(), self.builtins.bool_ty.clone()),
-            ))
+            // a -> a -> Bool (for Ord types, polymorphic like eq_binop)
+            Scheme::poly(
+                vec![a.clone()],
+                Ty::fun(
+                    Ty::Var(a.clone()),
+                    Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                ),
+            )
         };
 
         let eq_binop = || {

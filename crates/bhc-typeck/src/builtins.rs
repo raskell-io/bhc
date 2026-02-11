@@ -490,11 +490,14 @@ impl Builtins {
         };
 
         let cmp_binop = || {
-            // a -> a -> Bool (for Ord types, we simplify to Int for now)
-            Scheme::mono(Ty::fun(
-                self.int_ty.clone(),
-                Ty::fun(self.int_ty.clone(), self.bool_ty.clone()),
-            ))
+            // a -> a -> Bool (for Ord types, polymorphic like eq_binop)
+            Scheme::poly(
+                vec![a.clone()],
+                Ty::fun(
+                    Ty::Var(a.clone()),
+                    Ty::fun(Ty::Var(a.clone()), self.bool_ty.clone()),
+                ),
+            )
         };
 
         let eq_binop = || {
@@ -2374,11 +2377,14 @@ impl Builtins {
             ),
             // Comparison
             ("compare", {
-                // compare :: Int -> Int -> Ordering (monomorphic, matching cmp_binop pattern)
-                Scheme::mono(Ty::fun(
-                    self.int_ty.clone(),
-                    Ty::fun(self.int_ty.clone(), self.ordering_ty.clone()),
-                ))
+                // compare :: a -> a -> Ordering (polymorphic for derived Ord)
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(a.clone()), self.ordering_ty.clone()),
+                    ),
+                )
             }),
             ("min", num_binop()),
             ("max", num_binop()),
@@ -4570,14 +4576,17 @@ impl Builtins {
 
         // E.17: Ordering ADT - compare at fixed DefId
         {
-            // compare :: Int -> Int -> Ordering (monomorphic, matching cmp_binop pattern)
+            // compare :: a -> a -> Ordering (polymorphic for derived Ord)
             env.register_value(
                 DefId::new(10900),
                 Symbol::intern("compare"),
-                Scheme::mono(Ty::fun(
-                    self.int_ty.clone(),
-                    Ty::fun(self.int_ty.clone(), self.ordering_ty.clone()),
-                )),
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(Ty::Var(a.clone()), self.ordering_ty.clone()),
+                    ),
+                ),
             );
         }
 

@@ -1,0 +1,9 @@
+LT
+EQ
+GT
+yes
+yes
+yes
+no
+yes
+yes
