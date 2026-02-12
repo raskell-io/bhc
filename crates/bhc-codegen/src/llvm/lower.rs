@@ -231,6 +231,8 @@ pub struct Lowering<'ctx, 'm> {
     derived_eq_fns: FxHashMap<String, VarId>,
     /// Map from type name → VarId of the $derived_compare_TypeName function.
     derived_compare_fns: FxHashMap<String, VarId>,
+    /// Counter for generating unique show descriptor global names.
+    show_desc_counter: usize,
 }
 
 impl<'ctx, 'm> Lowering<'ctx, 'm> {
@@ -254,6 +256,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
+            show_desc_counter: 0,
         };
         lowering.declare_rts_functions();
         lowering
@@ -287,6 +290,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
+            show_desc_counter: 0,
         };
         lowering.declare_rts_functions();
         lowering.declare_external_symbols(imported_symbols)?;
@@ -1572,6 +1576,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // bhc_show_unit(ptr) -> *i8
         let show_unit = self.module.llvm_module().add_function("bhc_show_unit", ptr_to_ptr, None);
         self.functions.insert(VarId::new(1000097), show_unit);
+
+        // bhc_show_with_desc(ptr, ptr) -> *i8
+        let ptr_ptr_to_ptr = i8_ptr_type.fn_type(&[i8_ptr_type.into(), i8_ptr_type.into()], false);
+        let show_with_desc = self.module.llvm_module().add_function("bhc_show_with_desc", ptr_ptr_to_ptr, None);
+        self.functions.insert(VarId::new(1000099), show_with_desc);
 
         // bhc_gcd(i64, i64) -> i64
         let i64_i64_to_i64 = i64_type.fn_type(&[i64_type.into(), i64_type.into()], false);
@@ -15375,15 +15384,188 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         (0, 0)
     }
 
+    /// Create a ShowTypeDesc global constant in the LLVM module.
+    /// Returns a pointer to the global.
+    fn create_show_desc_global(
+        &mut self,
+        tag: i64,
+        child1: Option<PointerValue<'ctx>>,
+        child2: Option<PointerValue<'ctx>>,
+    ) -> PointerValue<'ctx> {
+        let i64_type = self.type_mapper().i64_type();
+        let ptr_type = self.type_mapper().ptr_type();
+        let struct_type = self.llvm_ctx.struct_type(
+            &[i64_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let struct_val = struct_type.const_named_struct(&[
+            i64_type.const_int(tag as u64, false).into(),
+            child1.unwrap_or(ptr_type.const_null()).into(),
+            child2.unwrap_or(ptr_type.const_null()).into(),
+        ]);
+        let name = format!("show_desc_{}", self.show_desc_counter);
+        self.show_desc_counter += 1;
+        let global = self.module.llvm_module().add_global(struct_type, None, &name);
+        global.set_initializer(&struct_val);
+        global.set_constant(true);
+        global.as_pointer_value()
+    }
+
+    /// Get or create a primitive show descriptor global (leaf types with no children).
+    fn get_primitive_show_desc(&mut self, tag: i64) -> PointerValue<'ctx> {
+        self.create_show_desc_global(tag, None, None)
+    }
+
+    /// Build a recursive show descriptor from a ShowCoerce + expression.
+    fn build_show_descriptor(&mut self, expr: &Expr) -> PointerValue<'ctx> {
+        // First determine the coerce type
+        let coerce = if let Some((c, _, _)) = self.infer_show_from_expr(expr) {
+            c
+        } else {
+            // Try type-based detection
+            let ty = expr.ty();
+            if !matches!(ty, Ty::Error) && !matches!(ty, Ty::Var(_)) {
+                if self.is_bool_type(&ty) { ShowCoerce::Bool }
+                else if self.is_char_type(&ty) { ShowCoerce::Char }
+                else if self.is_double_type(&ty) { ShowCoerce::Double }
+                else if self.is_float_type(&ty) { ShowCoerce::Float }
+                else if self.is_string_type(&ty) { ShowCoerce::StringList }
+                else if self.is_list_type(&ty) { ShowCoerce::List }
+                else if self.is_maybe_type(&ty).is_some() { ShowCoerce::MaybeOf }
+                else if self.is_either_type(&ty).is_some() { ShowCoerce::EitherOf }
+                else if self.is_tuple_type(&ty).is_some() { ShowCoerce::Tuple2Of }
+                else if self.is_unit_type(&ty) { ShowCoerce::Unit }
+                else { ShowCoerce::Int }
+            } else {
+                ShowCoerce::Int
+            }
+        };
+
+        match coerce {
+            ShowCoerce::Int => self.get_primitive_show_desc(0),
+            ShowCoerce::Double => self.get_primitive_show_desc(1),
+            ShowCoerce::Float => self.get_primitive_show_desc(2),
+            ShowCoerce::Bool => self.get_primitive_show_desc(3),
+            ShowCoerce::Char => self.get_primitive_show_desc(4),
+            ShowCoerce::StringList => self.get_primitive_show_desc(5),
+            ShowCoerce::Unit => self.get_primitive_show_desc(6),
+            ShowCoerce::Ordering => self.get_primitive_show_desc(7),
+            ShowCoerce::List => {
+                let elem_desc = self.build_list_elem_descriptor(expr);
+                self.create_show_desc_global(10, Some(elem_desc), None)
+            }
+            ShowCoerce::MaybeOf => {
+                let elem_desc = self.build_maybe_elem_descriptor(expr);
+                self.create_show_desc_global(11, Some(elem_desc), None)
+            }
+            ShowCoerce::Tuple2Of => {
+                let (fst_d, snd_d) = self.build_tuple_elem_descriptors(expr);
+                self.create_show_desc_global(12, Some(fst_d), Some(snd_d))
+            }
+            ShowCoerce::EitherOf => {
+                let (l_d, r_d) = self.build_either_elem_descriptors(expr);
+                self.create_show_desc_global(13, Some(l_d), Some(r_d))
+            }
+        }
+    }
+
+    /// Build a descriptor for the element type of a list expression.
+    fn build_list_elem_descriptor(&mut self, list_expr: &Expr) -> PointerValue<'ctx> {
+        // Try to get the head element and build its descriptor recursively
+        if let Some(head) = self.get_list_head_expr_cloned(list_expr) {
+            return self.build_show_descriptor(&head);
+        }
+        self.get_primitive_show_desc(0) // default to Int
+    }
+
+    /// Clone the head expression from a Cons-list (needed because build_show_descriptor takes &mut self).
+    fn get_list_head_expr_cloned(&self, expr: &Expr) -> Option<Expr> {
+        match expr {
+            // App(App((:), head), tail)
+            Expr::App(f, _tail, _) => {
+                if let Expr::App(ff, head, _) = f.as_ref() {
+                    if let Expr::Var(var, _) = ff.as_ref() {
+                        if var.name.as_str() == ":" {
+                            return Some(head.as_ref().clone());
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Let(_, body, _) => self.get_list_head_expr_cloned(body),
+            Expr::TyApp(inner, _, _) => self.get_list_head_expr_cloned(inner),
+            _ => None,
+        }
+    }
+
+    /// Build a descriptor for the element type of a Maybe expression.
+    fn build_maybe_elem_descriptor(&mut self, maybe_expr: &Expr) -> PointerValue<'ctx> {
+        // Just x → build descriptor from x
+        if let Expr::App(f, arg, _) = maybe_expr {
+            if let Expr::Var(var, _) = f.as_ref() {
+                if var.name.as_str() == "Just" {
+                    return self.build_show_descriptor(arg);
+                }
+            }
+        }
+        self.get_primitive_show_desc(0) // Nothing defaults to Int
+    }
+
+    /// Build descriptors for the fst/snd types of a tuple expression.
+    fn build_tuple_elem_descriptors(&mut self, tuple_expr: &Expr) -> (PointerValue<'ctx>, PointerValue<'ctx>) {
+        // App(App((,), fst), snd)
+        if let Expr::App(f, snd_expr, _) = tuple_expr {
+            if let Expr::App(ff, fst_expr, _) = f.as_ref() {
+                if let Expr::Var(var, _) = ff.as_ref() {
+                    if var.name.as_str() == "(,)" || var.name.as_str() == "Tuple2" {
+                        let fst_cloned = fst_expr.as_ref().clone();
+                        let snd_cloned = snd_expr.as_ref().clone();
+                        let fst_d = self.build_show_descriptor(&fst_cloned);
+                        let snd_d = self.build_show_descriptor(&snd_cloned);
+                        return (fst_d, snd_d);
+                    }
+                }
+            }
+        }
+        let d0 = self.get_primitive_show_desc(0);
+        let d0b = self.get_primitive_show_desc(0);
+        (d0, d0b)
+    }
+
+    /// Build descriptors for the left/right types of an Either expression.
+    fn build_either_elem_descriptors(&mut self, either_expr: &Expr) -> (PointerValue<'ctx>, PointerValue<'ctx>) {
+        if let Expr::App(f, arg, _) = either_expr {
+            if let Expr::Var(var, _) = f.as_ref() {
+                let arg_cloned = arg.as_ref().clone();
+                match var.name.as_str() {
+                    "Left" => {
+                        let l_d = self.build_show_descriptor(&arg_cloned);
+                        let r_d = self.get_primitive_show_desc(0);
+                        return (l_d, r_d);
+                    }
+                    "Right" => {
+                        let l_d = self.get_primitive_show_desc(0);
+                        let r_d = self.build_show_descriptor(&arg_cloned);
+                        return (l_d, r_d);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let d0 = self.get_primitive_show_desc(0);
+        let d0b = self.get_primitive_show_desc(0);
+        (d0, d0b)
+    }
+
     /// Lower type-specialized show functions.
     fn lower_builtin_show_typed(&mut self, expr: &Expr, var_id: usize, label: &str, coerce: ShowCoerce) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let val = self.lower_expr(expr)?.ok_or_else(|| CodegenError::Internal(format!("{}: no value", label)))?;
-        let rts_fn = *self.functions.get(&VarId::new(var_id)).ok_or_else(|| CodegenError::Internal(format!("bhc_{} not declared", label)))?;
 
-        // For compound types, we pass pointer + type tags directly
+        // For compound types, use bhc_show_with_desc with recursive descriptors
         match coerce {
             ShowCoerce::StringList | ShowCoerce::Unit => {
-                // Pass pointer directly: fn(ptr) -> ptr
+                // Pass pointer directly: fn(ptr) -> ptr (simple, no nesting)
+                let rts_fn = *self.functions.get(&VarId::new(var_id)).ok_or_else(|| CodegenError::Internal(format!("bhc_{} not declared", label)))?;
                 let ptr = self.value_to_ptr(val)?;
                 let cstr_result = self.builder().build_call(rts_fn, &[ptr.into()], label)
                     .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
@@ -15392,78 +15574,25 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let char_list = self.cstring_to_char_list(cstr_result.into_pointer_value())?;
                 return Ok(Some(char_list.into()));
             }
-            ShowCoerce::List => {
-                // fn(ptr, elem_tag) -> ptr
+            ShowCoerce::List | ShowCoerce::MaybeOf | ShowCoerce::EitherOf | ShowCoerce::Tuple2Of => {
+                // Use bhc_show_with_desc with recursive type descriptor
                 let ptr = self.value_to_ptr(val)?;
-                let elem_ty = expr.ty();
-                let elem_tag = if let Some(inner) = self.list_elem_type(&elem_ty) {
-                    self.type_to_show_tag(inner)
-                } else {
-                    self.infer_list_elem_tag(expr)
-                };
-                let tag_val = self.type_mapper().i64_type().const_int(elem_tag as u64, false);
-                let cstr_result = self.builder().build_call(rts_fn, &[ptr.into(), tag_val.into()], label)
-                    .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
+                let desc = self.build_show_descriptor(expr);
+                let show_fn = *self.functions.get(&VarId::new(1000099)).ok_or_else(|| {
+                    CodegenError::Internal("bhc_show_with_desc not declared".to_string())
+                })?;
+                let cstr_result = self.builder().build_call(show_fn, &[ptr.into(), desc.into()], "show_with_desc")
+                    .map_err(|e| CodegenError::Internal(format!("show_with_desc call failed: {:?}", e)))?
                     .try_as_basic_value().basic()
-                    .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
-                let char_list = self.cstring_to_char_list(cstr_result.into_pointer_value())?;
-                return Ok(Some(char_list.into()));
-            }
-            ShowCoerce::MaybeOf => {
-                // fn(ptr, elem_tag) -> ptr
-                let ptr = self.value_to_ptr(val)?;
-                let ty = expr.ty();
-                let elem_tag = if let Some(inner) = self.is_maybe_type(&ty) {
-                    self.type_to_show_tag(inner)
-                } else {
-                    self.infer_maybe_elem_tag(expr)
-                };
-                let tag_val = self.type_mapper().i64_type().const_int(elem_tag as u64, false);
-                let cstr_result = self.builder().build_call(rts_fn, &[ptr.into(), tag_val.into()], label)
-                    .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
-                    .try_as_basic_value().basic()
-                    .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
-                let char_list = self.cstring_to_char_list(cstr_result.into_pointer_value())?;
-                return Ok(Some(char_list.into()));
-            }
-            ShowCoerce::EitherOf => {
-                // fn(ptr, left_tag, right_tag) -> ptr
-                let ptr = self.value_to_ptr(val)?;
-                let ty = expr.ty();
-                let (left_tag, right_tag) = if let Some((l, r)) = self.is_either_type(&ty) {
-                    (self.type_to_show_tag(l), self.type_to_show_tag(r))
-                } else {
-                    self.infer_either_tags(expr)
-                };
-                let left_val = self.type_mapper().i64_type().const_int(left_tag as u64, false);
-                let right_val = self.type_mapper().i64_type().const_int(right_tag as u64, false);
-                let cstr_result = self.builder().build_call(rts_fn, &[ptr.into(), left_val.into(), right_val.into()], label)
-                    .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
-                    .try_as_basic_value().basic()
-                    .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
-                let char_list = self.cstring_to_char_list(cstr_result.into_pointer_value())?;
-                return Ok(Some(char_list.into()));
-            }
-            ShowCoerce::Tuple2Of => {
-                // fn(ptr, fst_tag, snd_tag) -> ptr
-                let ptr = self.value_to_ptr(val)?;
-                let ty = expr.ty();
-                let (fst_tag, snd_tag) = if let Some((f, s)) = self.is_tuple_type(&ty) {
-                    (self.type_to_show_tag(f), self.type_to_show_tag(s))
-                } else {
-                    self.infer_tuple_tags(expr)
-                };
-                let fst_val = self.type_mapper().i64_type().const_int(fst_tag as u64, false);
-                let snd_val = self.type_mapper().i64_type().const_int(snd_tag as u64, false);
-                let cstr_result = self.builder().build_call(rts_fn, &[ptr.into(), fst_val.into(), snd_val.into()], label)
-                    .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", label, e)))?
-                    .try_as_basic_value().basic()
-                    .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", label)))?;
+                    .ok_or_else(|| CodegenError::Internal("show_with_desc: returned void".to_string()))?;
                 let char_list = self.cstring_to_char_list(cstr_result.into_pointer_value())?;
                 return Ok(Some(char_list.into()));
             }
             _ => {} // Fall through to primitive coercion handling below
         }
+
+        // For primitive types, use the specific RTS function
+        let rts_fn = *self.functions.get(&VarId::new(var_id)).ok_or_else(|| CodegenError::Internal(format!("bhc_{} not declared", label)))?;
 
         // Primitive coercions (Int, Double, Float, Char, Bool)
         let call_arg: inkwell::values::BasicMetadataValueEnum = match coerce {

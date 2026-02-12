@@ -1449,6 +1449,198 @@ pub extern "C" fn bhc_show_unit(_unit_ptr: *const u8) -> *mut c_char {
 }
 
 // ----------------------------------------------------------------------------
+// Show: Recursive descriptor-based show (nested compound types)
+// ----------------------------------------------------------------------------
+
+/// Descriptor for recursive type-aware show.
+/// Tag assignments:
+///   0=Int, 1=Double, 2=Float, 3=Bool, 4=Char, 5=String, 6=Unit, 7=Ordering
+///   10=List, 11=Maybe, 12=Tuple2, 13=Either
+#[repr(C)]
+pub struct ShowTypeDesc {
+    /// Type tag (see table above).
+    pub tag: i64,
+    /// First child descriptor (elem for List/Maybe, fst for Tuple2, left for Either).
+    pub child1: *const ShowTypeDesc,
+    /// Second child descriptor (snd for Tuple2, right for Either).
+    pub child2: *const ShowTypeDesc,
+}
+
+/// Recursively show a value given its type descriptor.
+unsafe fn show_any(ptr: *const u8, desc: &ShowTypeDesc) -> String {
+    unsafe {
+        match desc.tag {
+            0 => {
+                // Int: pointer-as-integer
+                format!("{}", ptr as i64)
+            }
+            1 => {
+                // Double: interpret as f64 bits
+                let val = f64::from_bits(ptr as u64);
+                format!("{}", val)
+            }
+            2 => {
+                // Float: interpret as f32 bits (lower 32 bits)
+                let val = f32::from_bits(ptr as u32);
+                format!("{}", val)
+            }
+            3 => {
+                // Bool: ADT with tag 0=False, 1=True
+                let tag = *(ptr as *const i64);
+                if tag != 0 { "True".to_string() } else { "False".to_string() }
+            }
+            4 => {
+                // Char: stored as u32 via int-to-ptr
+                let c = ptr as u32;
+                if let Some(ch) = char::from_u32(c) {
+                    format!("'{}'", ch.escape_default())
+                } else {
+                    format!("'\\x{:x}'", c)
+                }
+            }
+            5 => {
+                // String: [Char] linked list, show with quotes
+                let s = read_char_list(ptr);
+                format!("\"{}\"", s.escape_default())
+            }
+            6 => "()".to_string(),
+            7 => {
+                // Ordering: ADT with tag 0=LT, 1=EQ, 2=GT
+                let tag = *(ptr as *const i64);
+                match tag {
+                    0 => "LT".to_string(),
+                    1 => "EQ".to_string(),
+                    _ => "GT".to_string(),
+                }
+            }
+            10 => {
+                // List: recurse with child1 as element descriptor
+                show_list_recursive(ptr, &*desc.child1)
+            }
+            11 => {
+                // Maybe: recurse with child1 as element descriptor
+                show_maybe_recursive(ptr, &*desc.child1)
+            }
+            12 => {
+                // Tuple2: recurse with child1=fst, child2=snd descriptors
+                show_tuple2_recursive(ptr, &*desc.child1, &*desc.child2)
+            }
+            13 => {
+                // Either: recurse with child1=left, child2=right descriptors
+                show_either_recursive(ptr, &*desc.child1, &*desc.child2)
+            }
+            _ => format!("<tag {}>", desc.tag),
+        }
+    }
+}
+
+/// Show a value with parentheses if it's a constructor application at high precedence.
+unsafe fn show_any_prec(ptr: *const u8, desc: &ShowTypeDesc, prec: i32) -> String {
+    unsafe {
+        let s = show_any(ptr, desc);
+        if prec > 10 && is_constructor_app(ptr, desc) {
+            format!("({})", s)
+        } else {
+            s
+        }
+    }
+}
+
+/// Check if a value is a constructor application (Just x, Left x, Right x).
+unsafe fn is_constructor_app(ptr: *const u8, desc: &ShowTypeDesc) -> bool {
+    unsafe {
+        match desc.tag {
+            11 => {
+                // Maybe: Just is a constructor app, Nothing is not
+                *(ptr as *const i64) == 1
+            }
+            13 => {
+                // Either: Left/Right are always constructor apps
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Recursively show a list, using the element descriptor for each element.
+unsafe fn show_list_recursive(list_ptr: *const u8, elem_desc: &ShowTypeDesc) -> String {
+    unsafe {
+        // Special case: [Char] is shown as a String
+        if elem_desc.tag == 4 {
+            let s = read_char_list(list_ptr);
+            return format!("\"{}\"", s.escape_default());
+        }
+
+        let mut elems = Vec::new();
+        let mut cur = list_ptr;
+        while !cur.is_null() {
+            let tag = *(cur as *const i64);
+            if tag == 0 {
+                break; // Nil
+            }
+            let head = *(cur.add(8) as *const *const u8);
+            elems.push(show_any(head, elem_desc));
+            cur = *(cur.add(16) as *const *const u8);
+        }
+        format!("[{}]", elems.join(","))
+    }
+}
+
+/// Recursively show a Maybe value.
+unsafe fn show_maybe_recursive(maybe_ptr: *const u8, elem_desc: &ShowTypeDesc) -> String {
+    unsafe {
+        let tag = *(maybe_ptr as *const i64);
+        if tag == 0 {
+            "Nothing".to_string()
+        } else {
+            let val = *(maybe_ptr.add(8) as *const *const u8);
+            format!("Just {}", show_any_prec(val, elem_desc, 11))
+        }
+    }
+}
+
+/// Recursively show a Tuple2 value.
+unsafe fn show_tuple2_recursive(
+    tuple_ptr: *const u8,
+    fst_desc: &ShowTypeDesc,
+    snd_desc: &ShowTypeDesc,
+) -> String {
+    unsafe {
+        let fst = *(tuple_ptr.add(8) as *const *const u8);
+        let snd = *(tuple_ptr.add(16) as *const *const u8);
+        format!("({},{})", show_any(fst, fst_desc), show_any(snd, snd_desc))
+    }
+}
+
+/// Recursively show an Either value.
+unsafe fn show_either_recursive(
+    either_ptr: *const u8,
+    left_desc: &ShowTypeDesc,
+    right_desc: &ShowTypeDesc,
+) -> String {
+    unsafe {
+        let tag = *(either_ptr as *const i64);
+        if tag == 0 {
+            let val = *(either_ptr.add(8) as *const *const u8);
+            format!("Left {}", show_any_prec(val, left_desc, 11))
+        } else {
+            let val = *(either_ptr.add(8) as *const *const u8);
+            format!("Right {}", show_any_prec(val, right_desc, 11))
+        }
+    }
+}
+
+/// Show any value using a recursive type descriptor.
+/// This is the main entry point for nested compound type show.
+#[no_mangle]
+pub extern "C" fn bhc_show_with_desc(ptr: *const u8, desc: *const ShowTypeDesc) -> *mut c_char {
+    let result = unsafe { show_any(ptr, &*desc) };
+    let c_str = CString::new(result).unwrap();
+    c_str.into_raw()
+}
+
+// ----------------------------------------------------------------------------
 // Math: atan2 for Float and Double
 // ----------------------------------------------------------------------------
 
