@@ -1831,6 +1831,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let list_map_accum_r = self.module.llvm_module().add_function("bhc_list_map_accum_r", ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false), None);
         self.functions.insert(VarId::new(1000559), list_map_accum_r);
 
+        // ---- E.28 IO input RTS functions (VarId 1000560-1000562) ----
+        let get_char_fn = self.module.llvm_module().add_function("bhc_getChar", i64_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1000560), get_char_fn);
+        let is_eof_fn = self.module.llvm_module().add_function("bhc_isEOF", i64_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1000561), is_eof_fn);
+        let get_contents_fn = self.module.llvm_module().add_function("bhc_getContents", ptr_type.fn_type(&[], false), None);
+        self.functions.insert(VarId::new(1000562), get_contents_fn);
+
         // ---- String RTS functions (VarId 1176-1179) ----
         // bhc_string_lines(str_ptr) -> ptr
         let string_lines = self.module.llvm_module().add_function("bhc_string_lines", ptr_type.fn_type(&[ptr_type.into()], false), None);
@@ -2886,6 +2894,22 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "succ" => Some(1),
             "pred" => Some(1),
 
+            // E.28: Arithmetic, enum, folds, higher-order, IO input
+            "min" => Some(2),
+            "max" => Some(2),
+            "subtract" => Some(2),
+            "enumFrom" => Some(1),
+            "enumFromThen" => Some(2),
+            "enumFromThenTo" => Some(3),
+            "foldl1" => Some(2),
+            "foldr1" => Some(2),
+            "comparing" => Some(3),
+            "until" => Some(3),
+            "getChar" => Some(0),
+            "isEOF" => Some(0),
+            "getContents" => Some(0),
+            "interact" => Some(1),
+
             // E.25: String type class methods
             "fromString" => Some(1),
             "read" => Some(1),
@@ -3511,6 +3535,22 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "uncurry" => self.lower_builtin_uncurry(args[0], args[1]),
             "succ" => self.lower_builtin_succ(args[0]),
             "pred" => self.lower_builtin_pred(args[0]),
+
+            // E.28: Arithmetic, enum, folds, higher-order, IO input
+            "min" => self.lower_builtin_min(args[0], args[1]),
+            "max" => self.lower_builtin_max(args[0], args[1]),
+            "subtract" => self.lower_builtin_subtract(args[0], args[1]),
+            "enumFrom" => self.lower_builtin_enum_from(args[0]),
+            "enumFromThen" => self.lower_builtin_enum_from_then(args[0], args[1]),
+            "enumFromThenTo" => self.lower_builtin_enum_from_then_to(args[0], args[1], args[2]),
+            "foldl1" => self.lower_builtin_foldl1(args[0], args[1]),
+            "foldr1" => self.lower_builtin_foldr1(args[0], args[1]),
+            "comparing" => self.lower_builtin_comparing(args[0], args[1], args[2]),
+            "until" => self.lower_builtin_until(args[0], args[1], args[2]),
+            "getChar" => self.lower_builtin_get_char(),
+            "isEOF" => self.lower_builtin_is_eof(),
+            "getContents" => self.lower_builtin_get_contents(),
+            "interact" => self.lower_builtin_interact(args[0]),
 
             // Show
             "show" => self.lower_builtin_show(args[0]),
@@ -10432,7 +10472,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let name = var.name.as_str();
                 matches!(
                     name,
-                    "even" | "odd" | "not" | "null"
+                    "even" | "odd" | "not" | "null" | "isEOF"
                         | "isAlpha" | "isAlphaNum" | "isAscii" | "isControl"
                         | "isDigit" | "isHexDigit" | "isLetter" | "isLower"
                         | "isNumber" | "isPrint" | "isPunctuation" | "isSpace"
@@ -10486,6 +10526,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                                     name,
                                     "gcd" | "lcm" | "quot" | "rem"
                                         | "+" | "-" | "*" | "div" | "mod"
+                                        | "min" | "max" | "subtract"
                                 )
                             }
                             _ => false,
@@ -10549,6 +10590,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         | "take"
                         | "drop"
                         | "enumFromTo"
+                        | "enumFrom"
+                        | "enumFromThen"
+                        | "enumFromThenTo"
                         | "replicate"
                         | "append"
                         | "tail"
@@ -16015,6 +16059,706 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .build_int_sub(int_val, one, "pred")
             .map_err(|e| CodegenError::Internal(format!("pred failed: {:?}", e)))?;
         Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    // ====================================================================
+    // E.28: Arithmetic, enum, folds, higher-order, IO input
+    // ====================================================================
+
+    /// Lower `min` - returns the smaller of two Ints.
+    fn lower_builtin_min(
+        &mut self,
+        a_expr: &Expr,
+        b_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal("min: a has no value".to_string()))?;
+        let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal("min: b has no value".to_string()))?;
+        let a_int = self.coerce_to_int(a_val)?;
+        let b_int = self.coerce_to_int(b_val)?;
+        let cmp = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, a_int, b_int, "min_cmp")
+            .map_err(|e| CodegenError::Internal(format!("min cmp: {:?}", e)))?;
+        let result = self.builder()
+            .build_select(cmp, a_int, b_int, "min_sel")
+            .map_err(|e| CodegenError::Internal(format!("min sel: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `max` - returns the larger of two Ints.
+    fn lower_builtin_max(
+        &mut self,
+        a_expr: &Expr,
+        b_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let a_val = self.lower_expr(a_expr)?.ok_or_else(|| CodegenError::Internal("max: a has no value".to_string()))?;
+        let b_val = self.lower_expr(b_expr)?.ok_or_else(|| CodegenError::Internal("max: b has no value".to_string()))?;
+        let a_int = self.coerce_to_int(a_val)?;
+        let b_int = self.coerce_to_int(b_val)?;
+        let cmp = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGT, a_int, b_int, "max_cmp")
+            .map_err(|e| CodegenError::Internal(format!("max cmp: {:?}", e)))?;
+        let result = self.builder()
+            .build_select(cmp, a_int, b_int, "max_sel")
+            .map_err(|e| CodegenError::Internal(format!("max sel: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `subtract` - subtract x y = y - x (flipped subtraction).
+    fn lower_builtin_subtract(
+        &mut self,
+        x_expr: &Expr,
+        y_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let x_val = self.lower_expr(x_expr)?.ok_or_else(|| CodegenError::Internal("subtract: x has no value".to_string()))?;
+        let y_val = self.lower_expr(y_expr)?.ok_or_else(|| CodegenError::Internal("subtract: y has no value".to_string()))?;
+        let x_int = self.coerce_to_int(x_val)?;
+        let y_int = self.coerce_to_int(y_val)?;
+        // subtract x y = y - x
+        let result = self.builder()
+            .build_int_sub(y_int, x_int, "subtract")
+            .map_err(|e| CodegenError::Internal(format!("subtract: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower `enumFrom` - [n..] (infinite list, capped at 10000 elements as fallback).
+    fn lower_builtin_enum_from(
+        &mut self,
+        from_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Build a finite list of 10000 elements as fallback
+        // Real programs use `take n (enumFrom x)` which the optimizer can handle
+        let from_val = self.lower_expr(from_expr)?.ok_or_else(|| CodegenError::Internal("enumFrom: from has no value".to_string()))?;
+        let from = self.to_int_value(from_val)?;
+
+        let tm = self.type_mapper();
+        let i64_type = tm.i64_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // to = from + 9999
+        let limit = self.builder()
+            .build_int_add(from, i64_type.const_int(9999, false), "enum_limit")
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: add: {:?}", e)))?;
+
+        // Build list backwards from limit down to from (same pattern as enumFromTo)
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "enumf_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "enumf_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "enumf_exit");
+
+        let nil = self.build_nil()?;
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: phi: {:?}", e)))?;
+        let current_phi = self.builder().build_phi(i64_type, "current")
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: phi: {:?}", e)))?;
+
+        let current = current_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, current, from, "done")
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let boxed = self.box_int(current)?;
+        let new_acc = self.build_cons(boxed.into(), acc_phi.as_basic_value())?;
+        let prev = self.builder()
+            .build_int_sub(current, i64_type.const_int(1, false), "prev")
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFrom: branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        current_phi.add_incoming(&[(&limit, entry_block), (&prev, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `enumFromThen` - [n, m..] (infinite list with step, capped at 10000).
+    fn lower_builtin_enum_from_then(
+        &mut self,
+        from_expr: &Expr,
+        then_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let from_val = self.lower_expr(from_expr)?.ok_or_else(|| CodegenError::Internal("enumFromThen: from has no value".to_string()))?;
+        let then_val = self.lower_expr(then_expr)?.ok_or_else(|| CodegenError::Internal("enumFromThen: then has no value".to_string()))?;
+        let from = self.to_int_value(from_val)?;
+        let then_v = self.to_int_value(then_val)?;
+
+        let tm = self.type_mapper();
+        let i64_type = tm.i64_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // step = then - from
+        let step = self.builder()
+            .build_int_sub(then_v, from, "step")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: sub: {:?}", e)))?;
+
+        // Build 10000 elements: last_val = from + step * 9999
+        // Build backwards from element 9999 down to 0
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "enumft_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "enumft_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "enumft_exit");
+
+        let nil = self.build_nil()?;
+        let count_limit = i64_type.const_int(10000, false);
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: phi: {:?}", e)))?;
+        let idx_phi = self.builder().build_phi(i64_type, "idx")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: phi: {:?}", e)))?;
+
+        let idx = idx_phi.as_basic_value().into_int_value();
+        let done = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, idx, i64_type.const_zero(), "done")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(done, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        // current_val = from + step * idx
+        let step_times_idx = self.builder()
+            .build_int_mul(step, idx, "step_idx")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: mul: {:?}", e)))?;
+        let current_val = self.builder()
+            .build_int_add(from, step_times_idx, "cur_val")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: add: {:?}", e)))?;
+        let boxed = self.box_int(current_val)?;
+        let new_acc = self.build_cons(boxed.into(), acc_phi.as_basic_value())?;
+        let prev_idx = self.builder()
+            .build_int_sub(idx, i64_type.const_int(1, false), "prev_idx")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: sub: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: branch: {:?}", e)))?;
+
+        let start_idx = self.builder().build_int_sub(count_limit, i64_type.const_int(1, false), "start_idx")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThen: sub: {:?}", e)))?;
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        idx_phi.add_incoming(&[(&start_idx, entry_block), (&prev_idx, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `enumFromThenTo` - [n, m..p] (finite list with step).
+    fn lower_builtin_enum_from_then_to(
+        &mut self,
+        from_expr: &Expr,
+        then_expr: &Expr,
+        to_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let from_val = self.lower_expr(from_expr)?.ok_or_else(|| CodegenError::Internal("enumFromThenTo: from has no value".to_string()))?;
+        let then_val = self.lower_expr(then_expr)?.ok_or_else(|| CodegenError::Internal("enumFromThenTo: then has no value".to_string()))?;
+        let to_val = self.lower_expr(to_expr)?.ok_or_else(|| CodegenError::Internal("enumFromThenTo: to has no value".to_string()))?;
+        let from = self.to_int_value(from_val)?;
+        let then_v = self.to_int_value(then_val)?;
+        let to = self.to_int_value(to_val)?;
+
+        let tm = self.type_mapper();
+        let i64_type = tm.i64_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // step = then - from
+        let step = self.builder()
+            .build_int_sub(then_v, from, "step")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: sub: {:?}", e)))?;
+
+        // We need to handle both positive and negative steps.
+        // For positive step: iterate while current <= to
+        // For negative step: iterate while current >= to
+        // We'll compute the number of elements, then build the list backwards.
+
+        // Check step direction
+        let step_positive = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGT, step, i64_type.const_zero(), "step_pos")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: cmp: {:?}", e)))?;
+
+        // Build blocks
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "eftt_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "eftt_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "eftt_exit");
+
+        let nil = self.build_nil()?;
+        let entry_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(tm.ptr_type(), "acc")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: phi: {:?}", e)))?;
+        let current_phi = self.builder().build_phi(i64_type, "current")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: phi: {:?}", e)))?;
+
+        let current = current_phi.as_basic_value().into_int_value();
+
+        // For positive step: done when current > to
+        let over_pos = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGT, current, to, "over_pos")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: cmp: {:?}", e)))?;
+        // For negative step: done when current < to
+        let over_neg = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, current, to, "over_neg")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: cmp: {:?}", e)))?;
+        // Select based on step direction
+        let done = self.builder()
+            .build_select(step_positive, over_pos, over_neg, "done")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: sel: {:?}", e)))?;
+        self.builder().build_conditional_branch(done.into_int_value(), loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let boxed = self.box_int(current)?;
+        // Build list in forward order: cons current onto end, but we need reverse.
+        // Actually, build forward by consing and then reversing. Or build in reverse:
+        // Walk forward, consing each element. The list will be in reverse order.
+        // Then reverse at the end.
+        let new_acc = self.build_cons(boxed.into(), acc_phi.as_basic_value())?;
+        let next = self.builder()
+            .build_int_add(current, step, "next")
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: add: {:?}", e)))?;
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("enumFromThenTo: branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&nil, entry_block), (&new_acc, loop_body)]);
+        current_phi.add_incoming(&[(&from, entry_block), (&next, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        // The list is reversed (we consed in forward order), so reverse it
+        let reversed = self.build_inline_reverse(acc_phi.as_basic_value().into_pointer_value(), current_fn)?;
+        Ok(reversed)
+    }
+
+    /// Lower `foldl1` - left fold with no initial value (uses head of list).
+    fn lower_builtin_foldl1(
+        &mut self,
+        func_expr: &Expr,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("foldl1: function has no value".to_string()))?;
+        let func_ptr = match func_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("foldl1: function must be a closure".to_string())),
+        };
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("foldl1: list has no value".to_string()))?;
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("foldl1 expects a list".to_string())),
+        };
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Extract head as initial accumulator, tail as list to fold
+        let head = self.extract_adt_field(list_ptr, 2, 0)?;
+        let tail = self.extract_adt_field(list_ptr, 2, 1)?;
+
+        // Now do standard foldl loop on tail with head as init
+        let entry_block = self.builder().get_insert_block().unwrap();
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "foldl1_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "foldl1_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "foldl1_exit");
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("foldl1: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "foldl1_acc")
+            .map_err(|e| CodegenError::Internal(format!("foldl1: phi: {:?}", e)))?;
+        let list_phi = self.builder().build_phi(ptr_type, "foldl1_list")
+            .map_err(|e| CodegenError::Internal(format!("foldl1: phi: {:?}", e)))?;
+
+        let tag = self.extract_adt_tag(list_phi.as_basic_value().into_pointer_value())?;
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("foldl1: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_empty, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("foldl1: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let head_ptr = self.extract_adt_field(list_phi.as_basic_value().into_pointer_value(), 2, 0)?;
+        let tail_ptr = self.extract_adt_field(list_phi.as_basic_value().into_pointer_value(), 2, 1)?;
+
+        // Call f acc head - flat 3-arg call: fn_ptr(closure_ptr, acc, head)
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let new_acc = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), acc_phi.as_basic_value().into(), head_ptr.into()], "foldl1_new_acc")
+            .map_err(|e| CodegenError::Internal(format!("foldl1: call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("foldl1: function returned void".to_string()))?;
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("foldl1: branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&head, entry_block), (&new_acc, loop_body)]);
+        list_phi.add_incoming(&[(&tail, entry_block), (&tail_ptr, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `foldr1` - right fold with no initial value.
+    /// Implementation: reverse list, then foldl1.
+    fn lower_builtin_foldr1(
+        &mut self,
+        func_expr: &Expr,
+        list_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("foldr1: function has no value".to_string()))?;
+        let func_ptr = match func_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("foldr1: function must be a closure".to_string())),
+        };
+        let list_val = self.lower_expr(list_expr)?.ok_or_else(|| CodegenError::Internal("foldr1: list has no value".to_string()))?;
+        let list_ptr = match list_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("foldr1 expects a list".to_string())),
+        };
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let i64_zero = self.type_mapper().i64_type().const_zero();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        // Reverse the list first
+        let reversed = self.build_inline_reverse(list_ptr, current_fn)?
+            .ok_or_else(|| CodegenError::Internal("foldr1: reverse returned None".to_string()))?;
+        let reversed_ptr = reversed.into_pointer_value();
+
+        // Extract head of reversed list as init, tail as list to fold
+        let head = self.extract_adt_field(reversed_ptr, 2, 0)?;
+        let tail = self.extract_adt_field(reversed_ptr, 2, 1)?;
+
+        // foldl on reversed list with flipped function args
+        let entry_block = self.builder().get_insert_block().unwrap();
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "foldr1_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "foldr1_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "foldr1_exit");
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("foldr1: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let acc_phi = self.builder().build_phi(ptr_type, "foldr1_acc")
+            .map_err(|e| CodegenError::Internal(format!("foldr1: phi: {:?}", e)))?;
+        let list_phi = self.builder().build_phi(ptr_type, "foldr1_list")
+            .map_err(|e| CodegenError::Internal(format!("foldr1: phi: {:?}", e)))?;
+
+        let tag = self.extract_adt_tag(list_phi.as_basic_value().into_pointer_value())?;
+        let is_empty = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, i64_zero, "is_empty")
+            .map_err(|e| CodegenError::Internal(format!("foldr1: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_empty, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("foldr1: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let head_ptr = self.extract_adt_field(list_phi.as_basic_value().into_pointer_value(), 2, 0)?;
+        let tail_ptr = self.extract_adt_field(list_phi.as_basic_value().into_pointer_value(), 2, 1)?;
+
+        // For foldr1: f elem acc (not f acc elem like foldl)
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let new_acc = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), head_ptr.into(), acc_phi.as_basic_value().into()], "foldr1_new_acc")
+            .map_err(|e| CodegenError::Internal(format!("foldr1: call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("foldr1: function returned void".to_string()))?;
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("foldr1: branch: {:?}", e)))?;
+
+        acc_phi.add_incoming(&[(&head, entry_block), (&new_acc, loop_body)]);
+        list_phi.add_incoming(&[(&tail, entry_block), (&tail_ptr, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(acc_phi.as_basic_value()))
+    }
+
+    /// Lower `comparing` - comparing f x y = compare (f x) (f y).
+    fn lower_builtin_comparing(
+        &mut self,
+        f_expr: &Expr,
+        x_expr: &Expr,
+        y_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?.ok_or_else(|| CodegenError::Internal("comparing: f has no value".to_string()))?;
+        let f_ptr = match f_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("comparing: f must be a closure".to_string())),
+        };
+        let x_val = self.lower_expr(x_expr)?.ok_or_else(|| CodegenError::Internal("comparing: x has no value".to_string()))?;
+        let y_val = self.lower_expr(y_expr)?.ok_or_else(|| CodegenError::Internal("comparing: y has no value".to_string()))?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let i64_type = self.type_mapper().i64_type();
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let y_ptr = self.value_to_ptr(y_val)?;
+
+        // Call f(x) and f(y)
+        let fn_ptr = self.extract_closure_fn_ptr(f_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+
+        let fx = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[f_ptr.into(), x_ptr.into()], "fx")
+            .map_err(|e| CodegenError::Internal(format!("comparing: fx call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("comparing: fx returned void".to_string()))?;
+
+        let fy = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[f_ptr.into(), y_ptr.into()], "fy")
+            .map_err(|e| CodegenError::Internal(format!("comparing: fy call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("comparing: fy returned void".to_string()))?;
+
+        // Inline compare: coerce to int, then SLT/SGT chain -> Ordering ADT
+        let fx_int = self.coerce_to_int(fx)?;
+        let fy_int = self.coerce_to_int(fy)?;
+
+        let is_lt = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, fx_int, fy_int, "is_lt")
+            .map_err(|e| CodegenError::Internal(format!("comparing: lt: {:?}", e)))?;
+        let is_gt = self.builder()
+            .build_int_compare(inkwell::IntPredicate::SGT, fx_int, fy_int, "is_gt")
+            .map_err(|e| CodegenError::Internal(format!("comparing: gt: {:?}", e)))?;
+        let tag_gt_or_eq = self.builder()
+            .build_select(is_gt, i64_type.const_int(2, false), i64_type.const_int(1, false), "gt_or_eq")
+            .map_err(|e| CodegenError::Internal(format!("comparing: sel1: {:?}", e)))?;
+        let tag = self.builder()
+            .build_select(is_lt, i64_type.const_int(0, false), tag_gt_or_eq.into_int_value(), "cmp_tag")
+            .map_err(|e| CodegenError::Internal(format!("comparing: sel2: {:?}", e)))?;
+        self.allocate_ordering_adt(tag.into_int_value(), "comparing")
+    }
+
+    /// Lower `until` - until p f x = if p x then x else until p f (f x).
+    fn lower_builtin_until(
+        &mut self,
+        pred_expr: &Expr,
+        func_expr: &Expr,
+        init_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let pred_val = self.lower_expr(pred_expr)?.ok_or_else(|| CodegenError::Internal("until: pred has no value".to_string()))?;
+        let pred_ptr = match pred_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("until: pred must be a closure".to_string())),
+        };
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("until: func has no value".to_string()))?;
+        let func_ptr = match func_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("until: func must be a closure".to_string())),
+        };
+        let init_val = self.lower_expr(init_expr)?.ok_or_else(|| CodegenError::Internal("until: init has no value".to_string()))?;
+        let init_ptr = self.value_to_ptr(init_val)?;
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let entry_block = self.builder().get_insert_block().unwrap();
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "until_header");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "until_body");
+        let loop_exit = self.llvm_ctx.append_basic_block(current_fn, "until_exit");
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("until: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let val_phi = self.builder().build_phi(ptr_type, "until_val")
+            .map_err(|e| CodegenError::Internal(format!("until: phi: {:?}", e)))?;
+
+        // Call p(val) -> Bool ADT
+        let pred_fn_ptr = self.extract_closure_fn_ptr(pred_ptr)?;
+        let pred_fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let pred_result = self.builder()
+            .build_indirect_call(pred_fn_type, pred_fn_ptr, &[pred_ptr.into(), val_phi.as_basic_value().into()], "pred_result")
+            .map_err(|e| CodegenError::Internal(format!("until: pred call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("until: pred returned void".to_string()))?;
+
+        // Check if predicate returned True (non-zero value)
+        // Comparison operators return tagged-int-as-pointer, so use ptr_to_int
+        let pred_bool = self.builder()
+            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
+            .map_err(|e| CodegenError::Internal(format!("until: ptr_to_int: {:?}", e)))?;
+        let is_true = self.builder()
+            .build_int_compare(inkwell::IntPredicate::NE, pred_bool, tm.i64_type().const_zero(), "is_true")
+            .map_err(|e| CodegenError::Internal(format!("until: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_true, loop_exit, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("until: branch: {:?}", e)))?;
+
+        // Loop body: apply f to current val
+        self.builder().position_at_end(loop_body);
+        let func_fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let func_fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let new_val = self.builder()
+            .build_indirect_call(func_fn_type, func_fn_ptr, &[func_ptr.into(), val_phi.as_basic_value().into()], "new_val")
+            .map_err(|e| CodegenError::Internal(format!("until: func call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("until: func returned void".to_string()))?;
+
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("until: branch: {:?}", e)))?;
+
+        val_phi.add_incoming(&[(&init_ptr, entry_block), (&new_val, loop_body)]);
+
+        self.builder().position_at_end(loop_exit);
+        Ok(Some(val_phi.as_basic_value()))
+    }
+
+    /// Lower `getChar` - read a single character from stdin.
+    fn lower_builtin_get_char(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1000560)).ok_or_else(|| {
+            CodegenError::Internal("bhc_getChar not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], "getchar_result")
+            .map_err(|e| CodegenError::Internal(format!("getChar call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getChar: returned void".to_string()))?;
+        // Result is i64 char code, convert to pointer (Char representation)
+        Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+    }
+
+    /// Lower `isEOF` - check if stdin is at EOF.
+    fn lower_builtin_is_eof(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1000561)).ok_or_else(|| {
+            CodegenError::Internal("bhc_isEOF not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], "iseof_result")
+            .map_err(|e| CodegenError::Internal(format!("isEOF call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("isEOF: returned void".to_string()))?;
+        // Result is i64 (0 or 1), wrap as Bool ADT
+        self.allocate_bool_adt(result.into_int_value(), "iseof")
+    }
+
+    /// Lower `getContents` - read all of stdin.
+    fn lower_builtin_get_contents(&mut self) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let rts_fn = self.functions.get(&VarId::new(1000562)).ok_or_else(|| {
+            CodegenError::Internal("bhc_getContents not declared".to_string())
+        })?;
+        let result = self.builder()
+            .build_call(*rts_fn, &[], "getcontents_result")
+            .map_err(|e| CodegenError::Internal(format!("getContents call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("getContents: returned void".to_string()))?;
+        // Result is *mut c_char, convert to [Char] list
+        let char_list = self.cstring_to_char_list(result.into_pointer_value())?;
+        Ok(Some(char_list.into()))
+    }
+
+    /// Lower `interact` - interact f = getContents >>= putStr . f
+    fn lower_builtin_interact(
+        &mut self,
+        func_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("interact: func has no value".to_string()))?;
+        let func_ptr = match func_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("interact: func must be a closure".to_string())),
+        };
+
+        let ptr_type = self.type_mapper().ptr_type();
+
+        // Step 1: Call getContents to get input as [Char]
+        let rts_fn = self.functions.get(&VarId::new(1000562)).ok_or_else(|| {
+            CodegenError::Internal("bhc_getContents not declared".to_string())
+        })?;
+        let input_cstr = self.builder()
+            .build_call(*rts_fn, &[], "interact_input")
+            .map_err(|e| CodegenError::Internal(format!("interact: getContents: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("interact: getContents returned void".to_string()))?;
+        let input_list = self.cstring_to_char_list(input_cstr.into_pointer_value())?;
+
+        // Step 2: Call f(input) via closure call
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let output = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), input_list.into()], "interact_output")
+            .map_err(|e| CodegenError::Internal(format!("interact: f call: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("interact: f returned void".to_string()))?;
+
+        // Step 3: Print the output string (putStr pattern)
+        let output_ptr = match output {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("interact: output must be string".to_string())),
+        };
+        self.lower_print_char_list_ptr(output_ptr)?;
+
+        // Return unit
+        Ok(Some(ptr_type.const_null().into()))
+    }
+
+    /// Emit a loop that walks a [Char] linked list and prints each character.
+    /// Takes a pre-evaluated PointerValue instead of an Expr.
+    fn lower_print_char_list_ptr(
+        &mut self,
+        list_ptr: inkwell::values::PointerValue<'ctx>,
+    ) -> CodegenResult<()> {
+        let tm = self.type_mapper();
+        let current_fn = self.builder().get_insert_block()
+            .and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
+
+        let print_char_fn = self.functions.get(&VarId::new(1000009)).ok_or_else(|| {
+            CodegenError::Internal("bhc_print_char not declared".to_string())
+        })?;
+
+        let loop_header = self.llvm_ctx.append_basic_block(current_fn, "iprint_loop");
+        let loop_body = self.llvm_ctx.append_basic_block(current_fn, "iprint_body");
+        let loop_end = self.llvm_ctx.append_basic_block(current_fn, "iprint_done");
+
+        let pre_loop_block = self.builder().get_insert_block().unwrap();
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("iprint: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_header);
+        let current_node = self.builder().build_phi(tm.ptr_type(), "cur_node")
+            .map_err(|e| CodegenError::Internal(format!("iprint: phi: {:?}", e)))?;
+        current_node.add_incoming(&[(&list_ptr, pre_loop_block)]);
+
+        let tag = self.extract_adt_tag(current_node.as_basic_value().into_pointer_value())?;
+        let is_nil = self.builder()
+            .build_int_compare(inkwell::IntPredicate::EQ, tag, tm.i64_type().const_zero(), "is_nil")
+            .map_err(|e| CodegenError::Internal(format!("iprint: cmp: {:?}", e)))?;
+        self.builder().build_conditional_branch(is_nil, loop_end, loop_body)
+            .map_err(|e| CodegenError::Internal(format!("iprint: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_body);
+        let char_val = self.extract_adt_field(current_node.as_basic_value().into_pointer_value(), 2, 0)?;
+        let char_int = self.coerce_to_int(char_val.into())?;
+        self.builder()
+            .build_call(*print_char_fn, &[char_int.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("iprint: call: {:?}", e)))?;
+        let next = self.extract_adt_field(current_node.as_basic_value().into_pointer_value(), 2, 1)?;
+        current_node.add_incoming(&[(&next, loop_body)]);
+        self.builder().build_unconditional_branch(loop_header)
+            .map_err(|e| CodegenError::Internal(format!("iprint: branch: {:?}", e)))?;
+
+        self.builder().position_at_end(loop_end);
+        Ok(())
     }
 
     /// Lower `(&)` - reverse function application: (&) x f = f x.
@@ -27265,6 +28009,131 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(closure_ptr.into()))
     }
 
+    /// Create a partially-applied builtin closure.
+    /// Given a builtin with arity N and M provided args (M < N), creates a
+    /// closure that captures the M args and accepts the remaining (N-M) args.
+    fn create_partial_builtin_closure(
+        &mut self,
+        name: &str,
+        arity: u32,
+        provided_args: &[&Expr],
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+        let n_provided = provided_args.len() as u32;
+        let n_remaining = arity - n_provided;
+
+        // Create a unique name for the partial wrapper
+        let wrapper_name = format!(
+            "builtin_partial_{}_{}of{}",
+            name.replace(|c: char| !c.is_alphanumeric(), "_"),
+            n_provided,
+            arity
+        );
+
+        // Check if wrapper already exists
+        let wrapper_fn = if let Some(existing) =
+            self.module.llvm_module().get_function(&wrapper_name)
+        {
+            existing
+        } else {
+            // Create wrapper: (ptr env, ptr remaining_arg1, ...) -> ptr
+            // The env closure has the captured args stored in its environment
+            let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+            param_types.push(ptr_type.into()); // env/closure pointer
+            for _ in 0..n_remaining {
+                param_types.push(ptr_type.into());
+            }
+
+            let wrapper_fn_type = ptr_type.fn_type(&param_types, false);
+            let wrapper_fn =
+                self.module
+                    .llvm_module()
+                    .add_function(&wrapper_name, wrapper_fn_type, None);
+
+            // Build the wrapper function body
+            let entry_bb = self.llvm_ctx.append_basic_block(wrapper_fn, "entry");
+            let current_bb = self.builder().get_insert_block();
+
+            self.builder().position_at_end(entry_bb);
+
+            // Extract captured args from closure environment
+            let closure_param = wrapper_fn.get_nth_param(0).unwrap().into_pointer_value();
+            let closure_ty = self.closure_type(n_provided);
+            let env_slot = self
+                .builder()
+                .build_struct_gep(closure_ty, closure_param, 2, "env_slot")
+                .map_err(|e| CodegenError::Internal(format!("partial env slot: {:?}", e)))?;
+
+            let mut all_args: Vec<BasicValueEnum<'ctx>> = Vec::new();
+
+            // Load captured args from environment
+            for i in 0..n_provided {
+                let elem_ptr = unsafe {
+                    self.builder()
+                        .build_in_bounds_gep(
+                            ptr_type.array_type(n_provided),
+                            env_slot,
+                            &[
+                                tm.i64_type().const_zero(),
+                                tm.i64_type().const_int(i as u64, false),
+                            ],
+                            &format!("cap_{}", i),
+                        )
+                        .map_err(|e| CodegenError::Internal(format!("partial cap gep: {:?}", e)))?
+                };
+                let captured_val = self
+                    .builder()
+                    .build_load(ptr_type, elem_ptr, &format!("captured_{}", i))
+                    .map_err(|e| CodegenError::Internal(format!("partial cap load: {:?}", e)))?;
+                all_args.push(captured_val);
+            }
+
+            // Add remaining args from function parameters
+            for i in 0..n_remaining {
+                all_args.push(wrapper_fn.get_nth_param(1 + i).unwrap());
+            }
+
+            // Call lower_builtin_direct with all args
+            let result = self.lower_builtin_direct(name, &all_args)?;
+
+            let result_ptr = match result {
+                Some(v) => v.into_pointer_value(),
+                None => ptr_type.const_null(),
+            };
+            self.builder()
+                .build_return(Some(&result_ptr))
+                .map_err(|e| CodegenError::Internal(format!("partial return: {:?}", e)))?;
+
+            // Restore insertion point
+            if let Some(bb) = current_bb {
+                self.builder().position_at_end(bb);
+            }
+
+            wrapper_fn
+        };
+
+        // Lower the provided args
+        let was_tail = self.in_tail_position;
+        self.in_tail_position = false;
+
+        let mut captured_vals: Vec<(VarId, BasicValueEnum<'ctx>)> = Vec::new();
+        for (i, arg_expr) in provided_args.iter().enumerate() {
+            let val = self.lower_expr(arg_expr)?.ok_or_else(|| {
+                CodegenError::Internal("partial arg has no value".to_string())
+            })?;
+            let ptr_val = self.value_to_ptr(val)?;
+            captured_vals.push((VarId::new(900000 + i), ptr_val.into()));
+        }
+
+        self.in_tail_position = was_tail;
+
+        // Create closure with captured args
+        let fn_ptr = wrapper_fn.as_global_value().as_pointer_value();
+        let closure_ptr = self.alloc_closure(fn_ptr, &captured_vals)?;
+        Ok(Some(closure_ptr.into()))
+    }
+
     /// Execute a builtin operation directly on LLVM values (already lowered).
     /// This is for when builtins are used as values and receive runtime arguments.
     fn lower_builtin_direct(
@@ -28334,6 +29203,37 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let fst_val = self.extract_adt_field(pair_ptr, 2, 0)?;
                 let snd_val = self.extract_adt_field(pair_ptr, 2, 1)?;
                 self.allocate_ptr_pair_tuple(snd_val, fst_val, "swap")
+            }
+            "min" => {
+                let a_int = self.coerce_to_int(args[0])?;
+                let b_int = self.coerce_to_int(args[1])?;
+                let cmp = self.builder()
+                    .build_int_compare(inkwell::IntPredicate::SLT, a_int, b_int, "min_cmp")
+                    .map_err(|e| CodegenError::Internal(format!("min cmp: {:?}", e)))?;
+                let result = self.builder()
+                    .build_select(cmp, a_int, b_int, "min_sel")
+                    .map_err(|e| CodegenError::Internal(format!("min sel: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+            }
+            "max" => {
+                let a_int = self.coerce_to_int(args[0])?;
+                let b_int = self.coerce_to_int(args[1])?;
+                let cmp = self.builder()
+                    .build_int_compare(inkwell::IntPredicate::SGT, a_int, b_int, "max_cmp")
+                    .map_err(|e| CodegenError::Internal(format!("max cmp: {:?}", e)))?;
+                let result = self.builder()
+                    .build_select(cmp, a_int, b_int, "max_sel")
+                    .map_err(|e| CodegenError::Internal(format!("max sel: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(result.into_int_value())?.into()))
+            }
+            "subtract" => {
+                // subtract x y = y - x (args flipped)
+                let x_int = self.coerce_to_int(args[0])?;
+                let y_int = self.coerce_to_int(args[1])?;
+                let result = self.builder()
+                    .build_int_sub(y_int, x_int, "subtract")
+                    .map_err(|e| CodegenError::Internal(format!("subtract: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(result)?.into()))
             }
 
             _ => Err(CodegenError::Internal(format!(
@@ -29663,6 +30563,23 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 // Check if this is an imported (external) function from another module
                 if let Some(&fn_val) = self.external_functions.get(&var.name) {
                     return self.lower_direct_call(fn_val, &args);
+                }
+
+                // Check if this is an unsaturated builtin (partial application)
+                // e.g. (min 5) applies 1 arg to a 2-arg builtin
+                if let Some(arity) = self.builtin_info(name) {
+                    let n_provided = args.len() as u32;
+                    if n_provided < arity {
+                        // Partial application: create a closure that captures the provided args
+                        // and accepts the remaining args
+                        return self.create_partial_builtin_closure(name, arity, &args);
+                    } else {
+                        // Saturated call through closure (shouldn't normally reach here since
+                        // is_saturated_builtin should catch it, but handle gracefully)
+                        let closure = self.create_builtin_closure(name, arity)?
+                            .ok_or_else(|| CodegenError::Internal(format!("failed to create closure for builtin: {}", name)))?;
+                        return self.lower_closure_call(closure, &args);
+                    }
                 }
 
                 Err(CodegenError::Internal(format!(

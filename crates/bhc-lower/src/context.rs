@@ -1443,9 +1443,34 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.28: Arithmetic, enum, folds, higher-order, IO input
+        let e28_builtins: &[(usize, &str)] = &[
+            (11600, "min"),
+            (11601, "max"),
+            (11602, "subtract"),
+            (11603, "enumFrom"),
+            (11604, "enumFromThen"),
+            (11605, "enumFromThenTo"),
+            (11606, "foldl1"),
+            (11607, "foldr1"),
+            (11608, "comparing"),
+            (11609, "until"),
+            (11610, "getChar"),
+            (11611, "isEOF"),
+            (11612, "getContents"),
+            (11613, "interact"),
+        ];
+
+        for &(id, name) in e28_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 11510 {
-            self.next_def_id = 11510;
+        if self.next_def_id <= 11620 {
+            self.next_def_id = 11620;
         }
     }
 

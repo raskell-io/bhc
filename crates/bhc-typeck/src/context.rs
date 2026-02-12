@@ -1459,6 +1459,94 @@ impl TyCtxt {
                     self.builtins.int_ty.clone(),
                     Ty::fun(self.builtins.int_ty.clone(), self.builtins.int_ty.clone()),
                 )),
+                // E.28: Arithmetic, enum, folds, higher-order, IO input
+                "subtract" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    Ty::fun(self.builtins.int_ty.clone(), self.builtins.int_ty.clone()),
+                )),
+                "enumFrom" => {
+                    let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
+                    Scheme::mono(Ty::fun(self.builtins.int_ty.clone(), list_int))
+                }
+                "enumFromThen" => {
+                    let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
+                    Scheme::mono(Ty::fun(
+                        self.builtins.int_ty.clone(),
+                        Ty::fun(self.builtins.int_ty.clone(), list_int),
+                    ))
+                }
+                "enumFromThenTo" => {
+                    let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
+                    Scheme::mono(Ty::fun(
+                        self.builtins.int_ty.clone(),
+                        Ty::fun(
+                            self.builtins.int_ty.clone(),
+                            Ty::fun(self.builtins.int_ty.clone(), list_int),
+                        ),
+                    ))
+                }
+                "foldl1" | "foldr1" => {
+                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+                            Ty::fun(list_a, Ty::Var(a.clone())),
+                        ),
+                    )
+                }
+                "comparing" => {
+                    let ordering_ty = Ty::Con(self.builtins.ordering_con.clone());
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.int_ty.clone()),
+                            Ty::fun(
+                                Ty::Var(a.clone()),
+                                Ty::fun(Ty::Var(a.clone()), ordering_ty),
+                            ),
+                        ),
+                    )
+                }
+                "until" => {
+                    Scheme::poly(
+                        vec![a.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), self.builtins.bool_ty.clone()),
+                            Ty::fun(
+                                Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                                Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                            ),
+                        ),
+                    )
+                }
+                "getChar" => Scheme::mono(Ty::App(
+                    Box::new(Ty::Con(self.builtins.io_con.clone())),
+                    Box::new(self.builtins.char_ty.clone()),
+                )),
+                "isEOF" => Scheme::mono(Ty::App(
+                    Box::new(Ty::Con(self.builtins.io_con.clone())),
+                    Box::new(self.builtins.bool_ty.clone()),
+                )),
+                "getContents" => {
+                    let string_ty = Ty::List(Box::new(self.builtins.char_ty.clone()));
+                    let io_string = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(string_ty),
+                    );
+                    Scheme::mono(io_string)
+                }
+                "interact" => {
+                    let string_ty = Ty::List(Box::new(self.builtins.char_ty.clone()));
+                    let io_unit = Ty::App(
+                        Box::new(Ty::Con(self.builtins.io_con.clone())),
+                        Box::new(Ty::unit()),
+                    );
+                    Scheme::mono(Ty::fun(
+                        Ty::fun(string_ty.clone(), string_ty),
+                        io_unit,
+                    ))
+                }
                 // fromIntegral, toInteger :: Int -> Int (identity for now)
                 "fromIntegral" | "toInteger" => Scheme::mono(Ty::fun(
                     self.builtins.int_ty.clone(),

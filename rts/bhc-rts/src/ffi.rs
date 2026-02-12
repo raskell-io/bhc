@@ -1532,6 +1532,40 @@ pub extern "C" fn bhc_getLine() -> *mut c_char {
     }
 }
 
+/// Read a single character from stdin. Returns char code as i64.
+#[no_mangle]
+pub extern "C" fn bhc_getChar() -> i64 {
+    use std::io::Read;
+    let mut buf = [0u8; 1];
+    match std::io::stdin().read(&mut buf) {
+        Ok(1) => buf[0] as i64,
+        _ => -1, // EOF or error
+    }
+}
+
+/// Check if stdin is at EOF. Returns 1 for EOF, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn bhc_isEOF() -> i64 {
+    use std::io::BufRead;
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    match handle.fill_buf() {
+        Ok(buf) => if buf.is_empty() { 1 } else { 0 },
+        Err(_) => 1,
+    }
+}
+
+/// Read all of stdin as a null-terminated C string.
+#[no_mangle]
+pub extern "C" fn bhc_getContents() -> *mut c_char {
+    use std::io::Read;
+    let mut contents = String::new();
+    match std::io::stdin().read_to_string(&mut contents) {
+        Ok(_) => CString::new(contents).map_or(ptr::null_mut(), |cs| cs.into_raw()),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
 // ----------------------------------------------------------------------------
 // File IO: readFile, writeFile, appendFile
 // ----------------------------------------------------------------------------

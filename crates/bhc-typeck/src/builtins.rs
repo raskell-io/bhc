@@ -3796,6 +3796,19 @@ impl Builtins {
             ("asProxyTypeOf", Scheme::poly(vec![a.clone(), b.clone()], Ty::Var(a.clone()))),
             ("absurd", Scheme::poly(vec![a.clone(), b.clone()], Ty::Var(a.clone()))),
             ("vacuous", Scheme::poly(vec![a.clone(), b.clone()], Ty::Var(a.clone()))),
+            ("until", {
+                // until :: (a -> Bool) -> (a -> a) -> a -> a
+                Scheme::poly(
+                    vec![a.clone()],
+                    Ty::fun(
+                        Ty::fun(Ty::Var(a.clone()), self.bool_ty.clone()),
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone())),
+                        ),
+                    ),
+                )
+            }),
         ];
 
         for (name, scheme) in ops {

@@ -526,6 +526,16 @@ fn test_tier3_tuple_functions_native() {
     run_native_test("tier3_io/tuple_functions", Profile::Default);
 }
 
+#[test]
+fn test_tier3_enum_functions_native() {
+    run_native_test("tier3_io/enum_functions", Profile::Default);
+}
+
+#[test]
+fn test_tier3_fold_misc_native() {
+    run_native_test("tier3_io/fold_misc", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
