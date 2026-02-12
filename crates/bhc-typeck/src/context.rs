@@ -1304,6 +1304,22 @@ impl TyCtxt {
                     self.builtins.int_ty.clone(),
                     self.builtins.bool_ty.clone(),
                 )),
+                // succ, pred :: Int -> Int
+                "succ" | "pred" => Scheme::mono(Ty::fun(
+                    self.builtins.int_ty.clone(),
+                    self.builtins.int_ty.clone(),
+                )),
+                // (&) :: a -> (a -> b) -> b
+                "&" => Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        Ty::Var(a.clone()),
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                            Ty::Var(b.clone()),
+                        ),
+                    ),
+                ),
                 // elem, notElem :: a -> [a] -> Bool
                 "elem" | "notElem" => {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));

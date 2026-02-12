@@ -2627,6 +2627,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Tuple operations
             "fst" => Some(1),
             "snd" => Some(1),
+            "swap" => Some(1),
+            "curry" => Some(3),
+            "uncurry" => Some(2),
 
             // Maybe operations
             "fromJust" => Some(1),
@@ -2878,7 +2881,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "on" => Some(4),
             "fix" => Some(1),
             "$" => Some(2),
+            "&" => Some(2),
             "." => Some(3),
+            "succ" => Some(1),
+            "pred" => Some(1),
 
             // E.25: String type class methods
             "fromString" => Some(1),
@@ -3235,6 +3241,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // Tuple operations
             "fst" => self.lower_builtin_fst(args[0]),
             "snd" => self.lower_builtin_snd(args[0]),
+            "swap" => self.lower_builtin_swap(args[0]),
 
             // Maybe operations
             "fromJust" => self.lower_builtin_from_just(args[0]),
@@ -3498,7 +3505,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "on" => self.lower_builtin_on(args[0], args[1], args[2], args[3]),
             "fix" => self.lower_builtin_fix(args[0]),
             "$" => self.lower_builtin_apply(args[0], args[1]),
+            "&" => self.lower_builtin_reverse_apply(args[0], args[1]),
             "." => self.lower_builtin_compose(args[0], args[1], args[2]),
+            "curry" => self.lower_builtin_curry(args[0], args[1], args[2]),
+            "uncurry" => self.lower_builtin_uncurry(args[0], args[1]),
+            "succ" => self.lower_builtin_succ(args[0]),
+            "pred" => self.lower_builtin_pred(args[0]),
 
             // Show
             "show" => self.lower_builtin_show(args[0]),
@@ -10487,6 +10499,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                             "length" | "ord" | "abs" | "signum" | "negate"
                                 | "fromIntegral" | "toInteger" | "fromInteger"
                                 | "digitToInt" | "read"
+                                | "succ" | "pred"
                         )
                     }
                     _ => false,
@@ -15969,6 +15982,172 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         let result = self.builder().build_indirect_call(fn_type, f_fn, &[f_ptr.into(), gx_ptr.into()], "compose")
             .map_err(|e| CodegenError::Internal(format!(".: f(g(x)) failed: {:?}", e)))?.try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal(".: f(g(x)) void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    // ========================================================================
+    // E.27: succ, pred, (&), swap, curry, uncurry
+    // ========================================================================
+
+    /// Lower `succ` - successor function (n + 1).
+    fn lower_builtin_succ(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal("succ: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let one = self.type_mapper().i64_type().const_int(1, false);
+        let result = self
+            .builder()
+            .build_int_add(int_val, one, "succ")
+            .map_err(|e| CodegenError::Internal(format!("succ failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower `pred` - predecessor function (n - 1).
+    fn lower_builtin_pred(&mut self, expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self
+            .lower_expr(expr)?
+            .ok_or_else(|| CodegenError::Internal("pred: no value".to_string()))?;
+        let int_val = self.coerce_to_int(val)?;
+        let one = self.type_mapper().i64_type().const_int(1, false);
+        let result = self
+            .builder()
+            .build_int_sub(int_val, one, "pred")
+            .map_err(|e| CodegenError::Internal(format!("pred failed: {:?}", e)))?;
+        Ok(Some(self.int_to_ptr(result)?.into()))
+    }
+
+    /// Lower `(&)` - reverse function application: (&) x f = f x.
+    fn lower_builtin_reverse_apply(&mut self, val_expr: &Expr, func_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let val = self.lower_expr(val_expr)?.ok_or_else(|| CodegenError::Internal("&: no value".to_string()))?;
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("&: no function".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("&: function must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+        let val_ptr = self.value_to_ptr(val)?;
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), val_ptr.into()], "rev_apply_result")
+            .map_err(|e| CodegenError::Internal(format!("& call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("&: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `swap` - swap elements of a pair: swap (a, b) = (b, a).
+    fn lower_builtin_swap(&mut self, pair_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let pair_val = self
+            .lower_expr(pair_expr)?
+            .ok_or_else(|| CodegenError::Internal("swap: pair has no value".to_string()))?;
+        let pair_ptr = match pair_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("swap expects a tuple".to_string())),
+        };
+
+        // Extract field 0 (fst) and field 1 (snd)
+        let fst_val = self.extract_adt_field(pair_ptr, 2, 0)?;
+        let snd_val = self.extract_adt_field(pair_ptr, 2, 1)?;
+
+        // Allocate new tuple with swapped fields: (snd, fst)
+        self.allocate_ptr_pair_tuple(snd_val, fst_val, "swap")
+    }
+
+    /// Allocate a (ptr, ptr) tuple: 24 bytes, tag=0, fst at offset 8, snd at offset 16.
+    /// Like allocate_int_pair_tuple but takes pointer values instead of int values.
+    fn allocate_ptr_pair_tuple(
+        &mut self,
+        fst: PointerValue<'ctx>,
+        snd: PointerValue<'ctx>,
+        name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let i64_type = self.type_mapper().i64_type();
+        let ptr_type = self.type_mapper().ptr_type();
+        let size_val = i64_type.const_int(24, false);
+        let alloc_fn = self.functions.get(&VarId::new(1000005)).ok_or_else(|| {
+            CodegenError::Internal("bhc_alloc not declared".to_string())
+        })?;
+        let raw_ptr = self.builder()
+            .build_call(*alloc_fn, &[size_val.into()], &format!("{}_alloc", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: alloc failed: {:?}", name, e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal(format!("{}: alloc returned void", name)))?;
+        let tuple_ptr = raw_ptr.into_pointer_value();
+
+        // Store tag=0 at offset 0
+        let adt_ty = self.adt_type(0);
+        let tag_ptr = self.builder()
+            .build_struct_gep(adt_ty, tuple_ptr, 0, &format!("{}_tag", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: tag gep: {:?}", name, e)))?;
+        self.builder()
+            .build_store(tag_ptr, i64_type.const_zero())
+            .map_err(|e| CodegenError::Internal(format!("{}: tag store: {:?}", name, e)))?;
+
+        // Store fst at offset 8
+        let field1_ptr = self.builder()
+            .build_struct_gep(adt_ty, tuple_ptr, 1, &format!("{}_fst", name))
+            .map_err(|e| CodegenError::Internal(format!("{}: fst gep: {:?}", name, e)))?;
+        self.builder()
+            .build_store(field1_ptr, fst)
+            .map_err(|e| CodegenError::Internal(format!("{}: fst store: {:?}", name, e)))?;
+
+        // Store snd at offset 16 (raw GEP, same pattern as allocate_int_pair_tuple)
+        let field2_gep = unsafe {
+            self.builder()
+                .build_gep(ptr_type, tuple_ptr, &[i64_type.const_int(2, false)], &format!("{}_snd_gep", name))
+                .map_err(|e| CodegenError::Internal(format!("{}: snd gep: {:?}", name, e)))?
+        };
+        self.builder()
+            .build_store(field2_gep, snd)
+            .map_err(|e| CodegenError::Internal(format!("{}: snd store: {:?}", name, e)))?;
+
+        Ok(Some(tuple_ptr.into()))
+    }
+
+    /// Lower `curry f x y = f (x, y)`.
+    fn lower_builtin_curry(&mut self, f_expr: &Expr, x_expr: &Expr, y_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?.ok_or_else(|| CodegenError::Internal("curry: no f".to_string()))?;
+        let x_val = self.lower_expr(x_expr)?.ok_or_else(|| CodegenError::Internal("curry: no x".to_string()))?;
+        let y_val = self.lower_expr(y_expr)?.ok_or_else(|| CodegenError::Internal("curry: no y".to_string()))?;
+        let f_ptr = match f_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("curry: f must be closure".to_string())) };
+        let ptr_type = self.type_mapper().ptr_type();
+
+        // Allocate tuple (x, y)
+        let x_ptr = self.value_to_ptr(x_val)?;
+        let y_ptr = self.value_to_ptr(y_val)?;
+        let tuple_val = self.allocate_ptr_pair_tuple(x_ptr, y_ptr, "curry")?
+            .ok_or_else(|| CodegenError::Internal("curry: tuple alloc void".to_string()))?;
+        let tuple_ptr = tuple_val.into_pointer_value();
+
+        // Call f(tuple)
+        let fn_ptr = self.extract_closure_fn_ptr(f_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[f_ptr.into(), tuple_ptr.into()], "curry_result")
+            .map_err(|e| CodegenError::Internal(format!("curry: call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("curry: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower `uncurry f (x, y) = f x y`.
+    fn lower_builtin_uncurry(&mut self, f_expr: &Expr, pair_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let f_val = self.lower_expr(f_expr)?.ok_or_else(|| CodegenError::Internal("uncurry: no f".to_string()))?;
+        let pair_val = self.lower_expr(pair_expr)?.ok_or_else(|| CodegenError::Internal("uncurry: no pair".to_string()))?;
+        let f_ptr = match f_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("uncurry: f must be closure".to_string())) };
+        let pair_ptr = match pair_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("uncurry: pair must be tuple".to_string())) };
+
+        // Extract fst and snd from pair
+        let fst_val = self.extract_adt_field(pair_ptr, 2, 0)?;
+        let snd_val = self.extract_adt_field(pair_ptr, 2, 1)?;
+
+        // Call f(fst, snd) — flat 3-arg call: (closure_env, arg1, arg2)
+        // BHC compiles 2-arg functions as flat fn(env, x, y) -> result
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        let fn_ptr = self.extract_closure_fn_ptr(f_ptr)?;
+        let result = self.builder().build_indirect_call(fn_type, fn_ptr, &[f_ptr.into(), fst_val.into(), snd_val.into()], "uncurry_result")
+            .map_err(|e| CodegenError::Internal(format!("uncurry: call failed: {:?}", e)))?
+            .try_as_basic_value().basic()
+            .ok_or_else(|| CodegenError::Internal("uncurry: result void".to_string()))?;
         Ok(Some(result))
     }
 
@@ -28122,6 +28301,39 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     .build_select(is_lt, i64_type.const_int(0, false), tag_gt_or_eq, "cmp_tag")
                     .map_err(|e| CodegenError::Internal(format!("compare: select2: {:?}", e)))?;
                 self.allocate_ordering_adt(tag.into_int_value(), "compare")
+            }
+
+            "fst" => {
+                let pair_ptr = args[0].into_pointer_value();
+                let fst = self.extract_adt_field(pair_ptr, 2, 0)?;
+                Ok(Some(fst.into()))
+            }
+            "snd" => {
+                let pair_ptr = args[0].into_pointer_value();
+                let snd = self.extract_adt_field(pair_ptr, 2, 1)?;
+                Ok(Some(snd.into()))
+            }
+            "succ" => {
+                let int_val = self.coerce_to_int(args[0])?;
+                let one = self.type_mapper().i64_type().const_int(1, false);
+                let result = self.builder()
+                    .build_int_add(int_val, one, "succ")
+                    .map_err(|e| CodegenError::Internal(format!("succ failed: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(result)?.into()))
+            }
+            "pred" => {
+                let int_val = self.coerce_to_int(args[0])?;
+                let one = self.type_mapper().i64_type().const_int(1, false);
+                let result = self.builder()
+                    .build_int_sub(int_val, one, "pred")
+                    .map_err(|e| CodegenError::Internal(format!("pred failed: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(result)?.into()))
+            }
+            "swap" => {
+                let pair_ptr = args[0].into_pointer_value();
+                let fst_val = self.extract_adt_field(pair_ptr, 2, 0)?;
+                let snd_val = self.extract_adt_field(pair_ptr, 2, 1)?;
+                self.allocate_ptr_pair_tuple(snd_val, fst_val, "swap")
             }
 
             _ => Err(CodegenError::Internal(format!(

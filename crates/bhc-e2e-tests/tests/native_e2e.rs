@@ -516,6 +516,16 @@ fn test_tier3_list_by_ops_native() {
     run_native_test("tier3_io/list_by_ops", Profile::Default);
 }
 
+#[test]
+fn test_tier3_data_function_native() {
+    run_native_test("tier3_io/data_function", Profile::Default);
+}
+
+#[test]
+fn test_tier3_tuple_functions_native() {
+    run_native_test("tier3_io/tuple_functions", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

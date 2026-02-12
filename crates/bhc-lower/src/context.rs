@@ -1426,9 +1426,26 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.27: Data.Function / Data.Tuple builtins
+        let e27_builtins: &[(usize, &str)] = &[
+            (11500, "succ"),
+            (11501, "pred"),
+            (11502, "&"),
+            (11503, "swap"),
+            (11504, "curry"),
+            (11505, "uncurry"),
+        ];
+
+        for &(id, name) in e27_builtins {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 11410 {
-            self.next_def_id = 11410;
+        if self.next_def_id <= 11510 {
+            self.next_def_id = 11510;
         }
     }
 
