@@ -18,7 +18,7 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 83 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- 85 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
 - Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
 - MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
@@ -50,11 +50,13 @@ BHC compiles real Haskell programs to native executables via LLVM:
 - Polymorphic compare and comparison operators for derived Ord (E.24)
 - String methods: fromString, read, readMaybe (E.25)
 - Data.List: sortOn, nubBy, groupBy, deleteBy, unionBy, intersectBy, stripPrefix, insert, mapAccumL, mapAccumR (E.26)
-- All intermediate milestones A–E.26 done
+- Data.Function: succ, pred, (&) reverse application (E.27)
+- Data.Tuple: swap, curry, uncurry + fst/snd as first-class closures (E.27)
+- All intermediate milestones A–E.27 done
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22), stock deriving Eq/Show/Ord for user ADTs (E.23, E.24), String read/readMaybe/fromString (E.25), sortOn/nubBy/groupBy/deleteBy/unionBy/intersectBy/stripPrefix/insert/mapAccumL/mapAccumR (E.26)
+**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22), stock deriving Eq/Show/Ord for user ADTs (E.23, E.24), String read/readMaybe/fromString (E.25), sortOn/nubBy/groupBy/deleteBy/unionBy/intersectBy/stripPrefix/insert/mapAccumL/mapAccumR (E.26), succ/pred/(&)/swap/curry/uncurry + fst/snd as first-class closures (E.27)
 **Missing for Pandoc:**
 1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
 2. **Lazy Text/ByteString** — Only strict variants implemented
@@ -280,7 +282,7 @@ compiled from Hackage source.
 
 ### 3.1 Remaining Codegen Builtins
 
-**Status:** ~480+ of 587 builtins lowered (E.13–E.26 added ~70+ functions + derived dispatches)
+**Status:** ~490+ of 587 builtins lowered (E.13–E.27 added ~80+ functions + derived dispatches)
 **Scope:** Small-Medium (ongoing)
 
 - [ ] Monadic codegen: general `>>=`, `>>`, `return` via dictionary dispatch
@@ -549,6 +551,20 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E test: list_by_ops (13 assertions covering all 10 functions)
 - [x] 83 total E2E tests pass
 
+### Milestone E.27: Data.Function + Data.Tuple Builtins ✅
+- [x] `succ`/`pred` via inline LLVM add/sub (Int → Int)
+- [x] `(&)` reverse application operator (a → (a → b) → b)
+- [x] `swap` for tuples: extract fields, allocate reversed tuple via `allocate_ptr_pair_tuple()`
+- [x] `curry`: allocate tuple from (x, y), call f(tuple) via 1-arg closure
+- [x] `uncurry`: extract fst/snd from pair, flat 3-arg call fn(env, fst, snd)
+- [x] `fst`/`snd` added to `lower_builtin_direct` for first-class closure use (e.g., `map fst pairs`)
+- [x] `succ`/`pred`/`swap` added to `lower_builtin_direct` for first-class closure use
+- [x] Fixed DefIds 11500-11505, arity + dispatch entries
+- [x] Show inference: succ/pred added to `expr_returns_int()`
+- [x] Key pitfall: BHC compiles multi-arg functions as FLAT `fn(env, x, y)`, not curried — uncurry must use 3-arg call
+- [x] E2E tests: data_function (succ/pred/(&)/map succ/map pred), tuple_functions (fst/snd/swap/curry/uncurry/map fst/map snd/map swap)
+- [x] 85 total E2E tests pass (83 existing + 2 new, 0 failures)
+
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
 - [ ] Skip optional dependencies (skylighting, texmath, etc.)
@@ -586,6 +602,19 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 ---
 
 ## Recent Progress
+
+### 2026-02-12: Milestone E.27 Data.Function + Data.Tuple Builtins
+- 6 new builtins: succ, pred, (&), swap, curry, uncurry
+- `succ`/`pred`: inline LLVM `build_int_add`/`build_int_sub` with `coerce_to_int` → `int_to_ptr`
+- `(&)`: reverse application — mirror of `lower_builtin_apply` with args swapped
+- `swap`: extract fst/snd via `extract_adt_field`, allocate reversed tuple via new `allocate_ptr_pair_tuple()` helper
+- `curry`: allocate tuple from (x, y) via `allocate_ptr_pair_tuple`, call f(tuple) via 1-arg closure
+- `uncurry`: extract fst/snd from pair, flat 3-arg call `fn_ptr(f_env, fst, snd)` — BHC uses flat calling convention, NOT curried
+- Added 5 entries to `lower_builtin_direct` for first-class closure use: fst, snd, succ, pred, swap
+- Fixed DefIds 11500-11505, arity entries in `builtin_info()`, dispatch in `lower_builtin()`
+- Key pitfall: uncurry initially used curried 2-step calls causing segfault — BHC compiles multi-arg user functions as FLAT `fn(env, x, y) -> result`
+- E2E tests: data_function (7 assertions), tuple_functions (10 assertions)
+- 85 E2E tests pass (83 existing + 2 new, 0 failures)
 
 ### 2026-02-11: Milestone E.26 More List Operations
 - 10 new RTS functions in `stdlib/bhc-base/src/list.rs`: sortOn, nubBy, groupBy, deleteBy, unionBy, intersectBy, stripPrefix, insert, mapAccumL, mapAccumR
