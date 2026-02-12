@@ -445,6 +445,22 @@ fn test_tier3_string_read_native() {
     run_native_test("tier3_io/string_read", Profile::Default);
 }
 
+// E.30: List operations (splitAt, span, break, takeWhile, dropWhile, unzip)
+#[test]
+fn test_tier3_list_split_span_native() {
+    run_native_test("tier3_io/list_split_span", Profile::Default);
+}
+
+#[test]
+fn test_tier3_list_takewhile_dropwhile_native() {
+    run_native_test("tier3_io/list_takewhile_dropwhile", Profile::Default);
+}
+
+#[test]
+fn test_tier3_list_unzip_native() {
+    run_native_test("tier3_io/list_unzip", Profile::Default);
+}
+
 // =============================================================================
 // Discovery Tests
 // =============================================================================

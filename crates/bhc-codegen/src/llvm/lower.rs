@@ -2544,6 +2544,55 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(tag.into_int_value())
     }
 
+    /// Extract a boolean tag from either a tagged-int-as-pointer (0/1) or a Bool ADT.
+    /// Comparison operators return tagged-int-as-pointer, while functions like `even`/`odd`
+    /// return proper Bool ADT structs. This helper handles both representations.
+    fn extract_bool_tag(&self, bool_ptr: PointerValue<'ctx>) -> CodegenResult<IntValue<'ctx>> {
+        let tm = self.type_mapper();
+        let i64_type = tm.i64_type();
+
+        let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("extract_bool_tag: no current function".to_string()))?;
+
+        let raw_int = self.builder()
+            .build_ptr_to_int(bool_ptr, i64_type, "bool_raw")
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: ptr_to_int: {:?}", e)))?;
+
+        // If raw value <= 1, it's a tagged-int-as-pointer (0=False, 1=True)
+        // If raw value > 1, it's a heap pointer to a Bool ADT struct
+        let is_tagged = self.builder()
+            .build_int_compare(inkwell::IntPredicate::ULE, raw_int, i64_type.const_int(1, false), "is_tagged_bool")
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: cmp: {:?}", e)))?;
+
+        let tagged_block = self.llvm_ctx.append_basic_block(current_fn, "bool_tagged");
+        let adt_block = self.llvm_ctx.append_basic_block(current_fn, "bool_adt");
+        let merge_block = self.llvm_ctx.append_basic_block(current_fn, "bool_merge");
+
+        self.builder().build_conditional_branch(is_tagged, tagged_block, adt_block)
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: branch: {:?}", e)))?;
+
+        // Tagged path: raw value IS the tag (0 or 1)
+        self.builder().position_at_end(tagged_block);
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: branch: {:?}", e)))?;
+
+        // ADT path: load tag from struct
+        self.builder().position_at_end(adt_block);
+        let adt_tag = self.extract_adt_tag(bool_ptr)?;
+        let adt_end_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("extract_bool_tag: no block".to_string()))?;
+        self.builder().build_unconditional_branch(merge_block)
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: branch: {:?}", e)))?;
+
+        // Merge: phi between tagged value and ADT tag
+        self.builder().position_at_end(merge_block);
+        let result = self.builder().build_phi(i64_type, "bool_tag")
+            .map_err(|e| CodegenError::Internal(format!("extract_bool_tag: phi: {:?}", e)))?;
+        result.add_incoming(&[(&raw_int, tagged_block), (&adt_tag, adt_end_block)]);
+
+        Ok(result.as_basic_value().into_int_value())
+    }
+
     /// Extract a field from an ADT value.
     fn extract_adt_field(
         &self,
@@ -6204,12 +6253,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .basic()
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
 
-        // Check if predicate returned True (non-zero value)
-        // Bools are boxed as int_to_ptr, so we need to convert back with ptr_to_int
-        let pred_bool = self
-            .builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("failed to unbox pred result: {:?}", e)))?;
+        // Check if predicate returned True
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_bool = self.extract_bool_tag(pred_result.into_pointer_value())?;
         let is_true = self
             .builder()
             .build_int_compare(
@@ -10659,6 +10705,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         | "transpose"
                         | "intersperse"
                         | "intercalate"
+                        | "takeWhile"
+                        | "dropWhile"
                         | "Data.Map.toList"
                         | "Data.Map.toAscList"
                         | "Data.Map.toDescList"
@@ -18555,11 +18603,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("call predicate: {:?}", e)))?
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
-        let pred_bool = self.builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_tag = self.extract_bool_tag(pred_result.into_pointer_value())?;
+        // Capture actual block after extract_bool_tag (may have created new blocks)
+        let pred_check_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("takeWhile: no block after bool check".to_string()))?;
         let is_true = self.builder().build_int_compare(
-            inkwell::IntPredicate::NE, pred_bool, tm.i64_type().const_zero(), "is_true",
+            inkwell::IntPredicate::NE, pred_tag, tm.i64_type().const_zero(), "is_true",
         ).map_err(|e| CodegenError::Internal(format!("cmp: {:?}", e)))?;
 
         // If pred is true, keep; if false, stop
@@ -18580,7 +18630,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         acc_at_exit.add_incoming(&[
             (&acc_phi.as_basic_value(), loop_header),
-            (&acc_phi.as_basic_value(), loop_body),
+            (&acc_phi.as_basic_value(), pred_check_block),
         ]);
 
         // Inline reverse
@@ -18666,11 +18716,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("call predicate: {:?}", e)))?
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
-        let pred_bool = self.builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_tag = self.extract_bool_tag(pred_result.into_pointer_value())?;
+        // Capture actual block after extract_bool_tag (may have created new blocks)
+        let pred_check_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("dropWhile: no block after bool check".to_string()))?;
         let is_true = self.builder().build_int_compare(
-            inkwell::IntPredicate::NE, pred_bool, tm.i64_type().const_zero(), "is_true",
+            inkwell::IntPredicate::NE, pred_tag, tm.i64_type().const_zero(), "is_true",
         ).map_err(|e| CodegenError::Internal(format!("cmp: {:?}", e)))?;
 
         // If pred true, continue dropping (advance to tail); if false, stop
@@ -18678,15 +18730,15 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("branch: {:?}", e)))?;
 
         // Note: when branching back from body, we use tail_ptr
-        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, loop_body)]);
+        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, pred_check_block)]);
 
         // Exit: return the remaining list
         self.builder().position_at_end(loop_exit);
         let result_phi = self.builder().build_phi(ptr_type, "dw_result")
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         result_phi.add_incoming(&[
-            (&list_phi.as_basic_value(), loop_header),  // empty list case
-            (&list_phi.as_basic_value(), loop_body),    // pred became false case
+            (&list_phi.as_basic_value(), loop_header),      // empty list case
+            (&list_phi.as_basic_value(), pred_check_block),  // pred became false case
         ]);
 
         Ok(Some(result_phi.as_basic_value()))
@@ -18791,15 +18843,16 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .basic()
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
 
-        let pred_bool = self
-            .builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_tag = self.extract_bool_tag(pred_result.into_pointer_value())?;
+        // Capture actual block after extract_bool_tag (may have created new blocks)
+        let pred_check_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("span: no block after bool check".to_string()))?;
         let is_true = self
             .builder()
             .build_int_compare(
                 inkwell::IntPredicate::NE,
-                pred_bool,
+                pred_tag,
                 tm.i64_type().const_zero(),
                 "is_true",
             )
@@ -18823,14 +18876,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         // Exit: we have reversed prefix and rest = current list_phi
         self.builder().position_at_end(loop_exit);
 
-        // Phi nodes for values arriving at exit from header (empty list) or body (pred false)
+        // Phi nodes for values arriving at exit from header (empty list) or pred_check_block (pred false)
         let rest_phi = self
             .builder()
             .build_phi(ptr_type, "span_rest")
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         rest_phi.add_incoming(&[
             (&list_phi.as_basic_value(), loop_header),
-            (&list_phi.as_basic_value(), loop_body),
+            (&list_phi.as_basic_value(), pred_check_block),
         ]);
 
         let prefix_at_exit = self
@@ -18839,7 +18892,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         prefix_at_exit.add_incoming(&[
             (&prefix_phi.as_basic_value(), loop_header),
-            (&prefix_phi.as_basic_value(), loop_body),
+            (&prefix_phi.as_basic_value(), pred_check_block),
         ]);
 
         // Inline reverse of prefix
@@ -18963,12 +19016,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
 
-        let pred_bool = self.builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_tag = self.extract_bool_tag(pred_result.into_pointer_value())?;
+        // Capture actual block after extract_bool_tag (may have created new blocks)
+        let pred_check_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("break: no block after bool check".to_string()))?;
         // break stops when pred is TRUE (opposite of span)
         let is_true = self.builder().build_int_compare(
-            inkwell::IntPredicate::NE, pred_bool, tm.i64_type().const_zero(), "is_true",
+            inkwell::IntPredicate::NE, pred_tag, tm.i64_type().const_zero(), "is_true",
         ).map_err(|e| CodegenError::Internal(format!("cmp: {:?}", e)))?;
 
         // If pred is true, exit (break found). If false, keep going.
@@ -18991,14 +19046,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         rest_phi.add_incoming(&[
             (&list_phi.as_basic_value(), loop_header),
-            (&list_phi.as_basic_value(), loop_body),
+            (&list_phi.as_basic_value(), pred_check_block),
         ]);
 
         let prefix_at_exit = self.builder().build_phi(ptr_type, "break_prefix_exit")
             .map_err(|e| CodegenError::Internal(format!("phi: {:?}", e)))?;
         prefix_at_exit.add_incoming(&[
             (&prefix_phi.as_basic_value(), loop_header),
-            (&prefix_phi.as_basic_value(), loop_body),
+            (&prefix_phi.as_basic_value(), pred_check_block),
         ]);
 
         // Inline reverse prefix
@@ -19243,10 +19298,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
 
         // Check boolean result
-        let pred_bool = self
-            .builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+        // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+        let pred_bool = self.extract_bool_tag(pred_result.into_pointer_value())?;
+        // Capture actual block after extract_bool_tag (may have created new blocks)
+        let pred_check_block = self.builder().get_insert_block()
+            .ok_or_else(|| CodegenError::Internal("find: no block after bool check".to_string()))?;
         let is_true = self
             .builder()
             .build_int_compare(
@@ -19262,7 +19318,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("branch: {:?}", e)))?;
 
         // Add phi incoming for list_phi
-        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, loop_body)]);
+        list_phi.add_incoming(&[(&list_ptr, entry_block), (&tail_ptr, pred_check_block)]);
 
         // Found block: return Just element (tag=1, arity=1)
         self.builder().position_at_end(found_block);
@@ -19526,9 +19582,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .ok_or_else(|| CodegenError::Internal("predicate returned void".to_string()))?;
 
         let pred_bool = self
-            .builder()
-            .build_ptr_to_int(pred_result.into_pointer_value(), tm.i64_type(), "pred_bool")
-            .map_err(|e| CodegenError::Internal(format!("ptr_to_int: {:?}", e)))?;
+            // Handle both tagged-int-as-pointer (0/1) and Bool ADT (heap struct with tag)
+            .extract_bool_tag(pred_result.into_pointer_value())?;
         let is_true = self
             .builder()
             .build_int_compare(
