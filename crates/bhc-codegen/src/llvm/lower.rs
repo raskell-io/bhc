@@ -10221,6 +10221,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 if self.is_list_type(&expr_ty) || self.expr_looks_like_list(val_expr) {
                     // Print list: [el1, el2, ...]
                     self.print_list(p)?;
+                } else if self.is_bool_type(&expr_ty) || self.expr_looks_like_bool(val_expr) {
+                    // Bool value - use extract_bool_tag which handles both Bool ADT
+                    // (heap-allocated from any/all/even/odd/char predicates) and
+                    // tagged-int-as-pointer (from comparison operators)
+                    let bool_tag = self.extract_bool_tag(p)?;
+
+                    let print_fn = self.functions.get(&VarId::new(1000008)).ok_or_else(|| {
+                        CodegenError::Internal("bhc_print_bool_ln not declared".to_string())
+                    })?;
+
+                    self.builder()
+                        .build_call(*print_fn, &[bool_tag.into()], "")
+                        .map_err(|e| {
+                            CodegenError::Internal(format!("failed to call print_bool: {:?}", e))
+                        })?;
                 } else if self.is_int_type(&expr_ty) || self.is_type_variable_or_error(&expr_ty) {
                     // Boxed integer (or polymorphic type that might be int) - unbox and print as int.
                     // For type variables from closures, we assume int since that's the most common case.
@@ -10265,25 +10280,6 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         .build_call(*print_fn, &[float_val.into()], "")
                         .map_err(|e| {
                             CodegenError::Internal(format!("failed to call print_double: {:?}", e))
-                        })?;
-                } else if self.is_bool_type(&expr_ty) || self.expr_looks_like_bool(val_expr) {
-                    // Boxed bool - unbox (ptr_to_int) and print as True/False
-                    // Bools are boxed via int_to_ptr (the value is in the pointer bits)
-                    let bool_val = self
-                        .builder()
-                        .build_ptr_to_int(p, self.type_mapper().i64_type(), "unbox_bool")
-                        .map_err(|e| {
-                            CodegenError::Internal(format!("failed to unbox bool: {:?}", e))
-                        })?;
-
-                    let print_fn = self.functions.get(&VarId::new(1000008)).ok_or_else(|| {
-                        CodegenError::Internal("bhc_print_bool_ln not declared".to_string())
-                    })?;
-
-                    self.builder()
-                        .build_call(*print_fn, &[bool_val.into()], "")
-                        .map_err(|e| {
-                            CodegenError::Internal(format!("failed to call print_bool: {:?}", e))
                         })?;
                 } else {
                     // Assume it's a string or other pointer type
@@ -10773,9 +10769,45 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         | "notElem"
                         | "even"
                         | "odd"
+                        | "any"
+                        | "all"
                         | "greaterThan"
                         | "lessThan"
                         | "equals"
+                        | "isAlpha"
+                        | "isAlphaNum"
+                        | "isAscii"
+                        | "isControl"
+                        | "isDigit"
+                        | "isHexDigit"
+                        | "isLetter"
+                        | "isLower"
+                        | "isNumber"
+                        | "isPrint"
+                        | "isPunctuation"
+                        | "isSpace"
+                        | "isSymbol"
+                        | "isUpper"
+                        | "isAbsolute"
+                        | "isRelative"
+                        | "hasExtension"
+                        | "doesFileExist"
+                        | "doesDirectoryExist"
+                        | "isPrefixOf"
+                        | "isSuffixOf"
+                        | "isInfixOf"
+                        | "Data.Map.null"
+                        | "Data.Set.null"
+                        | "Data.IntMap.null"
+                        | "Data.IntSet.null"
+                        | "Data.Map.member"
+                        | "Data.Map.notMember"
+                        | "Data.Map.isSubmapOf"
+                        | "Data.Set.member"
+                        | "Data.Set.notMember"
+                        | "Data.Set.isSubsetOf"
+                        | "Data.IntMap.member"
+                        | "Data.IntSet.member"
                 )
             }
             _ => false,
@@ -29814,6 +29846,95 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 let extended = self.builder()
                     .build_int_z_extend(u32_val, self.type_mapper().i64_type(), "char_ext")
                     .map_err(|e| CodegenError::Internal(format!("{}: extend failed: {:?}", name, e)))?;
+                Ok(Some(self.int_to_ptr(extended)?.into()))
+            }
+
+            // E.37: Data.Char predicates as first-class functions
+            "isAlpha" | "isDigit" | "isAlphaNum" | "isSpace" | "isUpper" | "isLower"
+            | "isPrint" | "isAscii" | "isControl" | "isHexDigit" | "isLetter"
+            | "isNumber" | "isPunctuation" | "isSymbol" => {
+                let rts_id = match name {
+                    "isAlpha" => 1000030,
+                    "isDigit" => 1000031,
+                    "isAlphaNum" => 1000032,
+                    "isSpace" => 1000033,
+                    "isUpper" => 1000034,
+                    "isLower" => 1000035,
+                    "isPrint" => 1000038,
+                    "isAscii" => 1000039,
+                    "isControl" => 1000040,
+                    "isHexDigit" => 1000041,
+                    "isLetter" => 1000042,
+                    "isNumber" => 1000043,
+                    "isPunctuation" => 1000044,
+                    "isSymbol" => 1000045,
+                    _ => unreachable!(),
+                };
+                let int_val = self.coerce_to_int(args[0])?;
+                let i32_type = self.type_mapper().i32_type();
+                let char_val = self.builder()
+                    .build_int_truncate(int_val, i32_type, "char_val")
+                    .map_err(|e| CodegenError::Internal(format!("{}: truncate failed: {:?}", name, e)))?;
+                let rts_fn = self.functions.get(&VarId::new(rts_id)).ok_or_else(|| {
+                    CodegenError::Internal(format!("char pred {} not declared", name))
+                })?;
+                let result = self.builder()
+                    .build_call(*rts_fn, &[char_val.into()], name)
+                    .map_err(|e| CodegenError::Internal(format!("{} call failed: {:?}", name, e)))?
+                    .try_as_basic_value()
+                    .basic()
+                    .ok_or_else(|| CodegenError::Internal(format!("{}: returned void", name)))?;
+                let bool_val = result.into_int_value();
+                let tag = self.builder()
+                    .build_int_z_extend(bool_val, self.type_mapper().i64_type(), "bool_tag")
+                    .map_err(|e| CodegenError::Internal(format!("{}: extend failed: {:?}", name, e)))?;
+                self.allocate_bool_adt(tag, name)
+            }
+
+            // ord/chr are identity (both Int and Char are i64)
+            "ord" | "chr" => Ok(Some(args[0])),
+
+            "digitToInt" => {
+                let int_val = self.coerce_to_int(args[0])?;
+                let i32_type = self.type_mapper().i32_type();
+                let char_val = self.builder()
+                    .build_int_truncate(int_val, i32_type, "char_val")
+                    .map_err(|e| CodegenError::Internal(format!("digitToInt: truncate failed: {:?}", e)))?;
+                let rts_fn = self.functions.get(&VarId::new(1000046)).ok_or_else(|| {
+                    CodegenError::Internal("bhc_char_digit_to_int not declared".to_string())
+                })?;
+                let result = self.builder()
+                    .build_call(*rts_fn, &[char_val.into()], "digit_to_int")
+                    .map_err(|e| CodegenError::Internal(format!("digitToInt call failed: {:?}", e)))?
+                    .try_as_basic_value()
+                    .basic()
+                    .ok_or_else(|| CodegenError::Internal("digitToInt: returned void".to_string()))?;
+                let i32_val = result.into_int_value();
+                let extended = self.builder()
+                    .build_int_s_extend(i32_val, self.type_mapper().i64_type(), "digit_ext")
+                    .map_err(|e| CodegenError::Internal(format!("digitToInt: extend failed: {:?}", e)))?;
+                Ok(Some(self.int_to_ptr(extended)?.into()))
+            }
+
+            "intToDigit" => {
+                let int_val = self.coerce_to_int(args[0])?;
+                let i32_type = self.type_mapper().i32_type();
+                let truncated = self.builder()
+                    .build_int_truncate(int_val, i32_type, "int_val")
+                    .map_err(|e| CodegenError::Internal(format!("intToDigit: truncate failed: {:?}", e)))?;
+                let rts_fn = self.functions.get(&VarId::new(1000047)).ok_or_else(|| {
+                    CodegenError::Internal("bhc_char_int_to_digit not declared".to_string())
+                })?;
+                let result = self.builder()
+                    .build_call(*rts_fn, &[truncated.into()], "int_to_digit")
+                    .map_err(|e| CodegenError::Internal(format!("intToDigit call failed: {:?}", e)))?
+                    .try_as_basic_value()
+                    .basic()
+                    .ok_or_else(|| CodegenError::Internal("intToDigit: returned void".to_string()))?;
+                let u32_val = result.into_int_value();
+                let extended = self.builder()
+                    .build_int_z_extend(u32_val, self.type_mapper().i64_type(), "digit_char_ext")
+                    .map_err(|e| CodegenError::Internal(format!("intToDigit: extend failed: {:?}", e)))?;
                 Ok(Some(self.int_to_ptr(extended)?.into()))
             }
 

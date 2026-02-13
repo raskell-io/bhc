@@ -1,0 +1,17 @@
+HelloWorld
+123456
+HW
+elloorld
+hello
+abcdef
+True
+False
+True
+False
+hello world
+HELLO WORLD
+Hello
+HELLOWORLD
+5
+65
+9

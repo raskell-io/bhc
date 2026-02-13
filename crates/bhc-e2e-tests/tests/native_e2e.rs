@@ -638,6 +638,12 @@ fn test_tier3_char_enum_step_native() {
     run_native_test("tier3_io/char_enum_step", Profile::Default);
 }
 
+// E.37: Data.Char first-class predicates
+#[test]
+fn test_tier3_char_first_class_native() {
+    run_native_test("tier3_io/char_first_class", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
