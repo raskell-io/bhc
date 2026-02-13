@@ -1,0 +1,7 @@
+negative
+zero
+small
+medium
+large
+3
+5

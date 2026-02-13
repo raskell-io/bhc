@@ -375,6 +375,12 @@ impl<'src> Parser<'src> {
             return Ok(Expr::Con(Ident::from_str("()"), span));
         }
 
+        // TupleSections: (,x) or (,x,y) or (,,) etc.
+        // Detect leading hole: `(` followed by `,`
+        if self.check(&TokenKind::Comma) {
+            return self.parse_tuple_section(start, vec![None]);
+        }
+
         // Check for operator section starting with operator: `(+)` or `(+ x)` or `(.)` or `(:)`
         // Note: `-` is NOT included here because `(-5)` should be negative 5, not a section.
         // Only `(-)` (minus followed immediately by rparen) should be a section.
@@ -577,12 +583,27 @@ impl<'src> Parser<'src> {
         }
 
         if self.eat(&TokenKind::Comma) {
-            // Tuple
+            // Check for TupleSections: (x,,z) or (x,) etc.
+            // If the next token is `,` or `)`, there's a hole after the comma.
+            if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) {
+                // The comma we just ate separates first from a hole
+                return self.parse_tuple_section(start, vec![Some(first), None]);
+            }
+
+            // Regular tuple
             let mut exprs = vec![first];
             loop {
                 exprs.push(self.parse_expr()?);
                 if !self.eat(&TokenKind::Comma) {
                     break;
+                }
+                // Check for hole after comma in middle of tuple
+                if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) {
+                    // Switch to tuple section parser, adding None for the hole
+                    let mut elements: Vec<Option<Expr>> =
+                        exprs.into_iter().map(Some).collect();
+                    elements.push(None);
+                    return self.parse_tuple_section(start, elements);
                 }
             }
             let end = self.expect(&TokenKind::RParen)?;
@@ -593,6 +614,73 @@ impl<'src> Parser<'src> {
             let end = self.expect(&TokenKind::RParen)?;
             let span = start.to(end.span);
             Ok(Expr::Paren(Box::new(first), span))
+        }
+    }
+
+    /// Parse a tuple section (TupleSections extension).
+    ///
+    /// Called when a hole (missing expression) has been detected in a tuple.
+    /// `elements` contains the already-parsed elements (Some = present, None = hole).
+    /// Continues parsing remaining elements from the current position.
+    ///
+    /// Desugars `(,x)` to `\a -> (a, x)`, `(x,,z)` to `\b -> (x, b, z)`, etc.
+    fn parse_tuple_section(
+        &mut self,
+        start: Span,
+        mut elements: Vec<Option<Expr>>,
+    ) -> ParseResult<Expr> {
+        // Continue parsing remaining elements
+        loop {
+            if self.eat(&TokenKind::RParen) {
+                break;
+            }
+            if self.eat(&TokenKind::Comma) {
+                // Check if next is comma or rparen → hole
+                if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) {
+                    elements.push(None);
+                } else {
+                    elements.push(Some(self.parse_expr()?));
+                }
+            } else {
+                // Should not happen — we expect commas between elements
+                elements.push(Some(self.parse_expr()?));
+                if !self.eat(&TokenKind::Comma) {
+                    self.expect(&TokenKind::RParen)?;
+                    break;
+                }
+                // After comma, check for hole
+                if self.check(&TokenKind::Comma) || self.check(&TokenKind::RParen) {
+                    elements.push(None);
+                }
+            }
+        }
+
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+
+        // Generate fresh parameter names for holes
+        let mut params = Vec::new();
+        let mut tuple_exprs = Vec::new();
+        let mut hole_idx = 0;
+
+        for elem in elements {
+            match elem {
+                Some(expr) => tuple_exprs.push(expr),
+                None => {
+                    let name = Ident::from_str(&format!("$tsec_{}", hole_idx));
+                    hole_idx += 1;
+                    params.push(Pat::Var(name.clone(), Span::DUMMY));
+                    tuple_exprs.push(Expr::Var(name, Span::DUMMY));
+                }
+            }
+        }
+
+        let tuple = Expr::Tuple(tuple_exprs, span);
+
+        if params.is_empty() {
+            // No holes — shouldn't happen but return the tuple
+            Ok(tuple)
+        } else {
+            Ok(Expr::Lam(params, Box::new(tuple), span))
         }
     }
 
@@ -872,6 +960,11 @@ impl<'src> Parser<'src> {
         let start = self.current_span();
         self.expect(&TokenKind::If)?;
 
+        // MultiWayIf: if | cond1 -> e1 | cond2 -> e2 | otherwise -> e3
+        if self.check(&TokenKind::Pipe) {
+            return self.parse_multi_way_if(start);
+        }
+
         let cond = self.parse_expr()?;
         self.expect(&TokenKind::Then)?;
         let then_branch = self.parse_expr()?;
@@ -885,6 +978,52 @@ impl<'src> Parser<'src> {
             Box::new(else_branch),
             span,
         ))
+    }
+
+    /// Parse a multi-way if expression (MultiWayIf extension).
+    ///
+    /// Desugars `if | c1 -> e1 | c2 -> e2 | otherwise -> e3` into
+    /// nested `if c1 then e1 else if c2 then e2 else e3`.
+    fn parse_multi_way_if(&mut self, start: Span) -> ParseResult<Expr> {
+        let guarded_rhss = self.parse_guarded_rhss()?;
+
+        if guarded_rhss.is_empty() {
+            return Err(ParseError::Unexpected {
+                found: "end of multi-way if".to_string(),
+                expected: "guarded alternative".to_string(),
+                span: start,
+            });
+        }
+
+        // Desugar to nested if-then-else.
+        // Build from the last guard backwards.
+        let mut result = Expr::App(
+            Box::new(Expr::Var(Ident::from_str("error"), start)),
+            Box::new(Expr::Lit(
+                Lit::String("Non-exhaustive guards in multi-way if".to_string()),
+                start,
+            )),
+            start,
+        );
+
+        for grhs in guarded_rhss.into_iter().rev() {
+            // For now, handle only single boolean guards (the common case).
+            // Multi-guard and pattern guards fall through to the first guard expression.
+            let cond = match grhs.guards.into_iter().next() {
+                Some(Guard::Expr(cond_expr, _)) => cond_expr,
+                Some(Guard::Pattern(_, expr, _)) => expr,
+                None => continue,
+            };
+            let span = start.to(grhs.body.span());
+            result = Expr::If(
+                Box::new(cond),
+                Box::new(grhs.body),
+                Box::new(result),
+                span,
+            );
+        }
+
+        Ok(result)
     }
 
     /// Parse a case expression.

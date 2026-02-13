@@ -646,9 +646,10 @@ The following milestones are prioritized based on Pandoc's requirements:
 - [x] Handle in case expressions and function argument patterns
 - **Why**: Parser already recognizes ViewPatterns; codegen is the remaining gap
 
-#### E.35: TupleSections + MultiWayIf
-- [ ] `TupleSections`: `(,x)` as partial tuple constructors, `(x,,z)` etc.
-- [ ] `MultiWayIf`: `if | cond1 -> e1 | cond2 -> e2 | otherwise -> e3`
+#### E.35: TupleSections + MultiWayIf ✅
+- [x] `TupleSections`: `(,x)` as partial tuple constructors, `(x,,z)` etc. — parser desugars to lambda
+- [x] `MultiWayIf`: `if | cond1 -> e1 | cond2 -> e2 | otherwise -> e3` — parser desugars to nested if-then-else
+- [x] Added `otherwise` to `lower_builtin_direct` for first-class use
 - **Why**: Common GHC extensions used in Pandoc and dependencies
 
 #### E.36: GeneralizedNewtypeDeriving

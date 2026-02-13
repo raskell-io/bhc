@@ -617,6 +617,16 @@ fn test_tier3_view_patterns_native() {
     run_native_test("tier3_io/view_patterns", Profile::Default);
 }
 
+#[test]
+fn test_tier3_multi_way_if_native() {
+    run_native_test("tier3_io/multi_way_if", Profile::Default);
+}
+
+#[test]
+fn test_tier3_tuple_sections_native() {
+    run_native_test("tier3_io/tuple_sections", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

@@ -29787,6 +29787,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 Ok(Some(result))
             }
 
+            "otherwise" => {
+                // otherwise = True (tagged-int-as-pointer, 1)
+                Ok(Some(
+                    self.type_mapper().i64_type().const_int(1, false).into(),
+                ))
+            }
+
             _ => Err(CodegenError::Internal(format!(
                 "lower_builtin_direct: unhandled builtin '{}'",
                 name
