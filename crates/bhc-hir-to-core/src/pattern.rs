@@ -332,6 +332,44 @@ pub fn lower_pat_to_alt(
             lower_pat_to_alt(ctx, inner, rhs, span)
         }
 
+        Pat::View(view_expr, result_pat, view_span) => {
+            // View pattern: (f -> pat)
+            // Desugars to: bind scrutinee to tmp, apply f to tmp, match result against pat
+            let tmp_var = ctx.fresh_var("_view_scrut", Ty::Error, *view_span);
+
+            // Lower the view expression to Core
+            let core_view_expr = lower_expr(ctx, view_expr)?;
+
+            // Apply the view function to the scrutinee variable
+            let applied = core::Expr::App(
+                Box::new(core_view_expr),
+                Box::new(core::Expr::Var(tmp_var.clone(), *view_span)),
+                *view_span,
+            );
+
+            // Create a nested case: case (f tmp) of { result_pat -> rhs }
+            let inner_alt = lower_pat_to_alt(ctx, result_pat, rhs, span)?;
+            let default_alt = Alt {
+                con: AltCon::Default,
+                binders: vec![],
+                rhs: make_pattern_error(span),
+            };
+
+            let inner_case = core::Expr::Case(
+                Box::new(applied),
+                vec![inner_alt, default_alt],
+                Ty::Error,
+                *view_span,
+            );
+
+            // Outer alt: match anything, bind to tmp_var, then do the inner case
+            Ok(Alt {
+                con: AltCon::Default,
+                binders: vec![tmp_var],
+                rhs: inner_case,
+            })
+        }
+
         Pat::Error(_) => {
             // Error pattern: generate error
             Ok(Alt {
@@ -352,51 +390,151 @@ pub fn compile_match(
     value_def: &ValueDef,
     args: &[Var],
 ) -> LowerResult<Vec<Alt>> {
-    let mut alts = Vec::with_capacity(value_def.equations.len());
+    compile_equations(ctx, &value_def.equations, args, value_def.span)
+}
 
-    for eq in &value_def.equations {
-        // IMPORTANT: Register pattern variables BEFORE lowering the RHS
-        // This allows the RHS to reference variables bound by patterns
+/// Check if a pattern is (or contains at the top level) a view pattern.
+fn is_view_pattern(pat: &hir::Pat) -> bool {
+    matches!(pat, Pat::View(_, _, _))
+}
+
+/// Compile a slice of equations into Core case alternatives.
+/// View pattern equations are compiled with fallthrough to remaining equations.
+fn compile_equations(
+    ctx: &mut LowerContext,
+    equations: &[hir::Equation],
+    args: &[Var],
+    span: Span,
+) -> LowerResult<Vec<Alt>> {
+    if equations.is_empty() {
+        // No equations left - add a default error case
+        return Ok(vec![Alt {
+            con: AltCon::Default,
+            binders: vec![],
+            rhs: make_pattern_error(span),
+        }]);
+    }
+
+    // Check if the first equation has a view pattern (single-pattern case)
+    let eq = &equations[0];
+    let has_view = eq.pats.len() == 1 && is_view_pattern(&eq.pats[0]);
+
+    if has_view {
+        // View pattern equation: compile with fallthrough to remaining equations
+        let Pat::View(view_expr, result_pat, view_span) = &eq.pats[0] else {
+            unreachable!()
+        };
+
+        // Bind pattern variables
         for (i, pat) in eq.pats.iter().enumerate() {
             let arg_var = args.get(i).cloned();
             bind_pattern_vars(ctx, pat, arg_var.as_ref());
         }
 
-        // Lower the RHS (pattern vars are now registered)
+        // Lower the RHS
         let rhs = if eq.guards.is_empty() {
             lower_expr(ctx, &eq.rhs)?
         } else {
-            // Handle guards
+            compile_guarded_rhs(ctx, &eq.guards, &eq.rhs, eq.span)?
+        };
+
+        // Compile remaining equations for fallthrough
+        let remaining_alts = compile_equations(ctx, &equations[1..], args, span)?;
+
+        // Build fallthrough: case arg of { remaining_alts }
+        let fallthrough_expr = if let Some(arg) = args.first() {
+            core::Expr::Case(
+                Box::new(core::Expr::Var(arg.clone(), span)),
+                remaining_alts,
+                Ty::Error,
+                span,
+            )
+        } else {
+            make_pattern_error(span)
+        };
+
+        // Lower the view expression
+        let core_view_expr = lower_expr(ctx, view_expr)?;
+
+        // Apply view function to the argument
+        let arg_var = args
+            .first()
+            .cloned()
+            .unwrap_or_else(|| ctx.fresh_var("_arg", Ty::Error, *view_span));
+        let applied = core::Expr::App(
+            Box::new(core_view_expr),
+            Box::new(core::Expr::Var(arg_var.clone(), *view_span)),
+            *view_span,
+        );
+
+        // Inner case: case (view arg) of { result_pat -> rhs; _ -> fallthrough }
+        let inner_alt = lower_pat_to_alt(ctx, result_pat, rhs, eq.span)?;
+        let fallthrough_alt = Alt {
+            con: AltCon::Default,
+            binders: vec![],
+            rhs: fallthrough_expr,
+        };
+
+        let view_case = core::Expr::Case(
+            Box::new(applied),
+            vec![inner_alt, fallthrough_alt],
+            Ty::Error,
+            *view_span,
+        );
+
+        // Outer: Default alt that binds scrutinee and does the view case
+        Ok(vec![Alt {
+            con: AltCon::Default,
+            binders: vec![arg_var],
+            rhs: view_case,
+        }])
+    } else {
+        // Normal equation (no view pattern) - use the existing flat approach
+        let mut alts = Vec::new();
+
+        // Bind pattern variables
+        for (i, pat) in eq.pats.iter().enumerate() {
+            let arg_var = args.get(i).cloned();
+            bind_pattern_vars(ctx, pat, arg_var.as_ref());
+        }
+
+        // Lower the RHS
+        let rhs = if eq.guards.is_empty() {
+            lower_expr(ctx, &eq.rhs)?
+        } else {
             compile_guarded_rhs(ctx, &eq.guards, &eq.rhs, eq.span)?
         };
 
         // Handle pattern matching
         if eq.pats.is_empty() {
-            // No patterns - this is a simple value definition
             alts.push(Alt {
                 con: AltCon::Default,
                 binders: vec![],
                 rhs,
             });
         } else if eq.pats.len() == 1 {
-            // Single pattern - expand or-patterns into multiple alternatives
             let expanded_alts = lower_pat_with_or_to_alts(ctx, &eq.pats[0], rhs, eq.span)?;
             alts.extend(expanded_alts);
         } else {
-            // Multiple patterns - need tuple pattern
             let tuple_alt = compile_tuple_pattern(ctx, &eq.pats, rhs, eq.span)?;
             alts.push(tuple_alt);
         }
+
+        // Add remaining equations
+        if equations.len() > 1 {
+            let remaining = compile_equations(ctx, &equations[1..], args, span)?;
+            alts.extend(remaining);
+        } else {
+            // Last equation - add default error case
+            alts.push(Alt {
+                con: AltCon::Default,
+                binders: vec![],
+                rhs: make_pattern_error(span),
+            });
+        }
+
+        Ok(alts)
     }
-
-    // Add a default case for non-exhaustive patterns
-    alts.push(Alt {
-        con: AltCon::Default,
-        binders: vec![],
-        rhs: make_pattern_error(value_def.span),
-    });
-
-    Ok(alts)
 }
 
 /// Bind pattern variables in the context so they can be referenced in the RHS.
@@ -460,6 +598,10 @@ pub fn bind_pattern_vars(ctx: &mut LowerContext, pat: &hir::Pat, arg_var: Option
         }
         Pat::Ann(inner, _, _) => {
             bind_pattern_vars(ctx, inner, arg_var);
+        }
+        Pat::View(_, result_pat, _) => {
+            // View pattern: variables are bound in the result pattern
+            bind_pattern_vars(ctx, result_pat, None);
         }
         Pat::Error(_) => {
             // Error patterns don't bind variables
@@ -690,6 +832,14 @@ pub fn flatten_nested_or_patterns(pat: &hir::Pat) -> Vec<hir::Pat> {
             inner_flattened
                 .into_iter()
                 .map(|p| Pat::Ann(Box::new(p), ty.clone(), *span))
+                .collect()
+        }
+        Pat::View(view_expr, result_pat, span) => {
+            // Flatten result pattern and wrap with view
+            let inner_flattened = flatten_nested_or_patterns(result_pat);
+            inner_flattened
+                .into_iter()
+                .map(|p| Pat::View(view_expr.clone(), Box::new(p), *span))
                 .collect()
         }
         // Patterns without sub-patterns - return as-is

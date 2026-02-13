@@ -2271,9 +2271,13 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
         }
 
         // View patterns: (expr -> pat)
-        // For now, just treat the result pattern as the pattern
-        // TODO: Proper view pattern desugaring
-        ast::Pat::View(_view_expr, result_pat, _span) => lower_pat(ctx, result_pat),
+        // Lower both the view expression and result pattern into HIR.
+        // The actual desugaring happens in HIR→Core pattern compilation.
+        ast::Pat::View(view_expr, result_pat, span) => {
+            let hir_view_expr = lower_expr(ctx, view_expr);
+            let hir_result_pat = lower_pat(ctx, result_pat);
+            hir::Pat::View(Box::new(hir_view_expr), Box::new(hir_result_pat), *span)
+        }
     }
 }
 

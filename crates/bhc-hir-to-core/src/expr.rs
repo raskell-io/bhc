@@ -391,7 +391,7 @@ fn register_pattern_vars(
             register_pattern_vars(ctx, left, vars);
             register_pattern_vars(ctx, right, vars);
         }
-        hir::Pat::Ann(inner, _, _) => {
+        hir::Pat::Ann(inner, _, _) | hir::Pat::View(_, inner, _) => {
             register_pattern_vars(ctx, inner, vars);
         }
         hir::Pat::Wild(_) | hir::Pat::Lit(_, _) | hir::Pat::Error(_) => {}

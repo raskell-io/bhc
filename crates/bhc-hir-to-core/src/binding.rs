@@ -88,6 +88,12 @@ fn preregister_pattern(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<Var> {
         }
         Pat::Ann(inner, _, _) => preregister_pattern(ctx, inner),
         Pat::Or(left, _, _) => preregister_pattern(ctx, left),
+        Pat::View(_, result_pat, span) => {
+            // View pattern: pre-register variables from the result pattern
+            preregister_pattern_nested(ctx, result_pat)?;
+            let var = ctx.fresh_var("_view", Ty::Error, *span);
+            Ok(var)
+        }
         Pat::Error(span) => {
             let var = ctx.fresh_var("_err", Ty::Error, *span);
             Ok(var)
@@ -131,7 +137,9 @@ fn preregister_pattern_nested(ctx: &mut LowerContext, pat: &Pat) -> LowerResult<
             ctx.register_var(*def_id, var);
             Ok(())
         }
-        Pat::Ann(inner, _, _) | Pat::Or(inner, _, _) => preregister_pattern_nested(ctx, inner),
+        Pat::Ann(inner, _, _) | Pat::Or(inner, _, _) | Pat::View(_, inner, _) => {
+            preregister_pattern_nested(ctx, inner)
+        }
     }
 }
 

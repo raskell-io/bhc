@@ -119,7 +119,9 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
                             extract_var_ids(&fp.pat, out);
                         }
                     }
-                    Pat::Ann(inner, _, _) => extract_var_ids(inner, out),
+                    Pat::Ann(inner, _, _) | Pat::View(_, inner, _) => {
+                        extract_var_ids(inner, out);
+                    }
                     Pat::Or(left, _, _) => extract_var_ids(left, out),
                     Pat::Wild(_) | Pat::Lit(_, _) | Pat::Error(_) => {}
                 }

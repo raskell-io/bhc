@@ -147,6 +147,18 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
             ty.clone()
         }
 
+        Pat::View(view_expr, result_pat, _span) => {
+            // View pattern: (f -> pat) means f is applied to the scrutinee,
+            // and the result is matched against pat.
+            // The scrutinee type is the input of f, the result type matches pat.
+            let scrutinee_ty = ctx.fresh_ty();
+            let result_ty = infer_pattern(ctx, result_pat);
+            let view_fn_ty = Ty::Fun(Box::new(scrutinee_ty.clone()), Box::new(result_ty));
+            let inferred_view_ty = crate::infer::infer_expr(ctx, view_expr);
+            ctx.unify(&inferred_view_ty, &view_fn_ty, view_expr.span());
+            scrutinee_ty
+        }
+
         Pat::Error(_) => Ty::Error,
     }
 }

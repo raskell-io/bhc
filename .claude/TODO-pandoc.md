@@ -641,9 +641,9 @@ The following milestones are prioritized based on Pandoc's requirements:
 - [x] `RecordWildCards` extension (`Foo{..}` brings fields into scope)
 - **Why**: Pandoc's AST types (Block, Inline, Meta, etc.) are record-heavy
 
-#### E.34: ViewPatterns Codegen
-- [ ] Lower `f -> pat` patterns to `let tmp = f arg in case tmp of pat -> ...`
-- [ ] Handle in case expressions and function argument patterns
+#### E.34: ViewPatterns Codegen ✅
+- [x] Lower `f -> pat` patterns to `let tmp = f arg in case tmp of pat -> ...`
+- [x] Handle in case expressions and function argument patterns
 - **Why**: Parser already recognizes ViewPatterns; codegen is the remaining gap
 
 #### E.35: TupleSections + MultiWayIf

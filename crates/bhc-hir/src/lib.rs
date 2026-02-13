@@ -300,6 +300,10 @@ pub enum Pat {
     /// Type-annotated pattern: `pat :: ty`.
     Ann(Box<Pat>, Ty, Span),
 
+    /// View pattern: `(expr -> pat)`.
+    /// The expression is applied to the scrutinee, and the result is matched against the pattern.
+    View(Box<Expr>, Box<Pat>, Span),
+
     /// Error pattern for recovery.
     Error(Span),
 }
@@ -317,6 +321,7 @@ impl Pat {
             | Self::As(_, _, _, span)
             | Self::Or(_, _, span)
             | Self::Ann(_, _, span)
+            | Self::View(_, _, span)
             | Self::Error(span) => *span,
         }
     }
@@ -352,7 +357,7 @@ impl Pat {
                 // Note: both branches must bind the same variables
                 right.collect_vars(vars);
             }
-            Self::Ann(inner, _, _) => inner.collect_vars(vars),
+            Self::Ann(inner, _, _) | Self::View(_, inner, _) => inner.collect_vars(vars),
         }
     }
 }

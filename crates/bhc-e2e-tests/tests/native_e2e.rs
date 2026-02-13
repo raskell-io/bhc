@@ -612,6 +612,11 @@ fn test_tier3_record_wildcards_native() {
     run_native_test("tier3_io/record_wildcards", Profile::Default);
 }
 
+#[test]
+fn test_tier3_view_patterns_native() {
+    run_native_test("tier3_io/view_patterns", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
