@@ -1,0 +1,5 @@
+Red
+Green
+Blue
+Circle 5
+Rectangle 3 4

@@ -1227,9 +1227,13 @@ impl LowerContext {
         for method_def in &instance_def.methods {
             methods.insert(method_def.name, method_def.id);
 
-            // Also register the method implementation as a variable
-            let var = self.named_var(method_def.name, Ty::Error);
-            self.register_var(method_def.id, var);
+            // Register the method implementation as a variable, but only
+            // if not already registered (the first pass may have registered
+            // it with a $instance_ prefix name for codegen detection).
+            if self.lookup_var(method_def.id).is_none() {
+                let var = self.named_var(method_def.name, Ty::Error);
+                self.register_var(method_def.id, var);
+            }
         }
 
         // Collect associated type implementations
@@ -1282,10 +1286,24 @@ impl LowerContext {
                 }
                 Item::Instance(instance_def) => {
                     // Pre-register instance method variables so they can be
-                    // referenced during the lowering pass
+                    // referenced during the lowering pass.
+                    // Use $instance_{method}_{TypeName} naming convention
+                    // so codegen can detect and dispatch manual instance methods.
+                    let inst_type_name = instance_def
+                        .types
+                        .first()
+                        .and_then(|ty| match ty {
+                            Ty::Con(con) => Some(con.name.as_str().to_string()),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| "Unknown".to_string());
                     for method_def in &instance_def.methods {
                         let ty = self.lookup_type(method_def.id);
-                        let var = self.named_var(method_def.name, ty);
+                        let instance_name = Symbol::intern(&format!(
+                            "$instance_{}_{}",
+                            method_def.name, inst_type_name
+                        ));
+                        let var = self.named_var(instance_name, ty);
                         self.register_var(method_def.id, var);
                     }
                 }

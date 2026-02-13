@@ -27629,6 +27629,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         for bind in bindings {
             if let Bind::NonRec(var, expr) = bind {
                 let name = var.name.as_str();
+                // Detect auto-derived instance methods ($derived_show_TypeName_COUNTER)
                 if let Some(remainder) = name.strip_prefix("$derived_show_") {
                     let type_name = Self::strip_deriving_counter_suffix(remainder);
                     self.derived_show_fns.insert(type_name.clone(), var.id);
@@ -27642,6 +27643,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     let type_name = Self::strip_deriving_counter_suffix(remainder);
                     self.derived_compare_fns.insert(type_name.clone(), var.id);
                     self.tag_constructors_with_type(expr, &type_name);
+                }
+                // Detect manual instance methods ($instance_show_TypeName)
+                else if let Some(type_name) = name.strip_prefix("$instance_show_") {
+                    self.derived_show_fns
+                        .insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
+                } else if let Some(type_name) = name.strip_prefix("$instance_==_") {
+                    self.derived_eq_fns.insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
+                } else if let Some(type_name) = name.strip_prefix("$instance_compare_") {
+                    self.derived_compare_fns
+                        .insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
                 }
             }
         }

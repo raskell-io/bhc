@@ -644,6 +644,28 @@ fn test_tier3_char_first_class_native() {
     run_native_test("tier3_io/char_first_class", Profile::Default);
 }
 
+// E.38: Manual typeclass instances
+#[test]
+fn test_tier3_manual_instances_native() {
+    run_native_test("tier3_io/manual_instances", Profile::Default);
+}
+
+// Previously unregistered tests
+#[test]
+fn test_tier3_catch_test_native() {
+    run_native_test("tier3_io/catch_test", Profile::Default);
+}
+
+#[test]
+fn test_tier3_multi_bind_native() {
+    run_native_test("tier3_io/multi_bind", Profile::Default);
+}
+
+#[test]
+fn test_tier3_readfile_native() {
+    run_native_test("tier3_io/readfile", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

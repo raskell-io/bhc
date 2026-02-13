@@ -1145,6 +1145,38 @@ fn lower_fun_bind(ctx: &mut LowerContext, fun_bind: &ast::FunBind) -> LowerResul
     })
 }
 
+/// Lower an instance method binding with a specific DefId.
+/// Unlike `lower_fun_bind`, this takes a pre-assigned DefId rather than looking
+/// it up by name, since instance methods should NOT overwrite the builtin
+/// method binding (e.g. `show` should still resolve to the polymorphic builtin
+/// inside the method body).
+fn lower_instance_method(
+    ctx: &mut LowerContext,
+    fun_bind: &ast::FunBind,
+    def_id: hir::DefId,
+) -> LowerResult<hir::ValueDef> {
+    let name = fun_bind.name.name;
+
+    let mut equations = Vec::new();
+    for clause in &fun_bind.clauses {
+        let eq = lower_clause(ctx, clause)?;
+        equations.push(eq);
+    }
+
+    // Look up the type signature if one was declared
+    let sig = ctx.lookup_type_signature(name).cloned().map(|ty| {
+        bhc_types::Scheme::mono(lower_type(ctx, &ty))
+    });
+
+    Ok(hir::ValueDef {
+        id: def_id,
+        name,
+        sig,
+        equations,
+        span: fun_bind.span,
+    })
+}
+
 /// Lower a function clause.
 fn lower_clause(ctx: &mut LowerContext, clause: &ast::Clause) -> LowerResult<hir::Equation> {
     ctx.in_scope(|ctx| {
@@ -2995,25 +3027,18 @@ fn lower_instance_decl(
 
     let constraints: Vec<Symbol> = instance.context.iter().map(|c| c.class.name).collect();
 
-    // Pre-bind all instance methods before lowering them
-    for method in &instance.methods {
-        if let ast::Decl::FunBind(fb) = method {
-            let name = fb.name.name;
-            // Only bind if not already bound (method could shadow class method)
-            if ctx.lookup_value(name).is_none() {
-                let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, name, DefKind::Value, fb.span);
-                ctx.bind_value(name, def_id);
-            }
-        }
-    }
-
+    // Lower instance methods with FRESH DefIds. We do NOT bind the method name
+    // to the fresh DefId — this ensures that references to `show` in the method
+    // body resolve to the builtin polymorphic `show`, not the instance method
+    // itself (which would cause infinite recursion).
     let methods: Vec<hir::ValueDef> = instance
         .methods
         .iter()
         .filter_map(|m| {
             if let ast::Decl::FunBind(fb) = m {
-                lower_fun_bind(ctx, fb).ok()
+                let def_id = ctx.fresh_def_id();
+                ctx.define(def_id, fb.name.name, DefKind::Value, fb.span);
+                lower_instance_method(ctx, fb, def_id).ok()
             } else {
                 None
             }
