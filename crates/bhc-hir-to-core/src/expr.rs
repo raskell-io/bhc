@@ -273,7 +273,45 @@ fn try_infer_arg_type(ctx: &LowerContext, expr: &hir::Expr) -> Option<Ty> {
                 Kind::Star,
             ))))),
         },
+        Expr::App(f, _, _) => {
+            // Peel off App layers to find head constructor:
+            // App(App(Con(Pair), x), y) → Con(Pair)
+            let mut head = f.as_ref();
+            while let Expr::App(inner_f, _, _) = head {
+                head = inner_f.as_ref();
+            }
+            if let Expr::Con(def_ref) = head {
+                if let Some(con_info) = ctx.lookup_constructor(def_ref.def_id) {
+                    return Some(Ty::Con(TyCon::new(con_info.type_name, Kind::Star)));
+                }
+            }
+            None
+        }
         _ => None,
+    }
+}
+
+/// Peel an application chain to find the head variable and collected arguments.
+///
+/// Given `App(App(Var(f), a1), a2)`, returns `Some((f_def_ref, [a1, a2]))`.
+/// Arguments are returned in application order (inside-out).
+fn peel_app_chain<'a>(expr: &'a hir::Expr) -> Option<(&'a DefRef, Vec<&'a hir::Expr>)> {
+    let mut args = Vec::new();
+    let mut current = expr;
+
+    // Walk the App chain collecting arguments
+    while let Expr::App(f, x, _) = current {
+        args.push(x.as_ref());
+        current = f.as_ref();
+    }
+
+    // The head must be a Var
+    if let Expr::Var(def_ref) = current {
+        // Reverse so args are in application order (innermost first)
+        args.reverse();
+        Some((def_ref, args))
+    } else {
+        None
     }
 }
 
@@ -359,6 +397,105 @@ fn lower_app(
                         }
 
                         // Now apply the argument
+                        let x_core = lower_expr(ctx, x)?;
+                        return Ok(core::Expr::App(Box::new(result), Box::new(x_core), span));
+                    }
+                }
+            }
+        }
+    }
+
+    // Case 3: f is an App chain whose head is a class method or constrained function
+    // e.g. myMap (+1) (Box 42) → f = App(Var(myMap), (+1)), x = App(Con(Box), Lit(42))
+    // We peel the chain to find the head Var, then resolve dictionaries from x's type.
+    if let Some((head_def_ref, collected_args)) = peel_app_chain(f) {
+        if let Some(var) = ctx.lookup_var(head_def_ref.def_id).cloned() {
+            let method_name = var.name;
+
+            // Case 3a: Head is a user-defined class method
+            if let Some(class_name) = ctx.is_class_method(method_name) {
+                if ctx.is_user_class(class_name) && ctx.lookup_dict(class_name).is_none() {
+                    // Try to infer concrete type from x first, then from collected args
+                    let inferred = try_infer_arg_type(ctx, x)
+                        .or_else(|| {
+                            collected_args.iter().find_map(|arg| try_infer_arg_type(ctx, arg))
+                        });
+                    if let Some(concrete_ty) = inferred {
+                        let resolved = ctx.resolve_method_at_concrete_type(
+                            method_name,
+                            class_name,
+                            &concrete_ty,
+                            span,
+                        );
+                        if let Some(method_expr) = resolved {
+                            // Apply collected args, then x
+                            let mut result = method_expr;
+                            for arg in &collected_args {
+                                let arg_core = lower_expr(ctx, arg)?;
+                                result = core::Expr::App(
+                                    Box::new(result),
+                                    Box::new(arg_core),
+                                    span,
+                                );
+                            }
+                            let x_core = lower_expr(ctx, x)?;
+                            return Ok(core::Expr::App(
+                                Box::new(result),
+                                Box::new(x_core),
+                                span,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Case 3b: Head is a constrained function with unresolved type-variable constraints
+            if let Some(scheme) = ctx.lookup_scheme(head_def_ref.def_id) {
+                let has_unresolved = scheme.constraints.iter().any(|c| {
+                    ctx.is_user_class(c.class)
+                        && c.args.iter().any(has_type_variables)
+                });
+                if has_unresolved {
+                    // Try to infer concrete type from x or collected args
+                    let inferred = try_infer_arg_type(ctx, x)
+                        .or_else(|| {
+                            collected_args.iter().find_map(|arg| try_infer_arg_type(ctx, arg))
+                        });
+                    if let Some(concrete_ty) = inferred {
+                        let constraints = scheme.constraints.clone();
+                        // Build from the head var (not lowered f, to avoid double resolution)
+                        let mut result = core::Expr::Var(var.clone(), head_def_ref.span);
+
+                        for constraint in &constraints {
+                            if ctx.is_user_class(constraint.class)
+                                && constraint.args.iter().any(has_type_variables)
+                            {
+                                let concrete_constraint = Constraint::new(
+                                    constraint.class,
+                                    concrete_ty.clone(),
+                                    constraint.span,
+                                );
+                                if let Some(dict_expr) =
+                                    ctx.resolve_dictionary(&concrete_constraint, span)
+                                {
+                                    result = core::Expr::App(
+                                        Box::new(result),
+                                        Box::new(dict_expr),
+                                        span,
+                                    );
+                                }
+                            }
+                        }
+
+                        // Apply collected args, then x
+                        for arg in &collected_args {
+                            let arg_core = lower_expr(ctx, arg)?;
+                            result = core::Expr::App(
+                                Box::new(result),
+                                Box::new(arg_core),
+                                span,
+                            );
+                        }
                         let x_core = lower_expr(ctx, x)?;
                         return Ok(core::Expr::App(Box::new(result), Box::new(x_core), span));
                     }

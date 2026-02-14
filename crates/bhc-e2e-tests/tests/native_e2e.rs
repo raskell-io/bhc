@@ -677,6 +677,12 @@ fn test_tier3_multi_method_class_native() {
     run_native_test("tier3_io/multi_method_class", Profile::Default);
 }
 
+// E.40: Higher-kinded dictionary passing for user-defined typeclasses
+#[test]
+fn test_tier3_hk_typeclass_native() {
+    run_native_test("tier3_io/hk_typeclass", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
