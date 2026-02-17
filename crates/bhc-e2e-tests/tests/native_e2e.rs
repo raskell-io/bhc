@@ -785,6 +785,11 @@ fn test_tier3_instance_context_multi_native() {
     run_native_test("tier3_io/instance_context_multi", Profile::Default);
 }
 
+#[test]
+fn test_tier3_multi_param_typeclass_native() {
+    run_native_test("tier3_io/multi_param_typeclass", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

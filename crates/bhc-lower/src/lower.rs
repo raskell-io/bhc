@@ -3120,11 +3120,59 @@ fn lower_class_decl(ctx: &mut LowerContext, class: &ast::ClassDecl) -> LowerResu
 }
 
 /// Lower an instance declaration.
+/// Flatten an AST type application spine into individual types.
+///
+/// For multi-param type classes, the parser produces a single type like
+/// `App(Con("Int"), Con("String"))` for `instance C Int String`.
+/// This function decomposes the spine into `[Int, String]` based on the
+/// expected parameter count.
+///
+/// For single-param classes (param_count=1), returns the type as-is in a vec.
+fn flatten_instance_type(ty: &ast::Type, param_count: usize) -> Vec<&ast::Type> {
+    if param_count <= 1 {
+        return vec![ty];
+    }
+
+    // Walk the App spine leftward to collect all types
+    let mut spine = Vec::new();
+    let mut current = ty;
+    loop {
+        match current {
+            ast::Type::App(f, x, _) => {
+                spine.push(x.as_ref());
+                current = f.as_ref();
+            }
+            _ => {
+                spine.push(current);
+                break;
+            }
+        }
+    }
+    // spine is in reverse order (rightmost arg first), so reverse it
+    spine.reverse();
+
+    // If we have more types than params, take only the last param_count
+    // (the excess would be a partially applied type constructor)
+    if spine.len() > param_count {
+        spine.split_off(spine.len() - param_count)
+    } else {
+        spine
+    }
+}
+
 fn lower_instance_decl(
     ctx: &mut LowerContext,
     instance: &ast::InstanceDecl,
 ) -> LowerResult<hir::InstanceDef> {
-    let types: Vec<bhc_types::Ty> = vec![lower_type(ctx, &instance.ty)];
+    // Decompose the instance type based on class parameter count.
+    // For multi-param classes like `instance Convertible Int String`,
+    // the parser produces a single type App(Con("Int"), Con("String"))
+    // which we flatten into [Int, String].
+    let param_count = ctx
+        .lookup_class_param_count(instance.class.name)
+        .unwrap_or(1);
+    let flattened = flatten_instance_type(&instance.ty, param_count);
+    let types: Vec<bhc_types::Ty> = flattened.iter().map(|t| lower_type(ctx, t)).collect();
 
     let constraints: Vec<bhc_types::Constraint> = instance
         .context

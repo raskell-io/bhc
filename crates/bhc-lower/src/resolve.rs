@@ -323,6 +323,9 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                 ctx.define(def_id, name, DefKind::Class, class_decl.span);
                 ctx.bind_type(name, def_id);
 
+                // Register the number of type parameters for multi-param class support
+                ctx.register_class_param_count(name, class_decl.params.len());
+
                 // Bind method names
                 for method in &class_decl.methods {
                     if let ast::Decl::TypeSig(sig) = method {

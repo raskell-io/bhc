@@ -507,43 +507,49 @@ fn lower_app(
             // Builtin classes (Eq, Ord, Num, Show, etc.) are handled by codegen.
             if let Some(class_name) = ctx.is_class_method(method_name) {
                 if ctx.is_user_class(class_name) && ctx.lookup_dict(class_name).is_none() {
-                    // No dict in scope — try to resolve at concrete type from argument
-                    let inferred = try_infer_arg_type(ctx, x);
-                    if let Some(concrete_ty) = inferred {
-                        let resolved = ctx.resolve_method_at_concrete_type(
-                            method_name,
-                            class_name,
-                            &concrete_ty,
-                            span,
-                        );
-                        if let Some(method_expr) = resolved {
-                            // Apply the resolved method to the lowered argument
-                            let x_core = lower_expr(ctx, x)?;
-                            return Ok(core::Expr::App(
-                                Box::new(method_expr),
-                                Box::new(x_core),
+                    let param_count = ctx.class_param_count(class_name);
+
+                    // For multi-param classes, we can't resolve here with just
+                    // one argument — defer to Case 3 where the full App chain
+                    // provides all needed types.
+                    if param_count > 1 {
+                        // Fall through to Case 3
+                    } else {
+                        // Single-param class: resolve at concrete type from argument
+                        let inferred = try_infer_arg_type(ctx, x);
+                        if let Some(concrete_ty) = inferred {
+                            let resolved = ctx.resolve_method_at_concrete_type(
+                                method_name,
+                                class_name,
+                                &concrete_ty,
                                 span,
-                            ));
-                        }
-                        // Fallback: bare type didn't match instance head.
-                        // Try applied type for parameterized instances like
-                        // `Describable (Wrapper a)` where instance type is
-                        // App(Con("Wrapper"), Var(a)).
-                        if let Some(applied_ty) = try_infer_applied_type(ctx, x) {
-                            if let Some(method_expr) =
-                                ctx.resolve_method_at_concrete_type(
-                                    method_name,
-                                    class_name,
-                                    &applied_ty,
-                                    span,
-                                )
-                            {
+                            );
+                            if let Some(method_expr) = resolved {
                                 let x_core = lower_expr(ctx, x)?;
                                 return Ok(core::Expr::App(
                                     Box::new(method_expr),
                                     Box::new(x_core),
                                     span,
                                 ));
+                            }
+                            // Fallback: bare type didn't match instance head.
+                            // Try applied type for parameterized instances.
+                            if let Some(applied_ty) = try_infer_applied_type(ctx, x) {
+                                if let Some(method_expr) =
+                                    ctx.resolve_method_at_concrete_type(
+                                        method_name,
+                                        class_name,
+                                        &applied_ty,
+                                        span,
+                                    )
+                                {
+                                    let x_core = lower_expr(ctx, x)?;
+                                    return Ok(core::Expr::App(
+                                        Box::new(method_expr),
+                                        Box::new(x_core),
+                                        span,
+                                    ));
+                                }
                             }
                         }
                     }
@@ -605,52 +611,33 @@ fn lower_app(
             // Case 3a: Head is a user-defined class method
             if let Some(class_name) = ctx.is_class_method(method_name) {
                 if ctx.is_user_class(class_name) && ctx.lookup_dict(class_name).is_none() {
-                    // Try to infer concrete type from x first, then from collected args
-                    let inferred = try_infer_arg_type(ctx, x)
-                        .or_else(|| {
-                            collected_args.iter().find_map(|arg| try_infer_arg_type(ctx, arg))
-                        });
-                    if let Some(concrete_ty) = inferred {
-                        let resolved = ctx.resolve_method_at_concrete_type(
-                            method_name,
-                            class_name,
-                            &concrete_ty,
-                            span,
-                        );
-                        if let Some(method_expr) = resolved {
-                            // Apply collected args, then x
-                            let mut result = method_expr;
-                            for arg in &collected_args {
-                                let arg_core = lower_expr(ctx, arg)?;
-                                result = core::Expr::App(
-                                    Box::new(result),
-                                    Box::new(arg_core),
-                                    span,
-                                );
+                    let param_count = ctx.class_param_count(class_name);
+
+                    if param_count > 1 {
+                        // Multi-param class: collect types from all arguments
+                        // For `combine Red Circle`, collected_args=[Red], x=Circle
+                        // We need types from each arg: [Color, Shape]
+                        let mut all_args: Vec<&hir::Expr> = collected_args.to_vec();
+                        all_args.push(x);
+
+                        let mut concrete_types: Vec<Ty> = Vec::new();
+                        for arg in &all_args {
+                            if let Some(ty) = try_infer_arg_type(ctx, arg) {
+                                concrete_types.push(ty);
                             }
-                            let x_core = lower_expr(ctx, x)?;
-                            return Ok(core::Expr::App(
-                                Box::new(result),
-                                Box::new(x_core),
-                                span,
-                            ));
                         }
-                        // Fallback: try applied type for parameterized instances
-                        let applied = try_infer_applied_type(ctx, x)
-                            .or_else(|| {
-                                collected_args
-                                    .iter()
-                                    .find_map(|arg| try_infer_applied_type(ctx, arg))
-                            });
-                        if let Some(applied_ty) = applied {
-                            if let Some(method_expr) =
-                                ctx.resolve_method_at_concrete_type(
-                                    method_name,
-                                    class_name,
-                                    &applied_ty,
-                                    span,
-                                )
-                            {
+
+                        if concrete_types.len() >= param_count {
+                            // Take the first param_count types for resolution
+                            let types_for_resolution: Vec<Ty> =
+                                concrete_types[..param_count].to_vec();
+                            if let Some(method_expr) = ctx.resolve_method_at_concrete_types(
+                                method_name,
+                                class_name,
+                                &types_for_resolution,
+                                span,
+                            ) {
+                                // Apply all arguments after dictionary resolution
                                 let mut result = method_expr;
                                 for arg in &collected_args {
                                     let arg_core = lower_expr(ctx, arg)?;
@@ -666,6 +653,72 @@ fn lower_app(
                                     Box::new(x_core),
                                     span,
                                 ));
+                            }
+                        }
+                    } else {
+                        // Single-param class: original logic
+                        let inferred = try_infer_arg_type(ctx, x)
+                            .or_else(|| {
+                                collected_args
+                                    .iter()
+                                    .find_map(|arg| try_infer_arg_type(ctx, arg))
+                            });
+                        if let Some(concrete_ty) = inferred {
+                            let resolved = ctx.resolve_method_at_concrete_type(
+                                method_name,
+                                class_name,
+                                &concrete_ty,
+                                span,
+                            );
+                            if let Some(method_expr) = resolved {
+                                let mut result = method_expr;
+                                for arg in &collected_args {
+                                    let arg_core = lower_expr(ctx, arg)?;
+                                    result = core::Expr::App(
+                                        Box::new(result),
+                                        Box::new(arg_core),
+                                        span,
+                                    );
+                                }
+                                let x_core = lower_expr(ctx, x)?;
+                                return Ok(core::Expr::App(
+                                    Box::new(result),
+                                    Box::new(x_core),
+                                    span,
+                                ));
+                            }
+                            // Fallback: try applied type for parameterized instances
+                            let applied = try_infer_applied_type(ctx, x)
+                                .or_else(|| {
+                                    collected_args
+                                        .iter()
+                                        .find_map(|arg| try_infer_applied_type(ctx, arg))
+                                });
+                            if let Some(applied_ty) = applied {
+                                if let Some(method_expr) =
+                                    ctx.resolve_method_at_concrete_type(
+                                        method_name,
+                                        class_name,
+                                        &applied_ty,
+                                        span,
+                                    )
+                                {
+                                    let mut result = method_expr;
+                                    for arg in &collected_args {
+                                        let arg_core = lower_expr(ctx, arg)?;
+                                        result = core::Expr::App(
+                                            Box::new(result),
+                                            Box::new(arg_core),
+                                            span,
+                                        );
+                                    }
+                                    let x_core = lower_expr(ctx, x)?;
+                                    return Ok(core::Expr::App(
+                                        Box::new(result),
+                                        Box::new(x_core),
+                                        span,
+                                    ));
+                                }
                             }
                         }
                     }

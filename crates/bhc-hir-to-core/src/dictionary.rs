@@ -56,6 +56,8 @@ pub struct AssocTypeInfo {
 pub struct ClassInfo {
     /// The class name.
     pub name: Symbol,
+    /// Number of type parameters (1 for single-param, 2+ for multi-param).
+    pub param_count: usize,
     /// Method names in order (defines dictionary field order).
     pub methods: Vec<Symbol>,
     /// Method type signatures.
@@ -866,6 +868,7 @@ mod tests {
         // Register Eq class
         let eq_class = ClassInfo {
             name: Symbol::intern("Eq"),
+            param_count: 1,
             methods: vec![Symbol::intern("=="), Symbol::intern("/=")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -910,6 +913,7 @@ mod tests {
         // Register Convert class (multi-parameter: class Convert a b where convert :: a -> b)
         let convert_class = ClassInfo {
             name: Symbol::intern("Convert"),
+            param_count: 2,
             methods: vec![Symbol::intern("convert")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -1037,6 +1041,7 @@ mod tests {
         //   insert :: Element c -> c -> c
         let container_class = ClassInfo {
             name: Symbol::intern("Container"),
+            param_count: 1,
             methods: vec![Symbol::intern("empty"), Symbol::intern("insert")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -1102,6 +1107,7 @@ mod tests {
         // Register Eq class
         let eq_class = ClassInfo {
             name: Symbol::intern("Eq"),
+            param_count: 1,
             methods: vec![Symbol::intern("==")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -1171,6 +1177,7 @@ mod tests {
         // Register a multi-param class: class Convert a b where convert :: a -> b
         let convert_class = ClassInfo {
             name: Symbol::intern("Convert"),
+            param_count: 2,
             methods: vec![Symbol::intern("convert")],
             method_types: FxHashMap::default(),
             superclasses: vec![],

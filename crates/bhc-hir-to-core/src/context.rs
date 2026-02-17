@@ -526,6 +526,7 @@ impl LowerContext {
         // DefIds: == is 27, /= is 28
         let eq_class = ClassInfo {
             name: Symbol::intern("Eq"),
+            param_count: 1,
             methods: vec![Symbol::intern("=="), Symbol::intern("/=")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -539,6 +540,7 @@ impl LowerContext {
         // DefIds: < is 29, <= is 30, > is 31, >= is 32, compare is 89, min is 90, max is 91
         let ord_class = ClassInfo {
             name: Symbol::intern("Ord"),
+            param_count: 1,
             methods: vec![
                 Symbol::intern("compare"),
                 Symbol::intern("<"),
@@ -560,6 +562,7 @@ impl LowerContext {
         // DefIds: + is 18, - is 19, * is 20, negate is 82, abs is 83, signum is 84, fromInteger is 80
         let num_class = ClassInfo {
             name: Symbol::intern("Num"),
+            param_count: 1,
             methods: vec![
                 Symbol::intern("+"),
                 Symbol::intern("-"),
@@ -581,6 +584,7 @@ impl LowerContext {
         // DefIds: / is 21, fromRational is 81
         let fractional_class = ClassInfo {
             name: Symbol::intern("Fractional"),
+            param_count: 1,
             methods: vec![
                 Symbol::intern("/"),
                 Symbol::intern("recip"),
@@ -598,6 +602,7 @@ impl LowerContext {
         // DefIds: show is 92
         let show_class = ClassInfo {
             name: Symbol::intern("Show"),
+            param_count: 1,
             methods: vec![Symbol::intern("show")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -710,6 +715,7 @@ impl LowerContext {
         // fmap is also known as <$> (DefId 43)
         let functor_class = ClassInfo {
             name: Symbol::intern("Functor"),
+            param_count: 1,
             methods: vec![Symbol::intern("fmap")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -723,6 +729,7 @@ impl LowerContext {
         // Superclass: Functor
         let applicative_class = ClassInfo {
             name: Symbol::intern("Applicative"),
+            param_count: 1,
             methods: vec![Symbol::intern("pure"), Symbol::intern("<*>")],
             method_types: FxHashMap::default(),
             superclasses: vec![Symbol::intern("Functor")],
@@ -736,6 +743,7 @@ impl LowerContext {
         // Superclass: Applicative
         let monad_class = ClassInfo {
             name: Symbol::intern("Monad"),
+            param_count: 1,
             methods: vec![Symbol::intern(">>="), Symbol::intern(">>")],
             method_types: FxHashMap::default(),
             superclasses: vec![Symbol::intern("Applicative")],
@@ -764,6 +772,7 @@ impl LowerContext {
         // Methods: lift
         let monad_trans_class = ClassInfo {
             name: Symbol::intern("MonadTrans"),
+            param_count: 1,
             methods: vec![Symbol::intern("lift")],
             method_types: FxHashMap::default(),
             superclasses: vec![],
@@ -777,6 +786,7 @@ impl LowerContext {
         // Superclass: Monad
         let monad_io_class = ClassInfo {
             name: Symbol::intern("MonadIO"),
+            param_count: 1,
             methods: vec![Symbol::intern("liftIO")],
             method_types: FxHashMap::default(),
             superclasses: vec![Symbol::intern("Monad")],
@@ -1089,28 +1099,28 @@ impl LowerContext {
         }
 
         // 3. If not in scope, try to construct from an instance
-        // (only works for concrete types)
-        if let Some(ty) = constraint.args.first() {
-            if !has_type_variables(ty) {
-                // Create a DictContext with var_map so method_reference uses correct names
-                let mut dict_ctx =
-                    DictContext::new_with_var_map(&self.class_registry, self.var_map.clone());
-                let dict_expr = dict_ctx.get_dictionary(constraint, span)?;
+        // (only works for concrete types — all args must be concrete)
+        if !constraint.args.is_empty()
+            && constraint.args.iter().all(|ty| !has_type_variables(ty))
+        {
+            // Create a DictContext with var_map so method_reference uses correct names
+            let mut dict_ctx =
+                DictContext::new_with_var_map(&self.class_registry, self.var_map.clone());
+            let dict_expr = dict_ctx.get_dictionary(constraint, span)?;
 
-                // If the dictionary construction generated bindings, wrap the
-                // expression in let bindings
-                let bindings = dict_ctx.take_bindings();
-                if bindings.is_empty() {
-                    return Some(dict_expr);
-                }
-
-                // Wrap in let bindings (innermost first)
-                let mut result = dict_expr;
-                for bind in bindings.into_iter().rev() {
-                    result = core::Expr::Let(Box::new(bind), Box::new(result), span);
-                }
-                return Some(result);
+            // If the dictionary construction generated bindings, wrap the
+            // expression in let bindings
+            let bindings = dict_ctx.take_bindings();
+            if bindings.is_empty() {
+                return Some(dict_expr);
             }
+
+            // Wrap in let bindings (innermost first)
+            let mut result = dict_expr;
+            for bind in bindings.into_iter().rev() {
+                result = core::Expr::Let(Box::new(bind), Box::new(result), span);
+            }
+            return Some(result);
         }
 
         None
@@ -1164,6 +1174,51 @@ impl LowerContext {
         }
 
         Some(result)
+    }
+
+    /// Resolve a class method call at multiple concrete types (multi-param classes).
+    ///
+    /// Similar to `resolve_method_at_concrete_type` but takes multiple types
+    /// for multi-param type classes like `instance Convertible Int String`.
+    pub fn resolve_method_at_concrete_types(
+        &mut self,
+        method_name: Symbol,
+        class_name: Symbol,
+        concrete_types: &[Ty],
+        span: Span,
+    ) -> Option<core::Expr> {
+        let constraint = Constraint::new_multi(class_name, concrete_types.to_vec(), span);
+
+        let mut dict_ctx =
+            DictContext::new_with_var_map(&self.class_registry, self.var_map.clone());
+        let dict_expr = dict_ctx.get_dictionary(&constraint, span)?;
+        let bindings = dict_ctx.take_bindings();
+
+        let dict_var = self.fresh_var(&format!("$d{}", class_name.as_str()), Ty::Error, span);
+
+        let method_expr = crate::dictionary::select_method(
+            &dict_var,
+            class_name,
+            method_name,
+            &self.class_registry,
+            span,
+        )?;
+
+        let dict_bind = Bind::NonRec(dict_var, Box::new(dict_expr));
+        let mut result = core::Expr::Let(Box::new(dict_bind), Box::new(method_expr), span);
+        for bind in bindings.into_iter().rev() {
+            result = core::Expr::Let(Box::new(bind), Box::new(result), span);
+        }
+
+        Some(result)
+    }
+
+    /// Get the parameter count for a class (1 for single-param, 2+ for multi-param).
+    pub fn class_param_count(&self, class_name: Symbol) -> usize {
+        self.class_registry
+            .lookup_class(class_name)
+            .map(|c| c.param_count)
+            .unwrap_or(1)
     }
 
     /// Select a method via superclass dictionary extraction.
@@ -1358,6 +1413,7 @@ impl LowerContext {
 
         let class_info = ClassInfo {
             name: class_def.name,
+            param_count: class_def.params.len(),
             methods: method_names,
             method_types,
             superclasses: class_def.supers.clone(),
@@ -1390,31 +1446,32 @@ impl LowerContext {
             assoc_type_impls.insert(assoc_impl.name, assoc_impl.rhs.clone());
         }
 
-        // Get the instance type (first type in the types list)
-        let instance_type = instance_def.types.first().cloned().unwrap_or(Ty::Error);
+        // Use all instance types (supports multi-param type classes)
+        let instance_types = instance_def.types.clone();
+        let first_type = instance_types.first().cloned().unwrap_or(Ty::Error);
 
         // For superclass instances, use the CLASS's superclass list (not the
         // instance's constraints, which may be empty). For each superclass,
-        // we assume the same instance type satisfies it.
+        // we assume the first instance type satisfies it.
         let superclass_instances =
             if let Some(class_info) = self.class_registry.lookup_class(instance_def.class) {
                 class_info
                     .superclasses
                     .iter()
-                    .map(|_| instance_type.clone())
+                    .map(|_| first_type.clone())
                     .collect()
             } else {
                 // Builtin class not in registry — fall back to instance constraints
                 instance_def
                     .constraints
                     .iter()
-                    .map(|_| instance_type.clone())
+                    .map(|_| first_type.clone())
                     .collect()
             };
 
         let instance_info = InstanceInfo {
             class: instance_def.class,
-            instance_types: vec![instance_type],
+            instance_types,
             methods,
             superclass_instances,
             assoc_type_impls,
@@ -1469,11 +1526,17 @@ impl LowerContext {
                     // referenced during the lowering pass.
                     // Use $instance_{method}_{TypeName} naming convention
                     // so codegen can detect and dispatch manual instance methods.
-                    let inst_type_name = instance_def
-                        .types
-                        .first()
-                        .map(type_name_for_instance)
-                        .unwrap_or_else(|| "Unknown".to_string());
+                    // For multi-param classes, join all type names with "_".
+                    let inst_type_name = if instance_def.types.is_empty() {
+                        "Unknown".to_string()
+                    } else {
+                        instance_def
+                            .types
+                            .iter()
+                            .map(type_name_for_instance)
+                            .collect::<Vec<_>>()
+                            .join("_")
+                    };
                     for method_def in &instance_def.methods {
                         let ty = self.lookup_type(method_def.id);
                         let instance_name = Symbol::intern(&format!(

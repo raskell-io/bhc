@@ -169,6 +169,9 @@ pub struct LowerContext {
     qualified_names: FxHashMap<Symbol, Symbol>,
     /// Type signatures: maps function name to its declared type
     type_signatures: FxHashMap<Symbol, ast::Type>,
+    /// Class parameter counts: maps class name to number of type parameters.
+    /// Used to decompose multi-param instance types during lowering.
+    class_param_counts: FxHashMap<Symbol, usize>,
 }
 
 impl Default for LowerContext {
@@ -194,6 +197,7 @@ impl LowerContext {
             import_aliases: FxHashMap::default(),
             qualified_names: FxHashMap::default(),
             type_signatures: FxHashMap::default(),
+            class_param_counts: FxHashMap::default(),
         }
     }
 
@@ -2234,6 +2238,18 @@ impl LowerContext {
     /// Returns the AST type if a signature was declared, or None otherwise.
     pub fn lookup_type_signature(&self, name: Symbol) -> Option<&ast::Type> {
         self.type_signatures.get(&name)
+    }
+
+    /// Registers the number of type parameters for a class.
+    ///
+    /// Used to decompose multi-param instance types during lowering.
+    pub fn register_class_param_count(&mut self, class_name: Symbol, count: usize) {
+        self.class_param_counts.insert(class_name, count);
+    }
+
+    /// Looks up the number of type parameters for a class.
+    pub fn lookup_class_param_count(&self, class_name: Symbol) -> Option<usize> {
+        self.class_param_counts.get(&class_name).copied()
     }
 }
 
