@@ -790,6 +790,12 @@ fn test_tier3_multi_param_typeclass_native() {
     run_native_test("tier3_io/multi_param_typeclass", Profile::Default);
 }
 
+// E.50: FunctionalDependencies
+#[test]
+fn test_tier3_functional_deps_native() {
+    run_native_test("tier3_io/functional_deps", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

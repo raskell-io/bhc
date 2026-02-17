@@ -1979,9 +1979,26 @@ impl LowerContext {
             return lower_expr(self, &value_def.equations[0].rhs);
         }
 
-        // Generate fresh variables for each argument
+        // Generate fresh variables for each argument.
+        // Try to extract parameter types from the function's type signature
+        // so that type-directed method resolution can use them.
+        let mut param_types: Vec<Ty> = Vec::new();
+        if let Some(scheme) = self.lookup_scheme(value_def.id) {
+            let mut ty = &scheme.ty;
+            for _ in 0..arity {
+                if let Ty::Fun(arg_ty, ret_ty) = ty {
+                    param_types.push(arg_ty.as_ref().clone());
+                    ty = ret_ty.as_ref();
+                } else {
+                    break;
+                }
+            }
+        }
         let args: Vec<Var> = (0..arity)
-            .map(|i| self.fresh_var(&format!("arg{}", i), Ty::Error, value_def.span))
+            .map(|i| {
+                let ty = param_types.get(i).cloned().unwrap_or(Ty::Error);
+                self.fresh_var(&format!("arg{}", i), ty, value_def.span)
+            })
             .collect();
 
         // Find which argument position(s) need constructor matching

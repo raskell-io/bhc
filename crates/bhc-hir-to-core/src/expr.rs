@@ -307,6 +307,19 @@ fn try_infer_arg_type(ctx: &LowerContext, expr: &hir::Expr) -> Option<Ty> {
             let ty = ctx.lookup_type(def_ref.def_id);
             match &ty {
                 Ty::Con(_) => Some(ty),
+                Ty::Error => {
+                    // Core IR params often have ty: Error in type_schemes.
+                    // Check the Core Var's type as a fallback (populated from
+                    // the function's type signature in compile_equations).
+                    if let Some(var) = ctx.lookup_var(def_ref.def_id) {
+                        match &var.ty {
+                            Ty::Con(_) => Some(var.ty.clone()),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             }
         }
@@ -509,11 +522,53 @@ fn lower_app(
                 if ctx.is_user_class(class_name) && ctx.lookup_dict(class_name).is_none() {
                     let param_count = ctx.class_param_count(class_name);
 
-                    // For multi-param classes, we can't resolve here with just
-                    // one argument — defer to Case 3 where the full App chain
-                    // provides all needed types.
                     if param_count > 1 {
-                        // Fall through to Case 3
+                        // Multi-param class with just one argument.
+                        // Try to infer the arg type and complete remaining
+                        // types from matching instances (fundep-style).
+                        if let Some(arg_ty) = try_infer_arg_type(ctx, x) {
+                            let mut types_for_resolution = vec![arg_ty];
+                            // Search instances to complete the type list
+                            if let Some(instances) =
+                                ctx.class_registry().instances.get(&class_name)
+                            {
+                                for inst in &*instances {
+                                    if inst.instance_types.len() >= param_count {
+                                        let all_match =
+                                            types_for_resolution.iter().enumerate().all(
+                                                |(i, ty)| {
+                                                    inst.instance_types
+                                                        .get(i)
+                                                        .map_or(false, |it| it == ty)
+                                                },
+                                            );
+                                        if all_match {
+                                            types_for_resolution =
+                                                inst.instance_types[..param_count].to_vec();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if types_for_resolution.len() >= param_count {
+                                if let Some(method_expr) =
+                                    ctx.resolve_method_at_concrete_types(
+                                        method_name,
+                                        class_name,
+                                        &types_for_resolution,
+                                        span,
+                                    )
+                                {
+                                    let x_core = lower_expr(ctx, x)?;
+                                    return Ok(core::Expr::App(
+                                        Box::new(method_expr),
+                                        Box::new(x_core),
+                                        span,
+                                    ));
+                                }
+                            }
+                        }
+                        // Fall through to Case 3 if we couldn't resolve
                     } else {
                         // Single-param class: resolve at concrete type from argument
                         let inferred = try_infer_arg_type(ctx, x);
@@ -627,10 +682,41 @@ fn lower_app(
                             }
                         }
 
-                        if concrete_types.len() >= param_count {
-                            // Take the first param_count types for resolution
-                            let types_for_resolution: Vec<Ty> =
-                                concrete_types[..param_count].to_vec();
+                        // If we have fewer types than params, try completing
+                        // from instance declarations (fundep-style resolution).
+                        // E.g., for `class Extract a b | a -> b` with `extract :: a -> b`,
+                        // calling `extract w` gives us only type `a` from the value arg.
+                        // We search instances to find the matching `b`.
+                        // If we have fewer types than params, try completing
+                        // from instance declarations (fundep-style resolution).
+                        let mut types_for_resolution = concrete_types.clone();
+                        if types_for_resolution.len() < param_count
+                            && !types_for_resolution.is_empty()
+                        {
+                            if let Some(instances) =
+                                ctx.class_registry().instances.get(&class_name)
+                            {
+                                for inst in instances {
+                                    if inst.instance_types.len() >= param_count {
+                                        let all_match =
+                                            types_for_resolution.iter().enumerate().all(
+                                                |(i, ty)| {
+                                                    inst.instance_types
+                                                        .get(i)
+                                                        .map_or(false, |it| it == ty)
+                                                },
+                                            );
+                                        if all_match {
+                                            types_for_resolution =
+                                                inst.instance_types[..param_count].to_vec();
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if types_for_resolution.len() >= param_count {
                             if let Some(method_expr) = ctx.resolve_method_at_concrete_types(
                                 method_name,
                                 class_name,

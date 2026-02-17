@@ -359,7 +359,12 @@ impl TyCtxt {
     ///
     /// Constraints before `start_idx` are left untouched.
     pub fn solve_constraints_partition(&mut self, start_idx: usize) -> Vec<Constraint> {
-        // Apply substitution to the new constraints
+        // Apply functional dependency improvement before solving.
+        // This may add new substitutions based on fundeps (e.g., `a -> b` in
+        // `class C a b | a -> b` determines `b` when `a` is known).
+        self.apply_fundep_improvement();
+
+        // Apply substitution to the new constraints (including any from fundep improvement)
         for c in self.constraints[start_idx..].iter_mut() {
             c.args = c.args.iter().map(|t| self.subst.apply(t)).collect();
         }
