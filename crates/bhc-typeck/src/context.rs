@@ -3170,7 +3170,7 @@ impl TyCtxt {
         let info = InstanceInfo {
             class: instance.class,
             types: instance.types.clone(),
-            context: vec![], // TODO: Parse instance context from HIR
+            context: instance.constraints.clone(),
             methods,
             assoc_type_impls,
         };

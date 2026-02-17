@@ -872,6 +872,7 @@ impl LowerContext {
             methods: method_map,
             superclass_instances,
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         self.class_registry.register_instance(instance_info);
@@ -1315,6 +1316,7 @@ impl LowerContext {
             methods: FxHashMap::default(),
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1416,6 +1418,7 @@ impl LowerContext {
             methods,
             superclass_instances,
             assoc_type_impls,
+            instance_constraints: instance_def.constraints.clone(),
         };
 
         self.class_registry.register_instance(instance_info);
@@ -1469,10 +1472,7 @@ impl LowerContext {
                     let inst_type_name = instance_def
                         .types
                         .first()
-                        .and_then(|ty| match ty {
-                            Ty::Con(con) => Some(con.name.as_str().to_string()),
-                            _ => None,
-                        })
+                        .map(type_name_for_instance)
                         .unwrap_or_else(|| "Unknown".to_string());
                     for method_def in &instance_def.methods {
                         let ty = self.lookup_type(method_def.id);
@@ -1630,12 +1630,35 @@ impl LowerContext {
                 Item::Instance(instance_def) => {
                     // Instance already registered in first pass (register_instance_def)
 
+                    // Check if this instance has user-class constraints that
+                    // need dictionary parameters (e.g., `Describable a => Describable (Box a)`).
+                    let inst_constraints: Vec<Constraint> = instance_def
+                        .constraints
+                        .iter()
+                        .filter(|c| self.is_user_class(c.class))
+                        .cloned()
+                        .collect();
+
                     // Lower instance method bodies to Core bindings.
                     // Each method in the instance provides an implementation that
                     // the evaluator needs to find.
                     for method_def in &instance_def.methods {
-                        if let Some(bind) = self.lower_value_def(method_def)? {
-                            bindings.push(bind);
+                        if inst_constraints.is_empty() {
+                            // No instance constraints — lower normally
+                            if let Some(bind) = self.lower_value_def(method_def)? {
+                                bindings.push(bind);
+                            }
+                        } else {
+                            // Instance has user-class constraints — wrap method body
+                            // with dict lambdas so dictionary construction can apply them.
+                            if let Some(bind) =
+                                self.lower_instance_method_with_constraints(
+                                    method_def,
+                                    &inst_constraints,
+                                )?
+                            {
+                                bindings.push(bind);
+                            }
                         }
                     }
                 }
@@ -1739,6 +1762,55 @@ impl LowerContext {
             for (_, dict_var) in dict_vars.into_iter().rev() {
                 body = core::Expr::Lam(dict_var, Box::new(body), value_def.span);
             }
+        }
+
+        Ok(Some(Bind::NonRec(var, Box::new(body))))
+    }
+
+    /// Lower an instance method that has instance-level constraints.
+    ///
+    /// For example, in:
+    /// ```text
+    /// instance Describable a => Describable (Box a) where
+    ///   describe (Box x) = "Box(" ++ describe x ++ ")"
+    /// ```
+    ///
+    /// The `describe` method needs a `Describable a` dictionary to call `describe x`.
+    /// We wrap the method body: `\$dDescribable -> \(Box x) -> "Box(" ++ describe x ++ ")"`
+    /// so that dictionary construction can apply the constraint dict.
+    fn lower_instance_method_with_constraints(
+        &mut self,
+        method_def: &ValueDef,
+        inst_constraints: &[Constraint],
+    ) -> LowerResult<Option<Bind>> {
+        let var = self
+            .lookup_var(method_def.id)
+            .cloned()
+            .ok_or_else(|| LowerError::Internal("missing variable for instance method".into()))?;
+
+        // Create dict variables for each instance constraint
+        let dict_vars: Vec<(Symbol, Var)> = inst_constraints
+            .iter()
+            .map(|c| {
+                let dict_var = self.make_dict_var(c);
+                (c.class, dict_var)
+            })
+            .collect();
+
+        // Push dict scope so the method body can reference constraint dicts
+        self.push_dict_scope();
+        for (class_name, dict_var) in &dict_vars {
+            self.register_dict(*class_name, dict_var.clone());
+        }
+
+        // Compile the method body (now with constraint dicts in scope)
+        let mut body = self.compile_equations(method_def)?;
+
+        self.pop_dict_scope();
+
+        // Wrap body with dict lambdas (outermost first)
+        for (_, dict_var) in dict_vars.into_iter().rev() {
+            body = core::Expr::Lam(dict_var, Box::new(body), method_def.span);
         }
 
         Ok(Some(Bind::NonRec(var, Box::new(body))))
@@ -2013,6 +2085,31 @@ pub(crate) fn has_type_variables(ty: &Ty) -> bool {
         Ty::List(elem) => has_type_variables(elem),
         Ty::Forall(_, body) => has_type_variables(body),
         Ty::Nat(_) | Ty::TyList(_) => false,
+    }
+}
+
+/// Extract a human-readable type name from a `Ty` for instance naming.
+///
+/// Handles flexible instance heads like `Ty::App(Box, a)` → `"Box_a"`,
+/// `Ty::List(a)` → `"List_a"`, `Ty::Con(Int)` → `"Int"`, etc.
+fn type_name_for_instance(ty: &Ty) -> String {
+    match ty {
+        Ty::Con(con) => con.name.as_str().to_string(),
+        Ty::App(f, a) => {
+            format!("{}_{}", type_name_for_instance(f), type_name_for_instance(a))
+        }
+        Ty::List(elem) => format!("List_{}", type_name_for_instance(elem)),
+        Ty::Var(tv) => format!("v{}", tv.id),
+        Ty::Fun(from, to) => {
+            format!(
+                "Fun_{}_{}", type_name_for_instance(from), type_name_for_instance(to)
+            )
+        }
+        Ty::Tuple(elems) => {
+            let names: Vec<String> = elems.iter().map(type_name_for_instance).collect();
+            format!("Tup_{}", names.join("_"))
+        }
+        _ => "Unknown".to_string(),
     }
 }
 

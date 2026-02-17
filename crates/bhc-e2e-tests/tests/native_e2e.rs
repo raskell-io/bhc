@@ -767,6 +767,25 @@ fn test_tier3_gnd_newtype_erasure_native() {
 }
 
 // =============================================================================
+// E.48: FlexibleInstances, FlexibleContexts, Instance Context Propagation
+// =============================================================================
+
+#[test]
+fn test_tier3_flexible_instances_native() {
+    run_native_test("tier3_io/flexible_instances", Profile::Default);
+}
+
+#[test]
+fn test_tier3_instance_context_native() {
+    run_native_test("tier3_io/instance_context", Profile::Default);
+}
+
+#[test]
+fn test_tier3_instance_context_multi_native() {
+    run_native_test("tier3_io/instance_context_multi", Profile::Default);
+}
+
+// =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
 

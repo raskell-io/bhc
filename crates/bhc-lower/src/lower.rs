@@ -100,6 +100,22 @@ pub fn lower_module_with_cache(
         }
     });
 
+    let has_flexible_instances = module.pragmas.iter().any(|p| {
+        if let ast::PragmaKind::Language(exts) = &p.kind {
+            exts.iter().any(|e| e.as_str() == "FlexibleInstances")
+        } else {
+            false
+        }
+    });
+
+    let has_flexible_contexts = module.pragmas.iter().any(|p| {
+        if let ast::PragmaKind::Language(exts) = &p.kind {
+            exts.iter().any(|e| e.as_str() == "FlexibleContexts")
+        } else {
+            false
+        }
+    });
+
     let already_imports_prelude = module.imports.iter().any(|imp| {
         let name = imp
             .module
@@ -179,6 +195,8 @@ pub fn lower_module_with_cache(
         overloaded_strings: has_overloaded_strings,
         scoped_type_variables: has_scoped_type_variables,
         generalized_newtype_deriving: has_generalized_newtype_deriving,
+        flexible_instances: has_flexible_instances,
+        flexible_contexts: has_flexible_contexts,
     })
 }
 
@@ -3108,7 +3126,18 @@ fn lower_instance_decl(
 ) -> LowerResult<hir::InstanceDef> {
     let types: Vec<bhc_types::Ty> = vec![lower_type(ctx, &instance.ty)];
 
-    let constraints: Vec<Symbol> = instance.context.iter().map(|c| c.class.name).collect();
+    let constraints: Vec<bhc_types::Constraint> = instance
+        .context
+        .iter()
+        .map(|c| {
+            let args: Vec<bhc_types::Ty> = c.args.iter().map(|a| lower_type(ctx, a)).collect();
+            bhc_types::Constraint {
+                class: c.class.name,
+                args,
+                span: c.span,
+            }
+        })
+        .collect();
 
     // Lower instance methods with FRESH DefIds. We do NOT bind the method name
     // to the fresh DefId — this ensures that references to `show` in the method

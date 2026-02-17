@@ -82,6 +82,9 @@ pub struct InstanceInfo {
     pub superclass_instances: Vec<Ty>,
     /// Associated type implementations (assoc type name -> concrete type).
     pub assoc_type_impls: FxHashMap<Symbol, Ty>,
+    /// Instance constraints (e.g., `Describable a` in `instance Describable a => Describable (Box a)`).
+    /// These constraints require dictionaries to be passed to instance methods.
+    pub instance_constraints: Vec<Constraint>,
 }
 
 impl InstanceInfo {
@@ -93,6 +96,7 @@ impl InstanceInfo {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         }
     }
 
@@ -108,6 +112,7 @@ impl InstanceInfo {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         }
     }
 
@@ -124,6 +129,7 @@ impl InstanceInfo {
             methods,
             superclass_instances: vec![],
             assoc_type_impls,
+            instance_constraints: vec![],
         }
     }
 
@@ -446,6 +452,23 @@ impl<'a> DictContext<'a> {
             super_fields.push(super_dict);
         }
 
+        // Build constraint dictionaries if the instance has constraints.
+        // For example, `instance Describable a => Describable (Box a)` needs
+        // a `Describable a` dictionary. With substitution `{a -> Int}`, we
+        // recursively construct the `Describable Int` dictionary.
+        let constraint_dicts: Vec<core::Expr> = instance
+            .instance_constraints
+            .iter()
+            .filter_map(|c| {
+                let concrete = Constraint {
+                    class: c.class,
+                    args: c.args.iter().map(|a| subst.apply(a)).collect(),
+                    span,
+                };
+                self.get_dictionary(&concrete, span)
+            })
+            .collect();
+
         // Check if any defaults are needed
         let needs_defaults = class
             .methods
@@ -463,7 +486,9 @@ impl<'a> DictContext<'a> {
             let mut partial_fields = super_fields.clone();
             for method_name in &class.methods {
                 if let Some(&method_def_id) = instance.methods.get(method_name) {
-                    partial_fields.push(self.method_reference(method_def_id, span));
+                    let method_ref = self.method_reference(method_def_id, span);
+                    partial_fields
+                        .push(apply_constraint_dicts(method_ref, &constraint_dicts, span));
                 } else {
                     partial_fields.push(core::Expr::Lit(
                         core::Literal::Int(0),
@@ -483,7 +508,9 @@ impl<'a> DictContext<'a> {
             let mut final_fields = super_fields;
             for method_name in &class.methods {
                 if let Some(&method_def_id) = instance.methods.get(method_name) {
-                    final_fields.push(self.method_reference(method_def_id, span));
+                    let method_ref = self.method_reference(method_def_id, span);
+                    final_fields
+                        .push(apply_constraint_dicts(method_ref, &constraint_dicts, span));
                 } else if let Some(&default_def_id) = class.defaults.get(method_name) {
                     // Apply the default function to the partial dict.
                     // Default is `\$dClass -> body`, so `default partial_dict`
@@ -517,7 +544,8 @@ impl<'a> DictContext<'a> {
             for method_name in &class.methods {
                 let method_expr =
                     if let Some(&method_def_id) = instance.methods.get(method_name) {
-                        self.method_reference(method_def_id, span)
+                        let method_ref = self.method_reference(method_def_id, span);
+                        apply_constraint_dicts(method_ref, &constraint_dicts, span)
                     } else {
                         let error_msg = format!(
                             "No implementation for method '{}' in instance {} {}",
@@ -728,6 +756,24 @@ fn make_tuple(fields: Vec<core::Expr>, span: Span) -> core::Expr {
     result
 }
 
+/// Apply constraint dictionaries to a method expression.
+///
+/// When an instance has constraints (e.g., `instance Describable a => Describable (Box a)`),
+/// each method was lowered as `\$dDescribable -> body`. To build the dictionary,
+/// we need to apply the resolved constraint dictionaries:
+///   `method $dDescribable_Int` → fully applied method
+fn apply_constraint_dicts(
+    method_expr: core::Expr,
+    constraint_dicts: &[core::Expr],
+    span: Span,
+) -> core::Expr {
+    let mut result = method_expr;
+    for dict in constraint_dicts {
+        result = core::Expr::App(Box::new(result), Box::new(dict.clone()), span);
+    }
+    result
+}
+
 /// Build a dictionary tuple, padding single-element dictionaries to 2 elements.
 ///
 /// Dictionaries are extracted with `$sel_N` which expects a proper tuple struct
@@ -839,6 +885,7 @@ mod tests {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
         registry.register_instance(eq_int);
 
@@ -1025,6 +1072,7 @@ mod tests {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: assoc_impls,
+            instance_constraints: vec![],
         };
         registry.register_instance(list_instance);
 
@@ -1084,6 +1132,7 @@ mod tests {
             // When we match Eq [Int], we substitute a -> Int to get Eq Int
             superclass_instances: vec![a_ty.clone()],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
         registry.register_instance(eq_list_instance);
 

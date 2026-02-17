@@ -578,8 +578,8 @@ pub struct InstanceDef {
     pub class: Symbol,
     /// The instance types.
     pub types: Vec<Ty>,
-    /// Instance constraints.
-    pub constraints: Vec<Symbol>,
+    /// Instance constraints (e.g., `Describable a` in `instance Describable a => Describable (Box a)`).
+    pub constraints: Vec<bhc_types::Constraint>,
     /// Associated type implementations.
     pub assoc_type_impls: Vec<AssocTypeImpl>,
     /// Method implementations.
@@ -675,6 +675,10 @@ pub struct Module {
     pub scoped_type_variables: bool,
     /// Whether {-# LANGUAGE GeneralizedNewtypeDeriving #-} is enabled.
     pub generalized_newtype_deriving: bool,
+    /// Whether {-# LANGUAGE FlexibleInstances #-} is enabled.
+    pub flexible_instances: bool,
+    /// Whether {-# LANGUAGE FlexibleContexts #-} is enabled.
+    pub flexible_contexts: bool,
 }
 
 /// An export specification.

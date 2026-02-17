@@ -319,22 +319,145 @@ fn try_infer_arg_type(ctx: &LowerContext, expr: &hir::Expr) -> Option<Ty> {
                 Kind::Star,
             ))))),
         },
-        Expr::App(f, _, _) => {
-            // Peel off App layers to find head constructor:
-            // App(App(Con(Pair), x), y) → Con(Pair)
+        Expr::App(f, x, _) => {
+            // Peel off App layers to find head constructor and collect args:
+            // App(App(Con(Pair), x), y) → (Con(Pair), [x, y])
             let mut head = f.as_ref();
-            while let Expr::App(inner_f, _, _) = head {
+            let mut con_args = vec![x.as_ref()];
+            while let Expr::App(inner_f, inner_x, _) = head {
+                con_args.push(inner_x.as_ref());
                 head = inner_f.as_ref();
             }
+            con_args.reverse();
             if let Expr::Con(def_ref) = head {
                 if let Some(con_info) = ctx.lookup_constructor(def_ref.def_id) {
-                    return Some(Ty::Con(TyCon::new(con_info.type_name, Kind::Star)));
+                    let base = Ty::Con(TyCon::new(con_info.type_name, Kind::Star));
+                    // Try to determine the result type using the constructor's type
+                    // signature. If the type checker has the constructor's type, use it.
+                    let con_ty = ctx.lookup_type(def_ref.def_id);
+                    if let Some(result_ty) =
+                        extract_constructor_result_type(&con_ty, &con_args, ctx)
+                    {
+                        return Some(result_ty);
+                    }
+                    // Return bare type name. The caller (lower_app) will try
+                    // applied-type resolution as a second attempt if this fails.
+                    return Some(base);
                 }
             }
             None
         }
         _ => None,
     }
+}
+
+/// Extract the result type from a constructor's type signature, substituting
+/// type variables based on inferred argument types.
+///
+/// For example, given `MkPair :: a -> a -> Pair a` and args `[Red, Blue]`:
+/// 1. Peel Fun layers: `a -> a -> Pair a` → params `[a, a]`, result `Pair a`
+/// 2. Infer arg types: `Red :: Color`, `Blue :: Color`
+/// 3. Build substitution: `{a -> Color}`
+/// 4. Apply to result: `Pair Color` = `App(Con("Pair"), Con("Color"))`
+fn extract_constructor_result_type(
+    con_ty: &Ty,
+    con_args: &[&hir::Expr],
+    ctx: &LowerContext,
+) -> Option<Ty> {
+    // Peel off Fun layers to get parameter types and result type
+    let mut param_tys = Vec::new();
+    let mut current = con_ty;
+    while let Ty::Fun(arg, ret) = current {
+        param_tys.push(arg.as_ref().clone());
+        current = ret;
+    }
+
+    // If the constructor type is Error or we have no params, fall back
+    if matches!(current, Ty::Error) || param_tys.is_empty() {
+        return None;
+    }
+
+    let result_ty = current;
+
+    // Build a substitution by matching param types against inferred arg types
+    let mut subst = bhc_types::Subst::new();
+    for (param_ty, arg_expr) in param_tys.iter().zip(con_args.iter()) {
+        if let Ty::Var(tv) = param_ty {
+            if subst.get(tv).is_none() {
+                if let Some(arg_ty) = try_infer_arg_type(ctx, arg_expr) {
+                    subst.insert(tv, arg_ty);
+                }
+            }
+        }
+    }
+
+    // Apply substitution to the result type
+    let concrete_result = subst.apply(result_ty);
+    // Only return if we got something more specific than the original
+    if concrete_result != *result_ty || !matches!(result_ty, Ty::App(_, _)) {
+        Some(concrete_result)
+    } else {
+        Some(concrete_result)
+    }
+}
+
+/// Try to infer an applied type from a constructor application expression.
+///
+/// For bare constructors like `Red`, returns None (use `try_infer_arg_type`).
+/// For applied constructors like `Wrap Green`:
+/// - Head: Wrap → type name "Wrapper"
+/// - Arg: Green → type Color
+/// - Returns: `App(Con("Wrapper"), Con("Color"))`
+///
+/// This enables resolution of parameterized instance types like
+/// `instance Describable a => Describable (Wrapper a)`.
+fn try_infer_applied_type(ctx: &LowerContext, expr: &hir::Expr) -> Option<Ty> {
+    let Expr::App(_, _, _) = expr else {
+        return None;
+    };
+
+    let mut head = expr;
+    let mut con_args = Vec::new();
+    while let Expr::App(f, x, _) = head {
+        con_args.push(x.as_ref());
+        head = f.as_ref();
+    }
+    con_args.reverse();
+
+    let def_ref = match head {
+        Expr::Con(dr) => dr,
+        _ => return None,
+    };
+
+    let con_info = ctx.lookup_constructor(def_ref.def_id)?;
+    let base = Ty::Con(TyCon::new(con_info.type_name, Kind::Star));
+
+    let mut arg_types = Vec::new();
+    for arg in &con_args {
+        if let Some(ty) = try_infer_arg_type(ctx, arg) {
+            arg_types.push(ty);
+        }
+    }
+
+    if arg_types.is_empty() {
+        return None;
+    }
+
+    // Deduplicate: for `Pair a a`, both value args map to the same type param
+    let mut unique_types = Vec::new();
+    for ty in &arg_types {
+        if !unique_types.contains(ty) {
+            unique_types.push(ty.clone());
+        }
+    }
+
+    // Build applied type: App(App(base, ty1), ty2)
+    let mut result = base;
+    for ty in unique_types {
+        result = Ty::App(Box::new(result), Box::new(ty));
+    }
+
+    Some(result)
 }
 
 /// Peel an application chain to find the head variable and collected arguments.
@@ -401,6 +524,27 @@ fn lower_app(
                                 Box::new(x_core),
                                 span,
                             ));
+                        }
+                        // Fallback: bare type didn't match instance head.
+                        // Try applied type for parameterized instances like
+                        // `Describable (Wrapper a)` where instance type is
+                        // App(Con("Wrapper"), Var(a)).
+                        if let Some(applied_ty) = try_infer_applied_type(ctx, x) {
+                            if let Some(method_expr) =
+                                ctx.resolve_method_at_concrete_type(
+                                    method_name,
+                                    class_name,
+                                    &applied_ty,
+                                    span,
+                                )
+                            {
+                                let x_core = lower_expr(ctx, x)?;
+                                return Ok(core::Expr::App(
+                                    Box::new(method_expr),
+                                    Box::new(x_core),
+                                    span,
+                                ));
+                            }
                         }
                     }
                 }
@@ -490,6 +634,39 @@ fn lower_app(
                                 Box::new(x_core),
                                 span,
                             ));
+                        }
+                        // Fallback: try applied type for parameterized instances
+                        let applied = try_infer_applied_type(ctx, x)
+                            .or_else(|| {
+                                collected_args
+                                    .iter()
+                                    .find_map(|arg| try_infer_applied_type(ctx, arg))
+                            });
+                        if let Some(applied_ty) = applied {
+                            if let Some(method_expr) =
+                                ctx.resolve_method_at_concrete_type(
+                                    method_name,
+                                    class_name,
+                                    &applied_ty,
+                                    span,
+                                )
+                            {
+                                let mut result = method_expr;
+                                for arg in &collected_args {
+                                    let arg_core = lower_expr(ctx, arg)?;
+                                    result = core::Expr::App(
+                                        Box::new(result),
+                                        Box::new(arg_core),
+                                        span,
+                                    );
+                                }
+                                let x_core = lower_expr(ctx, x)?;
+                                return Ok(core::Expr::App(
+                                    Box::new(result),
+                                    Box::new(x_core),
+                                    span,
+                                ));
+                            }
                         }
                     }
                 }

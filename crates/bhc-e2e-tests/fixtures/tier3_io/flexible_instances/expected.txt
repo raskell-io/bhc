@@ -1,0 +1,5 @@
+Hello, color:red!
+Hello, color:blue!
+color:green
+Hello, shape:circle!
+shape:square

@@ -1,0 +1,2 @@
+pair(red,blue,size=2)
+pair(green,green,size=2)

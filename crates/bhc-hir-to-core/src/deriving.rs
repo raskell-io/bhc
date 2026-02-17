@@ -135,6 +135,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         let bindings = vec![Bind::NonRec(eq_method_var, Box::new(eq_body))];
@@ -415,6 +416,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -452,6 +454,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![instance_type],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -763,6 +766,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![instance_type],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -799,6 +803,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -950,6 +955,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1010,6 +1016,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         let bindings = vec![
@@ -1152,6 +1159,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         let bindings = vec![
@@ -1201,6 +1209,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1350,6 +1359,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1392,6 +1402,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1544,6 +1555,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1586,6 +1598,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
@@ -1781,6 +1794,7 @@ impl DerivingContext {
             methods,
             superclass_instances: vec![],
             assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
         };
 
         Some(DerivedInstance {
