@@ -1284,31 +1284,31 @@ impl TyCtxt {
                     let list_int = Ty::List(Box::new(self.builtins.int_ty.clone()));
                     Scheme::mono(Ty::fun(list_int, self.builtins.int_ty.clone()))
                 }
-                // foldl :: (b -> a -> b) -> b -> [a] -> b
+                // foldl :: (b -> a -> b) -> b -> c -> b
+                // Container arg is polymorphic — codegen dispatches by expression structure.
                 "foldl" | "foldl'" => {
-                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
-                        vec![a.clone(), b.clone()],
+                        vec![a.clone(), b.clone(), c.clone()],
                         Ty::fun(
                             Ty::fun(
                                 Ty::Var(b.clone()),
                                 Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
                             ),
-                            Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c.clone()), Ty::Var(b.clone()))),
                         ),
                     )
                 }
-                // foldr :: (a -> b -> b) -> b -> [a] -> b
+                // foldr :: (a -> b -> b) -> b -> c -> b
+                // Container arg is polymorphic — codegen dispatches by expression structure.
                 "foldr" => {
-                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(
-                        vec![a.clone(), b.clone()],
+                        vec![a.clone(), b.clone(), c.clone()],
                         Ty::fun(
                             Ty::fun(
                                 Ty::Var(a.clone()),
                                 Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
                             ),
-                            Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                            Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c.clone()), Ty::Var(b.clone()))),
                         ),
                     )
                 }

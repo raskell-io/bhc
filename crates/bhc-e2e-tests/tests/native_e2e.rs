@@ -802,6 +802,12 @@ fn test_tier3_derive_functor_native() {
     run_native_test("tier3_io/derive_functor", Profile::Default);
 }
 
+// E.52: DeriveFoldable + foldr for user ADTs
+#[test]
+fn test_tier3_derive_foldable_native() {
+    run_native_test("tier3_io/derive_foldable", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

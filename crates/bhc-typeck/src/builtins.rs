@@ -1712,44 +1712,47 @@ impl Builtins {
                 )
             }),
             ("foldr", {
-                // foldr :: (a -> b -> b) -> b -> [a] -> b
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                // foldr :: (a -> b -> b) -> b -> c -> b
+                // Container arg is polymorphic — codegen dispatches by expression structure.
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
                         Ty::fun(
                             Ty::Var(a.clone()),
                             Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())),
                         ),
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c), Ty::Var(b.clone()))),
                     ),
                 )
             }),
             ("foldl", {
-                // foldl :: (b -> a -> b) -> b -> [a] -> b
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                // foldl :: (b -> a -> b) -> b -> c -> b
+                // Container arg is polymorphic — codegen dispatches by expression structure.
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
                         Ty::fun(
                             Ty::Var(b.clone()),
                             Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
                         ),
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c), Ty::Var(b.clone()))),
                     ),
                 )
             }),
             ("foldl'", {
-                // foldl' :: (b -> a -> b) -> b -> [a] -> b
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                // foldl' :: (b -> a -> b) -> b -> c -> b
+                // Container arg is polymorphic — codegen dispatches by expression structure.
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![a.clone(), b.clone(), c.clone()],
                     Ty::fun(
                         Ty::fun(
                             Ty::Var(b.clone()),
                             Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
                         ),
-                        Ty::fun(Ty::Var(b.clone()), Ty::fun(list_a, Ty::Var(b.clone()))),
+                        Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(c), Ty::Var(b.clone()))),
                     ),
                 )
             }),

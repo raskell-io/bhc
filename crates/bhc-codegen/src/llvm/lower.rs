@@ -237,6 +237,8 @@ pub struct Lowering<'ctx, 'm> {
     derived_compare_fns: FxHashMap<String, VarId>,
     /// Map from type name → VarId of the $derived_fmap_TypeName function.
     derived_functor_fns: FxHashMap<String, VarId>,
+    /// Map from type name → VarId of the $derived_foldr_TypeName function.
+    derived_foldable_fns: FxHashMap<String, VarId>,
     /// Counter for generating unique show descriptor global names.
     show_desc_counter: usize,
     /// Whether {-# LANGUAGE OverloadedStrings #-} is enabled.
@@ -271,6 +273,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
             derived_functor_fns: FxHashMap::default(),
+            derived_foldable_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -309,6 +312,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
             derived_functor_fns: FxHashMap::default(),
+            derived_foldable_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -6677,6 +6681,13 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         init_expr: &Expr,
         list_expr: &Expr,
     ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if container is a user ADT with derived Foldable
+        if let Some(type_name) = self.infer_adt_type_from_expr(list_expr) {
+            if self.derived_foldable_fns.contains_key(&type_name) {
+                return self.lower_foldr_derived(func_expr, init_expr, list_expr, &type_name);
+            }
+        }
+
         // Lower the function (should be a closure)
         let func_val = self
             .lower_expr(func_expr)?
@@ -15497,6 +15508,18 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         }
                     }
                 }
+                // E.52: foldr f z x — result type equals type of z (the init value)
+                // Expression structure: App(App(App(foldr, step), init), container)
+                // At this level: f = App(App(foldr, step), init), _arg = container
+                if let Expr::App(ff, init_val, _) = f.as_ref() {
+                    if let Expr::App(fff, _, _) = ff.as_ref() {
+                        if let Expr::Var(fv, _) = fff.as_ref() {
+                            if fv.name.as_str() == "foldr" {
+                                return self.infer_show_from_expr(init_val);
+                            }
+                        }
+                    }
+                }
                 // E.45: Check if it's a function that returns Integer
                 if self.is_integer_expr(expr) {
                     return Some((ShowCoerce::Integer, 1000618, "show_integer"));
@@ -16028,6 +16051,52 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .try_as_basic_value()
             .basic()
             .ok_or_else(|| CodegenError::Internal("derived fmap: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower foldr for a user-defined ADT with derived Foldable.
+    /// Calls the derived foldr function: fn(env, f, z, x) -> result
+    fn lower_foldr_derived(
+        &mut self,
+        func_expr: &Expr,
+        init_expr: &Expr,
+        value_expr: &Expr,
+        type_name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let foldr_var_id = self.derived_foldable_fns.get(type_name).copied()
+            .ok_or_else(|| CodegenError::Internal(format!("foldr: no derived foldr for {}", type_name)))?;
+        let foldr_fn = self.functions.get(&foldr_var_id).copied()
+            .ok_or_else(|| CodegenError::Internal(format!("foldr: derived foldr function not found for {}", type_name)))?;
+
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| {
+            CodegenError::Internal("foldr derived: no function value".to_string())
+        })?;
+        let init_val = self.lower_expr(init_expr)?.ok_or_else(|| {
+            CodegenError::Internal("foldr derived: no init value".to_string())
+        })?;
+        let value_val = self.lower_expr(value_expr)?.ok_or_else(|| {
+            CodegenError::Internal("foldr derived: no container value".to_string())
+        })?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let null_env = ptr_type.const_null();
+        let func_ptr = self.value_to_ptr(func_val)?;
+        let init_ptr = self.value_to_ptr(init_val)?;
+        let value_ptr = self.value_to_ptr(value_val)?;
+
+        // Flat 4-arg call: fn(env, f, z, x) -> result
+        let fn_ptr = foldr_fn.as_global_value().as_pointer_value();
+        let fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let result = self
+            .builder()
+            .build_indirect_call(fn_type, fn_ptr, &[null_env.into(), func_ptr.into(), init_ptr.into(), value_ptr.into()], "derived_foldr")
+            .map_err(|e| CodegenError::Internal(format!("derived foldr call: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("derived foldr: returned void".to_string()))?;
         Ok(Some(result))
     }
 
@@ -28385,6 +28454,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.derived_functor_fns.insert(type_name.clone(), var.id);
                     self.tag_constructors_with_type(expr, &type_name);
                 }
+                // Detect auto-derived Foldable instance methods ($derived_foldr_TypeName_COUNTER)
+                else if let Some(remainder) = name.strip_prefix("$derived_foldr_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_foldable_fns.insert(type_name.clone(), var.id);
+                    self.tag_constructors_with_type(expr, &type_name);
+                }
                 // Detect manual instance methods ($instance_show_TypeName)
                 else if let Some(type_name) = name.strip_prefix("$instance_show_") {
                     self.derived_show_fns
@@ -28399,6 +28474,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.tag_constructors_with_type(expr, type_name);
                 } else if let Some(type_name) = name.strip_prefix("$instance_fmap_") {
                     self.derived_functor_fns
+                        .insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
+                } else if let Some(type_name) = name.strip_prefix("$instance_foldr_") {
+                    self.derived_foldable_fns
                         .insert(type_name.to_string(), var.id);
                     self.tag_constructors_with_type(expr, type_name);
                 }
@@ -28837,6 +28916,9 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     // Cross-module imported function
                     let fn_ptr = fn_val.as_global_value().as_pointer_value();
                     Ok(Some(fn_ptr.into()))
+                } else if let Some((_tag, arity)) = self.constructor_info(name) {
+                    // Constructor used as a first-class value — create a closure wrapper
+                    self.create_constructor_closure(name, arity)
                 } else {
                     Err(CodegenError::Internal(format!(
                         "unbound variable: {}",
@@ -29413,6 +29495,86 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         };
 
         // Create a closure wrapping the builtin function
+        let fn_ptr = wrapper_fn.as_global_value().as_pointer_value();
+        let closure_ptr = self.alloc_closure(fn_ptr, &[])?;
+        Ok(Some(closure_ptr.into()))
+    }
+
+    /// Create a closure wrapping a data constructor used as a first-class value.
+    /// E.g., `(:)` passed to `foldr` becomes a closure that allocates a cons cell.
+    fn create_constructor_closure(
+        &mut self,
+        name: &str,
+        arity: u32,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        if arity == 0 {
+            // Zero-arity constructor: just allocate the ADT struct directly
+            let (tag, _) = self.constructor_info(name)
+                .ok_or_else(|| CodegenError::Internal(format!("unknown constructor: {}", name)))?;
+            let adt_ptr = self.alloc_adt(tag, 0)?;
+            return Ok(Some(adt_ptr.into()));
+        }
+
+        let tm = self.type_mapper();
+        let ptr_type = tm.ptr_type();
+
+        let wrapper_name = format!(
+            "constructor_wrapper_{}",
+            name.replace(|c: char| !c.is_alphanumeric(), "_")
+        );
+
+        let wrapper_fn = if let Some(existing) =
+            self.module.llvm_module().get_function(&wrapper_name)
+        {
+            existing
+        } else {
+            let (tag, _) = self.constructor_info(name)
+                .ok_or_else(|| CodegenError::Internal(format!("unknown constructor: {}", name)))?;
+
+            // Create wrapper function: (ptr env, ptr arg1, ..., ptr argN) -> ptr
+            let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
+            param_types.push(ptr_type.into()); // env/closure pointer
+            for _ in 0..arity {
+                param_types.push(ptr_type.into());
+            }
+
+            let wrapper_fn_type = ptr_type.fn_type(&param_types, false);
+            let wrapper_fn =
+                self.module
+                    .llvm_module()
+                    .add_function(&wrapper_name, wrapper_fn_type, None);
+
+            let entry_bb = self.llvm_ctx.append_basic_block(wrapper_fn, "entry");
+            let current_bb = self.builder().get_insert_block();
+
+            self.builder().position_at_end(entry_bb);
+
+            // For cons (:), use build_cons for correct list layout
+            let result_ptr = if name == ":" && arity == 2 {
+                let head = wrapper_fn.get_nth_param(1).unwrap();
+                let tail = wrapper_fn.get_nth_param(2).unwrap();
+                self.build_cons(head, tail)?
+            } else {
+                // General constructor: allocate ADT with tag and fields
+                let adt_ptr = self.alloc_adt(tag, arity)?;
+                for i in 0..arity {
+                    let arg = wrapper_fn.get_nth_param(i + 1).unwrap();
+                    self.store_adt_field(adt_ptr, arity, i, arg)?;
+                }
+                adt_ptr
+            };
+
+            self.builder()
+                .build_return(Some(&result_ptr))
+                .map_err(|e| CodegenError::Internal(format!("constructor wrapper return: {:?}", e)))?;
+
+            if let Some(bb) = current_bb {
+                self.builder().position_at_end(bb);
+            }
+
+            wrapper_fn
+        };
+
         let fn_ptr = wrapper_fn.as_global_value().as_pointer_value();
         let closure_ptr = self.alloc_closure(fn_ptr, &[])?;
         Ok(Some(closure_ptr.into()))
