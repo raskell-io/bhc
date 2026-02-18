@@ -1687,6 +1687,11 @@ impl DerivingContext {
     }
 
     /// Build the traversal expression for a constructor.
+    ///
+    /// Instead of `pure Con <*> f a0 <*> f a1` (which requires partial application
+    /// of multi-field constructors — incompatible with BHC's flat calling convention),
+    /// we generate: `let r0 = f a0 in let r1 = f a1 in pure (Con r0 r1 a2)`
+    /// where r_i are fresh vars for param fields and a_i are originals for non-param fields.
     fn build_traversal(
         &mut self,
         data_con: DataCon,
@@ -1696,35 +1701,50 @@ impl DerivingContext {
         f_var: &Var,
         span: Span,
     ) -> core::Expr {
-        // Start with pure Con
-        let con_expr = self.make_constructor(data_con, span);
-
         if binders.is_empty() {
-            return self.make_pure(con_expr, span);
+            return self.make_pure(self.make_constructor(data_con, span), span);
         }
 
-        // First, apply pure to the constructor
-        let mut result = self.make_pure(con_expr, span);
-
-        // Then <*> each field (either f field or pure field)
+        // For each param field, create a fresh result variable bound to `f(a_i)`.
+        // Non-param fields use the original binder directly.
+        let mut result_vars: Vec<(Option<Var>, &Var)> = Vec::new();
         for (i, (field_var, field_ty)) in binders.iter().zip(field_types.iter()).enumerate() {
-            let field_expr = if self.type_contains_param(field_ty, type_param) {
-                // f field
-                core::Expr::App(
-                    Box::new(core::Expr::Var(f_var.clone(), span)),
-                    Box::new(core::Expr::Var(field_var.clone(), span)),
-                    span,
-                )
+            if self.type_contains_param(field_ty, type_param) {
+                let r_var = self.fresh_var(&format!("r{}", i), Ty::Error);
+                result_vars.push((Some(r_var), field_var));
             } else {
-                // pure field
-                self.make_pure(core::Expr::Var(field_var.clone(), span), span)
-            };
-
-            // result <*> field_expr
-            result = self.make_ap(result, field_expr, span);
+                result_vars.push((None, field_var));
+            }
         }
 
-        result
+        // Build fully-saturated constructor application:
+        // Con r0 r1 a2  (r_i for param fields, a_i for non-param fields)
+        let con_args: Vec<core::Expr> = result_vars
+            .iter()
+            .map(|(opt_r, fv)| {
+                let var = opt_r.as_ref().unwrap_or(fv);
+                core::Expr::Var((*var).clone(), span)
+            })
+            .collect();
+        let fully_applied = self.apply_constructor(data_con, con_args, span);
+        let mut body = self.make_pure(fully_applied, span);
+
+        // Wrap with let-bindings in reverse order: let r_i = f a_i in ...
+        for (opt_r, field_var) in result_vars.iter().rev() {
+            if let Some(r) = opt_r {
+                let f_applied = core::Expr::App(
+                    Box::new(core::Expr::Var(f_var.clone(), span)),
+                    Box::new(core::Expr::Var((*field_var).clone(), span)),
+                    span,
+                );
+                body = core::Expr::Let(
+                    Box::new(Bind::NonRec(r.clone(), Box::new(f_applied))),
+                    Box::new(body),
+                    span,
+                );
+            }
+        }
+        body
     }
 
     /// Derive Traversable for a newtype.

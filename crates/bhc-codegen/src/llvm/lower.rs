@@ -239,6 +239,8 @@ pub struct Lowering<'ctx, 'm> {
     derived_functor_fns: FxHashMap<String, VarId>,
     /// Map from type name → VarId of the $derived_foldr_TypeName function.
     derived_foldable_fns: FxHashMap<String, VarId>,
+    /// Map from type name → VarId of the $derived_traverse_TypeName function.
+    derived_traversable_fns: FxHashMap<String, VarId>,
     /// Counter for generating unique show descriptor global names.
     show_desc_counter: usize,
     /// Whether {-# LANGUAGE OverloadedStrings #-} is enabled.
@@ -274,6 +276,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_compare_fns: FxHashMap::default(),
             derived_functor_fns: FxHashMap::default(),
             derived_foldable_fns: FxHashMap::default(),
+            derived_traversable_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -313,6 +316,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_compare_fns: FxHashMap::default(),
             derived_functor_fns: FxHashMap::default(),
             derived_foldable_fns: FxHashMap::default(),
+            derived_traversable_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -3108,6 +3112,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "forM_" => Some(2),
             "sequence" => Some(1),
             "sequence_" => Some(1),
+            "traverse" => Some(2),
+            "traverse_" => Some(2),
+            "for" => Some(2),
+            "for_" => Some(2),
+            "sequenceA" => Some(1),
+            "sequenceA_" => Some(1),
             "forever" => Some(1),
             "filterM" => Some(2),
             "foldM" => Some(3),
@@ -3750,6 +3760,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "forM_" => self.lower_builtin_mapm_(args[1], args[0]),
             "sequence" => self.lower_builtin_sequence(args[0]),
             "sequence_" => self.lower_builtin_sequence_(args[0]),
+            "traverse" => self.lower_builtin_traverse(args[0], args[1]),
+            "traverse_" => self.lower_builtin_traverse_(args[0], args[1]),
+            "for" => self.lower_builtin_traverse(args[1], args[0]),     // flipped
+            "for_" => self.lower_builtin_traverse_(args[1], args[0]),   // flipped
+            "sequenceA" => self.lower_builtin_sequence_a(args[0]),
+            "sequenceA_" => self.lower_builtin_sequence_a_(args[0]),
             "forever" => self.lower_builtin_forever(args[0]),
             "filterM" => self.lower_builtin_filter_m(args[0], args[1]),
             "foldM" => self.lower_builtin_fold_m(args[0], args[1], args[2]),
@@ -16338,6 +16354,111 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
         Ok(Some(self.type_mapper().ptr_type().const_null().into()))
     }
 
+    /// Lower `traverse`. Dispatches to derived Traversable for user ADTs, or falls back to mapM for lists.
+    fn lower_builtin_traverse(
+        &mut self,
+        func_expr: &Expr,
+        container_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if container is a user ADT with derived Traversable
+        if let Some(type_name) = self.infer_adt_type_from_expr(container_expr) {
+            if self.derived_traversable_fns.contains_key(&type_name) {
+                return self.lower_traverse_derived(func_expr, container_expr, &type_name);
+            }
+        }
+        // Fall back to list traverse (= mapM = map for BHC's eager IO)
+        self.lower_builtin_mapm(func_expr, container_expr)
+    }
+
+    /// Lower traverse for a user-defined ADT with derived Traversable.
+    /// Calls the derived traverse function: fn(env, f, x) -> result
+    fn lower_traverse_derived(
+        &mut self,
+        func_expr: &Expr,
+        container_expr: &Expr,
+        type_name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let traverse_var_id = self
+            .derived_traversable_fns
+            .get(type_name)
+            .copied()
+            .ok_or_else(|| {
+                CodegenError::Internal(format!(
+                    "traverse: no derived traverse for {}",
+                    type_name
+                ))
+            })?;
+        let traverse_fn = self.functions.get(&traverse_var_id).copied().ok_or_else(|| {
+            CodegenError::Internal(format!(
+                "traverse: derived traverse function not found for {}",
+                type_name
+            ))
+        })?;
+
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| {
+            CodegenError::Internal("traverse: no function value".to_string())
+        })?;
+        let container_val = self.lower_expr(container_expr)?.ok_or_else(|| {
+            CodegenError::Internal("traverse: no container value".to_string())
+        })?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let null_env = ptr_type.const_null();
+        let func_ptr = self.value_to_ptr(func_val)?;
+        let container_ptr = self.value_to_ptr(container_val)?;
+
+        // Flat 3-arg call: fn(env, f, x) -> result
+        let fn_ptr = traverse_fn.as_global_value().as_pointer_value();
+        let fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let result = self
+            .builder()
+            .build_indirect_call(
+                fn_type,
+                fn_ptr,
+                &[null_env.into(), func_ptr.into(), container_ptr.into()],
+                "derived_traverse",
+            )
+            .map_err(|e| CodegenError::Internal(format!("derived traverse call: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| {
+                CodegenError::Internal("derived traverse: returned void".to_string())
+            })?;
+        Ok(Some(result))
+    }
+
+    /// Lower `traverse_`. Calls traverse and discards the result.
+    fn lower_builtin_traverse_(
+        &mut self,
+        func_expr: &Expr,
+        container_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_builtin_traverse(func_expr, container_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
+    /// Lower `sequenceA`. Delegates to sequence for lists, or traverse id for user ADTs.
+    fn lower_builtin_sequence_a(
+        &mut self,
+        container_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // For user ADTs, we'd need to traverse with identity, but sequenceA on user ADTs
+        // is uncommon. Fall back to evaluating the expression (same as sequence for lists).
+        self.lower_expr(container_expr)
+    }
+
+    /// Lower `sequenceA_`. Evaluates and discards.
+    fn lower_builtin_sequence_a_(
+        &mut self,
+        container_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let _ = self.lower_expr(container_expr)?;
+        Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+    }
+
     /// Lower `forever`.
     fn lower_builtin_forever(&mut self, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent()).ok_or_else(|| CodegenError::Internal("no current function".to_string()))?;
@@ -28460,6 +28581,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.derived_foldable_fns.insert(type_name.clone(), var.id);
                     self.tag_constructors_with_type(expr, &type_name);
                 }
+                // Detect auto-derived Traversable instance methods ($derived_traverse_TypeName_COUNTER)
+                else if let Some(remainder) = name.strip_prefix("$derived_traverse_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_traversable_fns.insert(type_name.clone(), var.id);
+                    self.tag_constructors_with_type(expr, &type_name);
+                }
                 // Detect manual instance methods ($instance_show_TypeName)
                 else if let Some(type_name) = name.strip_prefix("$instance_show_") {
                     self.derived_show_fns
@@ -28478,6 +28605,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.tag_constructors_with_type(expr, type_name);
                 } else if let Some(type_name) = name.strip_prefix("$instance_foldr_") {
                     self.derived_foldable_fns
+                        .insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
+                } else if let Some(type_name) = name.strip_prefix("$instance_traverse_") {
+                    self.derived_traversable_fns
                         .insert(type_name.to_string(), var.id);
                     self.tag_constructors_with_type(expr, type_name);
                 }

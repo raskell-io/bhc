@@ -680,13 +680,7 @@ impl LowerContext {
             "or",
             "asum",
             "msum",
-            // Data.Traversable
-            "traverse",
-            "traverse_",
-            "for",
-            "for_",
-            "sequenceA",
-            "sequenceA_",
+            // Data.Traversable — registered via fixed DefIds 12000-12005 below
             // Common type constructors used as functions
             "Just",
             "Nothing",
@@ -1551,9 +1545,25 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.53: Data.Traversable (fixed DefIds 12000-12005)
+        let traversable_fns = [
+            (12000, "traverse"),
+            (12001, "traverse_"),
+            (12002, "for"),
+            (12003, "for_"),
+            (12004, "sequenceA"),
+            (12005, "sequenceA_"),
+        ];
+        for &(id, name) in &traversable_fns {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 11920 {
-            self.next_def_id = 11920;
+        if self.next_def_id <= 12006 {
+            self.next_def_id = 12006;
         }
     }
 

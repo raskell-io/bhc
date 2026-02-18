@@ -808,6 +808,12 @@ fn test_tier3_derive_foldable_native() {
     run_native_test("tier3_io/derive_foldable", Profile::Default);
 }
 
+// E.53: DeriveTraversable + traverse for user ADTs
+#[test]
+fn test_tier3_derive_traversable_native() {
+    run_native_test("tier3_io/derive_traversable", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
