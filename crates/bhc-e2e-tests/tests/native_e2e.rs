@@ -796,6 +796,12 @@ fn test_tier3_functional_deps_native() {
     run_native_test("tier3_io/functional_deps", Profile::Default);
 }
 
+// E.51: DeriveFunctor + fmap for pure types
+#[test]
+fn test_tier3_derive_functor_native() {
+    run_native_test("tier3_io/derive_functor", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================

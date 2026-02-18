@@ -235,6 +235,8 @@ pub struct Lowering<'ctx, 'm> {
     derived_eq_fns: FxHashMap<String, VarId>,
     /// Map from type name → VarId of the $derived_compare_TypeName function.
     derived_compare_fns: FxHashMap<String, VarId>,
+    /// Map from type name → VarId of the $derived_fmap_TypeName function.
+    derived_functor_fns: FxHashMap<String, VarId>,
     /// Counter for generating unique show descriptor global names.
     show_desc_counter: usize,
     /// Whether {-# LANGUAGE OverloadedStrings #-} is enabled.
@@ -268,6 +270,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
+            derived_functor_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -305,6 +308,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             derived_show_fns: FxHashMap::default(),
             derived_eq_fns: FxHashMap::default(),
             derived_compare_fns: FxHashMap::default(),
+            derived_functor_fns: FxHashMap::default(),
             show_desc_counter: 0,
             overloaded_strings: false,
             thunked_vars: FxHashSet::default(),
@@ -15485,6 +15489,14 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
             // Function applications returning known types
             Expr::App(f, _arg, _) => {
+                // E.51: fmap/(<$>) preserves the functor type — infer from the second arg
+                if let Expr::App(ff, _, _) = f.as_ref() {
+                    if let Expr::Var(fv, _) = ff.as_ref() {
+                        if fv.name.as_str() == "fmap" || fv.name.as_str() == "<$>" {
+                            return self.infer_show_from_expr(_arg);
+                        }
+                    }
+                }
                 // E.45: Check if it's a function that returns Integer
                 if self.is_integer_expr(expr) {
                     return Some((ShowCoerce::Integer, 1000618, "show_integer"));
@@ -15954,8 +15966,177 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
     // Phase 5: Monadic & Higher-Order Operation Handlers
     // ========================================================================
 
-    /// Lower `fmap` / `<$>`.
+    /// Lower `fmap` / `<$>` with type dispatch.
+    /// Dispatches to: user ADT (derived Functor), Maybe, List, or IO (fallback).
     fn lower_builtin_fmap(&mut self, func_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        // Check if action_expr is a user ADT with derived Functor
+        if let Some(type_name) = self.infer_adt_type_from_expr(action_expr) {
+            if self.derived_functor_fns.contains_key(&type_name) {
+                return self.lower_fmap_derived(func_expr, action_expr, &type_name);
+            }
+        }
+
+        // Check if action_expr looks like a Maybe value
+        if self.expr_looks_like_maybe(action_expr) {
+            return self.lower_fmap_maybe(func_expr, action_expr);
+        }
+
+        // Check if action_expr looks like a List value
+        if self.expr_looks_like_list(action_expr) {
+            return self.lower_builtin_map(func_expr, action_expr);
+        }
+
+        // Fallback: IO fmap (apply function to action result)
+        self.lower_fmap_io(func_expr, action_expr)
+    }
+
+    /// Lower fmap for a user-defined ADT with derived Functor.
+    /// Calls the derived fmap function: fn(env, f, x) -> result
+    fn lower_fmap_derived(
+        &mut self,
+        func_expr: &Expr,
+        value_expr: &Expr,
+        type_name: &str,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let fmap_var_id = self.derived_functor_fns.get(type_name).copied()
+            .ok_or_else(|| CodegenError::Internal(format!("fmap: no derived fmap for {}", type_name)))?;
+        let fmap_fn = self.functions.get(&fmap_var_id).copied()
+            .ok_or_else(|| CodegenError::Internal(format!("fmap: derived fmap function not found for {}", type_name)))?;
+
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fmap: no function value".to_string())
+        })?;
+        let value_val = self.lower_expr(value_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fmap: no value".to_string())
+        })?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let null_env = ptr_type.const_null();
+        let func_ptr = self.value_to_ptr(func_val)?;
+        let value_ptr = self.value_to_ptr(value_val)?;
+
+        // Flat 3-arg call: fn(env, f, x) -> result
+        let fn_ptr = fmap_fn.as_global_value().as_pointer_value();
+        let fn_type = ptr_type.fn_type(
+            &[ptr_type.into(), ptr_type.into(), ptr_type.into()],
+            false,
+        );
+        let result = self
+            .builder()
+            .build_indirect_call(fn_type, fn_ptr, &[null_env.into(), func_ptr.into(), value_ptr.into()], "derived_fmap")
+            .map_err(|e| CodegenError::Internal(format!("derived fmap call: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("derived fmap: returned void".to_string()))?;
+        Ok(Some(result))
+    }
+
+    /// Lower fmap for Maybe: fmap f Nothing = Nothing, fmap f (Just x) = Just (f x)
+    fn lower_fmap_maybe(
+        &mut self,
+        func_expr: &Expr,
+        maybe_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let maybe_val = self.lower_expr(maybe_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fmap Maybe: no value".to_string())
+        })?;
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| {
+            CodegenError::Internal("fmap Maybe: no function".to_string())
+        })?;
+
+        let ptr_type = self.type_mapper().ptr_type();
+        let i64_type = self.type_mapper().i64_type();
+        let maybe_ptr = self.value_to_ptr(maybe_val)?;
+
+        // Extract tag: Nothing=0, Just=1
+        let tag = self.extract_adt_tag(maybe_ptr)?;
+        let is_just = self.builder().build_int_compare(
+            inkwell::IntPredicate::NE,
+            tag,
+            i64_type.const_zero(),
+            "is_just",
+        ).map_err(|e| CodegenError::Internal(format!("fmap Maybe cmp: {:?}", e)))?;
+
+        let current_fn = self.builder().get_insert_block().and_then(|b| b.get_parent())
+            .ok_or_else(|| CodegenError::Internal("fmap Maybe: no current function".to_string()))?;
+        let just_bb = self.llvm_ctx.append_basic_block(current_fn, "fmap_just");
+        let nothing_bb = self.llvm_ctx.append_basic_block(current_fn, "fmap_nothing");
+        let merge_bb = self.llvm_ctx.append_basic_block(current_fn, "fmap_merge");
+
+        self.builder().build_conditional_branch(is_just, just_bb, nothing_bb)
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe branch: {:?}", e)))?;
+
+        // Just branch: extract payload, apply f, wrap in new Just
+        self.builder().position_at_end(just_bb);
+        let adt_type = self.adt_type(1);
+        let payload_gep = self.builder().build_struct_gep(adt_type, maybe_ptr, 1, "just_payload_ptr")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe gep: {:?}", e)))?;
+        let payload = self.builder().build_load(ptr_type, payload_gep, "just_payload")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe load: {:?}", e)))?;
+
+        // Apply f to payload
+        let func_ptr_val = match func_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Err(CodegenError::TypeError("fmap: function must be closure".to_string())),
+        };
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr_val)?;
+        let payload_ptr = self.value_to_ptr(payload)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let mapped = self
+            .builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr_val.into(), payload_ptr.into()], "fmap_applied")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe apply: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("fmap Maybe: apply returned void".to_string()))?;
+
+        // Allocate new Just(mapped): tag=1, arity=1
+        let alloc_fn = self.functions.get(&VarId::new(1000005)).copied()
+            .ok_or_else(|| CodegenError::Internal("fmap: bhc_alloc not found".to_string()))?;
+        let size_val = i64_type.const_int(16, false); // 8 tag + 8 payload
+        let raw_just = self.builder().build_call(alloc_fn, &[size_val.into()], "just_alloc")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe alloc: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("fmap: alloc returned void".to_string()))?;
+        let just_ptr = raw_just.into_pointer_value();
+
+        // Store tag = 1
+        let tag_gep = self.builder().build_struct_gep(adt_type, just_ptr, 0, "just_tag_ptr")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe tag gep: {:?}", e)))?;
+        self.builder().build_store(tag_gep, i64_type.const_int(1, false))
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe tag store: {:?}", e)))?;
+
+        // Store payload
+        let payload_out_gep = self.builder().build_struct_gep(adt_type, just_ptr, 1, "just_payload_out_ptr")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe payload gep: {:?}", e)))?;
+        let mapped_ptr = self.value_to_ptr(mapped)?;
+        self.builder().build_store(payload_out_gep, mapped_ptr)
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe payload store: {:?}", e)))?;
+
+        let just_result: BasicValueEnum<'ctx> = just_ptr.into();
+        self.builder().build_unconditional_branch(merge_bb)
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe just br: {:?}", e)))?;
+        let just_end_bb = self.builder().get_insert_block().unwrap();
+
+        // Nothing branch: return Nothing as-is
+        self.builder().position_at_end(nothing_bb);
+        let nothing_result: BasicValueEnum<'ctx> = maybe_ptr.into();
+        self.builder().build_unconditional_branch(merge_bb)
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe nothing br: {:?}", e)))?;
+        let nothing_end_bb = self.builder().get_insert_block().unwrap();
+
+        // Merge
+        self.builder().position_at_end(merge_bb);
+        let phi = self.builder().build_phi(ptr_type, "fmap_maybe_result")
+            .map_err(|e| CodegenError::Internal(format!("fmap Maybe phi: {:?}", e)))?;
+        phi.add_incoming(&[(&just_result, just_end_bb), (&nothing_result, nothing_end_bb)]);
+
+        Ok(Some(phi.as_basic_value()))
+    }
+
+    /// Lower fmap for IO: apply function to action result (original behavior).
+    fn lower_fmap_io(&mut self, func_expr: &Expr, action_expr: &Expr) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
         let action_result = self.lower_expr(action_expr)?.ok_or_else(|| CodegenError::Internal("fmap: no value".to_string()))?;
         let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("fmap: no function".to_string()))?;
         let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("fmap: function must be closure".to_string())) };
@@ -15968,6 +16149,26 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .try_as_basic_value().basic()
             .ok_or_else(|| CodegenError::Internal("fmap: returned void".to_string()))?;
         Ok(Some(result))
+    }
+
+    /// Check if an expression looks like a Maybe value based on its structure.
+    fn expr_looks_like_maybe(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::App(f, _, _) => self.expr_looks_like_maybe(f),
+            Expr::TyApp(e, _, _) => self.expr_looks_like_maybe(e),
+            Expr::Let(_, body, _) => self.expr_looks_like_maybe(body),
+            Expr::Var(var, _) => {
+                let name = var.name.as_str();
+                matches!(
+                    name,
+                    "Just" | "Nothing"
+                        | "readMaybe" | "lookupEnv" | "find" | "lookup"
+                        | "elemIndex" | "findIndex" | "listToMaybe"
+                        | "Data.Map.lookup" | "stripPrefix"
+                )
+            }
+            _ => false,
+        }
     }
 
     /// Lower `<*>`.
@@ -28178,6 +28379,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.derived_compare_fns.insert(type_name.clone(), var.id);
                     self.tag_constructors_with_type(expr, &type_name);
                 }
+                // Detect auto-derived Functor instance methods ($derived_fmap_TypeName_COUNTER)
+                else if let Some(remainder) = name.strip_prefix("$derived_fmap_") {
+                    let type_name = Self::strip_deriving_counter_suffix(remainder);
+                    self.derived_functor_fns.insert(type_name.clone(), var.id);
+                    self.tag_constructors_with_type(expr, &type_name);
+                }
                 // Detect manual instance methods ($instance_show_TypeName)
                 else if let Some(type_name) = name.strip_prefix("$instance_show_") {
                     self.derived_show_fns
@@ -28188,6 +28395,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                     self.tag_constructors_with_type(expr, type_name);
                 } else if let Some(type_name) = name.strip_prefix("$instance_compare_") {
                     self.derived_compare_fns
+                        .insert(type_name.to_string(), var.id);
+                    self.tag_constructors_with_type(expr, type_name);
+                } else if let Some(type_name) = name.strip_prefix("$instance_fmap_") {
+                    self.derived_functor_fns
                         .insert(type_name.to_string(), var.id);
                     self.tag_constructors_with_type(expr, type_name);
                 }

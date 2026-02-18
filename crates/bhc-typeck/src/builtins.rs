@@ -705,14 +705,14 @@ impl Builtins {
                 )
             }),
             ("<$>", {
-                // (<$>) :: (a -> b) -> [a] -> [b] (same as fmap/map)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                // (<$>) :: (a -> b) -> f a -> f b (same as fmap)
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+                let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![a.clone(), b.clone(), c.clone(), d.clone()],
                     Ty::fun(
                         Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                        Ty::fun(list_a, list_b),
+                        Ty::fun(Ty::Var(c), Ty::Var(d)),
                     ),
                 )
             }),
@@ -744,14 +744,16 @@ impl Builtins {
                 )
             }),
             ("fmap", {
-                // fmap :: (a -> b) -> [a] -> [b] (same as map)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                // fmap :: (a -> b) -> f a -> f b
+                // Use fully polymorphic signature since BHC doesn't have HKT variables.
+                // Codegen dispatches by expression structure (List, Maybe, user ADT, IO).
+                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+                let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
+                    vec![a.clone(), b.clone(), c.clone(), d.clone()],
                     Ty::fun(
                         Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                        Ty::fun(list_a, list_b),
+                        Ty::fun(Ty::Var(c), Ty::Var(d)),
                     ),
                 )
             }),
