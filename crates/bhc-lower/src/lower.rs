@@ -9,9 +9,10 @@
 
 use bhc_ast as ast;
 use bhc_hir as hir;
-use bhc_intern::Symbol;
+use bhc_intern::{Ident, Symbol};
 use bhc_span::Span;
 use camino::Utf8PathBuf;
+use rustc_hash::FxHashMap;
 
 use crate::context::{DefKind, LowerContext};
 use crate::desugar;
@@ -1038,6 +1039,135 @@ fn lower_decl(ctx: &mut LowerContext, decl: &ast::Decl) -> LowerResult<Vec<hir::
 
         // Pragmas in declarations are handled at parse time or ignored
         ast::Decl::PragmaDecl(_) => Ok(vec![]),
+
+        ast::Decl::StandaloneDeriving(sd) => {
+            let class = sd.class.name;
+            let type_name = extract_type_name(&sd.ty);
+            Ok(vec![hir::Item::StandaloneDeriving(hir::StandaloneDeriving {
+                class,
+                type_name,
+                span: sd.span,
+            })])
+        }
+
+        ast::Decl::PatternSynonym(_) => {
+            // Pattern synonyms are fully handled during name collection
+            // (collect_module_definitions) and expanded inline during
+            // lower_pat / lower_expr. No HIR item needed.
+            Ok(vec![])
+        }
+    }
+}
+
+/// Extract the type constructor name from a type (e.g., `Maybe Int` -> `Maybe`, `Foo` -> `Foo`).
+fn extract_type_name(ty: &ast::Type) -> Symbol {
+    match ty {
+        ast::Type::Con(ident, _) => ident.name,
+        ast::Type::App(f, _, _) => extract_type_name(f),
+        ast::Type::Paren(inner, _) => extract_type_name(inner),
+        _ => Symbol::intern("<unknown>"),
+    }
+}
+
+/// Substitute pattern synonym arguments into the RHS pattern.
+///
+/// For `pattern Succ n = Add n One` used as `Succ x`:
+/// - syn_args = ["n"], syn_pat = `Add n One`, actual_args = [Pat::Var("x")]
+/// - Result: `Add x One` (substitute `n` → `x` in the pattern)
+fn substitute_pattern_synonym(
+    syn_pat: &ast::Pat,
+    syn_args: &[Symbol],
+    actual_args: &[ast::Pat],
+    span: Span,
+) -> ast::Pat {
+    // Build substitution map: syn_arg_name -> actual_arg_pattern
+    let subst: FxHashMap<Symbol, &ast::Pat> = syn_args
+        .iter()
+        .zip(actual_args.iter())
+        .map(|(name, pat)| (*name, pat))
+        .collect();
+
+    subst_pat(syn_pat, &subst, span)
+}
+
+/// Convert a pattern to an expression (for bidirectional pattern synonyms).
+///
+/// `Con A B` → `App(App(Con(A), ...), ...)`, `Lit 42` → `Lit(42)`, `Var x` → `Var(x)`
+fn pat_to_expr(pat: &ast::Pat, span: Span) -> ast::Expr {
+    match pat {
+        ast::Pat::Con(ident, args, _) => {
+            let mut result = ast::Expr::Con(ident.clone(), span);
+            for arg in args {
+                let arg_expr = pat_to_expr(arg, span);
+                result = ast::Expr::App(Box::new(result), Box::new(arg_expr), span);
+            }
+            result
+        }
+        ast::Pat::Lit(lit, _) => ast::Expr::Lit(lit.clone(), span),
+        ast::Pat::Var(ident, _) => ast::Expr::Var(ident.clone(), span),
+        ast::Pat::Tuple(pats, _) => {
+            let exprs: Vec<ast::Expr> = pats.iter().map(|p| pat_to_expr(p, span)).collect();
+            ast::Expr::Tuple(exprs, span)
+        }
+        ast::Pat::List(pats, _) => {
+            let exprs: Vec<ast::Expr> = pats.iter().map(|p| pat_to_expr(p, span)).collect();
+            ast::Expr::List(exprs, span)
+        }
+        ast::Pat::Paren(inner, _) => {
+            let inner_expr = pat_to_expr(inner, span);
+            ast::Expr::Paren(Box::new(inner_expr), span)
+        }
+        ast::Pat::Infix(lhs, op, rhs, _) => {
+            let l = pat_to_expr(lhs, span);
+            let r = pat_to_expr(rhs, span);
+            ast::Expr::Infix(Box::new(l), op.clone(), Box::new(r), span)
+        }
+        ast::Pat::Wildcard(_) => {
+            // Wildcards in expression position shouldn't happen for bidirectional synonyms
+            ast::Expr::Var(Ident::from_str("_"), span)
+        }
+        _ => ast::Expr::Var(Ident::from_str("_"), span),
+    }
+}
+
+/// Recursively substitute variables in a pattern.
+fn subst_pat(pat: &ast::Pat, subst: &FxHashMap<Symbol, &ast::Pat>, span: Span) -> ast::Pat {
+    match pat {
+        ast::Pat::Var(ident, _) => {
+            if let Some(replacement) = subst.get(&ident.name) {
+                (*replacement).clone()
+            } else {
+                // Not a synonym arg — keep as variable
+                pat.clone()
+            }
+        }
+        ast::Pat::Con(ident, pats, s) => {
+            let new_pats = pats.iter().map(|p| subst_pat(p, subst, span)).collect();
+            ast::Pat::Con(ident.clone(), new_pats, *s)
+        }
+        ast::Pat::Infix(lhs, op, rhs, s) => {
+            let l = subst_pat(lhs, subst, span);
+            let r = subst_pat(rhs, subst, span);
+            ast::Pat::Infix(Box::new(l), op.clone(), Box::new(r), *s)
+        }
+        ast::Pat::Tuple(pats, s) => {
+            let new_pats = pats.iter().map(|p| subst_pat(p, subst, span)).collect();
+            ast::Pat::Tuple(new_pats, *s)
+        }
+        ast::Pat::List(pats, s) => {
+            let new_pats = pats.iter().map(|p| subst_pat(p, subst, span)).collect();
+            ast::Pat::List(new_pats, *s)
+        }
+        ast::Pat::As(name, inner, s) => {
+            let new_inner = subst_pat(inner, subst, span);
+            ast::Pat::As(name.clone(), Box::new(new_inner), *s)
+        }
+        ast::Pat::Paren(inner, s) => {
+            let new_inner = subst_pat(inner, subst, span);
+            ast::Pat::Paren(Box::new(new_inner), *s)
+        }
+        // Literals, wildcards, etc. pass through unchanged
+        _ => pat.clone(),
     }
 }
 
@@ -1614,6 +1744,27 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
 
         ast::Expr::Con(ident, span) => {
             let name = ident.name;
+            // Check if this is a bidirectional pattern synonym in expression position
+            if let Some((syn_args, syn_pat)) = ctx.lookup_pattern_synonym(name).cloned() {
+                if syn_args.is_empty() {
+                    // 0-arg synonym: convert RHS pattern to expression
+                    let expr = pat_to_expr(&syn_pat, *span);
+                    return lower_expr(ctx, &expr);
+                } else {
+                    // N-arg synonym: create a lambda
+                    // pattern Succ n = Add n One  →  \n -> Add n One
+                    let body = pat_to_expr(&syn_pat, *span);
+                    let mut result = body;
+                    for arg in syn_args.iter().rev() {
+                        result = ast::Expr::Lam(
+                            vec![ast::Pat::Var(Ident::new(*arg), *span)],
+                            Box::new(result),
+                            *span,
+                        );
+                    }
+                    return lower_expr(ctx, &result);
+                }
+            }
             if let Some(def_id) = resolve_constructor(ctx, name, *span) {
                 hir::Expr::Con(ctx.def_ref(def_id, *span))
             } else {
@@ -2154,6 +2305,11 @@ fn lower_pat(ctx: &mut LowerContext, pat: &ast::Pat) -> hir::Pat {
 
         ast::Pat::Con(ident, pats, span) => {
             let con_name = ident.name;
+            // Check if this is a pattern synonym and expand it
+            if let Some((syn_args, syn_pat)) = ctx.lookup_pattern_synonym(con_name).cloned() {
+                let expanded = substitute_pattern_synonym(&syn_pat, &syn_args, pats, *span);
+                return lower_pat(ctx, &expanded);
+            }
             if let Some(def_id) = resolve_constructor(ctx, con_name, *span) {
                 let con_ref = ctx.def_ref(def_id, *span);
                 let hir_pats: Vec<hir::Pat> = pats.iter().map(|p| lower_pat(ctx, p)).collect();

@@ -1146,34 +1146,109 @@ fn lower_case(
     alts: &[hir::CaseAlt],
     span: Span,
 ) -> LowerResult<core::Expr> {
-    use crate::pattern::bind_pattern_vars;
+    use crate::pattern::{bind_pattern_vars, lower_pat_to_alt_with_fallthrough};
 
     let scrutinee_core = lower_expr(ctx, scrutinee)?;
 
-    let mut core_alts = Vec::with_capacity(alts.len());
+    // Check if any alternative has a nested/complex sub-pattern that needs
+    // fallthrough support (e.g., `Lit 0` where the literal match may fail).
+    let needs_fallthrough = alts.iter().any(|alt| has_complex_subpatterns(&alt.pat));
 
+    if !needs_fallthrough {
+        // Simple case: no nested patterns, use the fast path
+        let mut core_alts = Vec::with_capacity(alts.len());
+        for alt in alts {
+            bind_pattern_vars(ctx, &alt.pat, None);
+            let rhs = if alt.guards.is_empty() {
+                lower_expr(ctx, &alt.rhs)?
+            } else {
+                lower_guarded_rhs(ctx, &alt.guards, &alt.rhs, span)?
+            };
+            let core_alt = lower_pat_to_alt(ctx, &alt.pat, rhs, span)?;
+            core_alts.push(core_alt);
+        }
+        return Ok(core::Expr::Case(
+            Box::new(scrutinee_core),
+            core_alts,
+            Ty::Error,
+            span,
+        ));
+    }
+
+    // Complex case: some alternatives have nested sub-patterns.
+    // Bind the scrutinee to a variable so fallthrough can re-case on it.
+    let scrut_var = ctx.fresh_var("scrut", Ty::Error, span);
+
+    // First, lower all alternatives' RHS and patterns (we need them all
+    // to build fallthrough expressions).
+    let mut lowered_alts: Vec<(hir::Pat, core::Expr)> = Vec::with_capacity(alts.len());
     for alt in alts {
-        // Pre-bind pattern variables so guards can reference them
-        // The variables will be bound to the scrutinee when the pattern matches
         bind_pattern_vars(ctx, &alt.pat, None);
-
-        // Handle guards by wrapping RHS in nested ifs
         let rhs = if alt.guards.is_empty() {
             lower_expr(ctx, &alt.rhs)?
         } else {
             lower_guarded_rhs(ctx, &alt.guards, &alt.rhs, span)?
         };
-
-        let core_alt = lower_pat_to_alt(ctx, &alt.pat, rhs, span)?;
-        core_alts.push(core_alt);
+        lowered_alts.push((alt.pat.clone(), rhs));
     }
 
-    Ok(core::Expr::Case(
-        Box::new(scrutinee_core),
-        core_alts,
+    // Build the core alternatives with fallthrough.
+    // For alternative i, the fallthrough is a case on scrut_var with alts [i+1..].
+    // We build from the end backwards so each fallthrough can be computed.
+    let mut core_alts_reversed: Vec<core::Alt> = Vec::with_capacity(lowered_alts.len());
+
+    for i in (0..lowered_alts.len()).rev() {
+        let (ref pat, ref rhs) = lowered_alts[i];
+
+        // Build fallthrough: a case on scrut_var with the remaining (already-built) alternatives
+        let fallthrough = if core_alts_reversed.is_empty() {
+            None // Last alternative: no fallthrough
+        } else {
+            // The remaining alternatives (in correct order)
+            let remaining: Vec<core::Alt> = core_alts_reversed.iter().rev().cloned().collect();
+            Some(core::Expr::Case(
+                Box::new(core::Expr::Var(scrut_var.clone(), span)),
+                remaining,
+                Ty::Error,
+                span,
+            ))
+        };
+
+        let core_alt = lower_pat_to_alt_with_fallthrough(ctx, pat, rhs.clone(), span, fallthrough)?;
+        core_alts_reversed.push(core_alt);
+    }
+
+    // Reverse to get correct order
+    core_alts_reversed.reverse();
+
+    // Wrap in let-binding for the scrutinee variable
+    let case_expr = core::Expr::Case(
+        Box::new(core::Expr::Var(scrut_var.clone(), span)),
+        core_alts_reversed,
         Ty::Error,
         span,
+    );
+
+    let bind = core::Bind::NonRec(scrut_var, Box::new(scrutinee_core));
+    Ok(core::Expr::Let(
+        Box::new(bind),
+        Box::new(case_expr),
+        span,
     ))
+}
+
+/// Check if a pattern has complex (non-variable, non-wildcard) sub-patterns
+/// within a constructor pattern. These require fallthrough support.
+fn has_complex_subpatterns(pat: &hir::Pat) -> bool {
+    match pat {
+        hir::Pat::Con(_, sub_pats, _) => {
+            sub_pats.iter().any(|p| !matches!(p, hir::Pat::Var(..) | hir::Pat::Wild(_)))
+        }
+        hir::Pat::RecordCon(_, fields, _) => {
+            fields.iter().any(|fp| !matches!(&fp.pat, hir::Pat::Var(..) | hir::Pat::Wild(_)))
+        }
+        _ => false,
+    }
 }
 
 /// Lower guarded RHS to nested if expressions.

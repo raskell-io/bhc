@@ -3388,7 +3388,9 @@ impl TyCtxt {
             | Item::Newtype(_)
             | Item::TypeAlias(_)
             | Item::Fixity(_)
-            | Item::Foreign(_) => {}
+            | Item::Foreign(_)
+            | Item::StandaloneDeriving(_)
+            | Item::PatternSynonym(_) => {}
         }
     }
 

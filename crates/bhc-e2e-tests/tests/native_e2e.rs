@@ -893,6 +893,30 @@ fn test_tier3_gadt_phantom_native() {
 }
 
 // =============================================================================
+// E.62: Pandoc Tier 1+2 Extensions
+// =============================================================================
+
+#[test]
+fn test_tier3_strict_data_native() {
+    run_native_test("tier3_io/strict_data", Profile::Default);
+}
+
+#[test]
+fn test_tier3_pattern_guards_native() {
+    run_native_test("tier3_io/pattern_guards", Profile::Default);
+}
+
+#[test]
+fn test_tier3_standalone_deriving_native() {
+    run_native_test("tier3_io/standalone_deriving", Profile::Default);
+}
+
+#[test]
+fn test_tier3_pattern_synonyms_native() {
+    run_native_test("tier3_io/pattern_synonyms", Profile::Default);
+}
+
+// =============================================================================
 // E.61: TypeOperators
 // =============================================================================
 

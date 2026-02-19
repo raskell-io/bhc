@@ -118,7 +118,8 @@ const fn get_item_def_id(item: &Item) -> Option<DefId> {
         Item::Newtype(n) => Some(n.id),
         Item::TypeAlias(t) => Some(t.id),
         Item::Class(c) => Some(c.id),
-        Item::Instance(_) | Item::Fixity(_) | Item::Foreign(_) => None,
+        Item::Instance(_) | Item::Fixity(_) | Item::Foreign(_)
+        | Item::StandaloneDeriving(_) | Item::PatternSynonym(_) => None,
     }
 }
 

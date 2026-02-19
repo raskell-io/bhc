@@ -33,6 +33,22 @@ pub fn lower_pat_to_alt(
     rhs: core::Expr,
     span: Span,
 ) -> LowerResult<Alt> {
+    lower_pat_to_alt_with_fallthrough(ctx, pat, rhs, span, None)
+}
+
+/// Lower a HIR pattern to a Core case alternative with an optional fallthrough.
+///
+/// When `fallthrough` is `Some(expr)`, nested sub-pattern failures will fall
+/// through to `expr` instead of generating a pattern match error. This is
+/// needed for case expressions where a nested pattern failure (e.g., the
+/// literal `0` in `Lit 0`) should try the remaining case alternatives.
+pub fn lower_pat_to_alt_with_fallthrough(
+    ctx: &mut LowerContext,
+    pat: &hir::Pat,
+    rhs: core::Expr,
+    span: Span,
+    fallthrough: Option<core::Expr>,
+) -> LowerResult<Alt> {
     match pat {
         Pat::Wild(_) => {
             // Wildcard matches anything
@@ -108,11 +124,12 @@ pub fn lower_pat_to_alt(
                     }
                     _ => {
                         // Complex sub-pattern: need nested case
-                        let sub_alt = lower_pat_to_alt(ctx, sub_pat, inner_rhs.clone(), span)?;
+                        let sub_alt = lower_pat_to_alt_with_fallthrough(ctx, sub_pat, inner_rhs.clone(), span, fallthrough.clone())?;
+                        let default_rhs = fallthrough.clone().unwrap_or_else(|| make_pattern_error(span));
                         let default_alt = Alt {
                             con: AltCon::Default,
                             binders: vec![],
-                            rhs: make_pattern_error(span),
+                            rhs: default_rhs,
                         };
 
                         inner_rhs = core::Expr::Case(
@@ -236,11 +253,12 @@ pub fn lower_pat_to_alt(
                             binders.push(binder);
                         }
                         _ => {
-                            let sub_alt = lower_pat_to_alt(ctx, &fp.pat, inner_rhs.clone(), span)?;
+                            let sub_alt = lower_pat_to_alt_with_fallthrough(ctx, &fp.pat, inner_rhs.clone(), span, fallthrough.clone())?;
+                            let default_rhs = fallthrough.clone().unwrap_or_else(|| make_pattern_error(span));
                             let default_alt = Alt {
                                 con: AltCon::Default,
                                 binders: vec![],
-                                rhs: make_pattern_error(span),
+                                rhs: default_rhs,
                             };
                             inner_rhs = core::Expr::Case(
                                 Box::new(core::Expr::Var(binder.clone(), span)),
@@ -283,11 +301,12 @@ pub fn lower_pat_to_alt(
             };
 
             // Create a nested case for the inner pattern
-            let inner_alt = lower_pat_to_alt(ctx, inner_pat, rhs, span)?;
+            let inner_alt = lower_pat_to_alt_with_fallthrough(ctx, inner_pat, rhs, span, fallthrough.clone())?;
+            let default_rhs = fallthrough.clone().unwrap_or_else(|| make_pattern_error(span));
             let default_alt = Alt {
                 con: AltCon::Default,
                 binders: vec![],
-                rhs: make_pattern_error(span),
+                rhs: default_rhs,
             };
 
             // The outer pattern binds the variable, then checks the inner
@@ -675,10 +694,11 @@ fn compile_tuple_pattern(
             _ => {
                 // Complex sub-pattern: need nested case
                 let sub_alt = lower_pat_to_alt(ctx, pat, inner_rhs.clone(), span)?;
+                let default_rhs = make_pattern_error(span);
                 let default_alt = Alt {
                     con: AltCon::Default,
                     binders: vec![],
-                    rhs: make_pattern_error(span),
+                    rhs: default_rhs,
                 };
 
                 inner_rhs = core::Expr::Case(

@@ -172,6 +172,8 @@ pub struct LowerContext {
     /// Class parameter counts: maps class name to number of type parameters.
     /// Used to decompose multi-param instance types during lowering.
     class_param_counts: FxHashMap<Symbol, usize>,
+    /// Pattern synonym definitions: maps synonym name to (arg names, RHS pattern).
+    pattern_synonyms: FxHashMap<Symbol, (Vec<Symbol>, ast::Pat)>,
 }
 
 impl Default for LowerContext {
@@ -198,6 +200,7 @@ impl LowerContext {
             qualified_names: FxHashMap::default(),
             type_signatures: FxHashMap::default(),
             class_param_counts: FxHashMap::default(),
+            pattern_synonyms: FxHashMap::default(),
         }
     }
 
@@ -2271,6 +2274,16 @@ impl LowerContext {
     /// Looks up the number of type parameters for a class.
     pub fn lookup_class_param_count(&self, class_name: Symbol) -> Option<usize> {
         self.class_param_counts.get(&class_name).copied()
+    }
+
+    /// Register a pattern synonym definition.
+    pub fn register_pattern_synonym(&mut self, name: Symbol, args: Vec<Symbol>, pattern: ast::Pat) {
+        self.pattern_synonyms.insert(name, (args, pattern));
+    }
+
+    /// Look up a pattern synonym definition.
+    pub fn lookup_pattern_synonym(&self, name: Symbol) -> Option<&(Vec<Symbol>, ast::Pat)> {
+        self.pattern_synonyms.get(&name)
     }
 }
 

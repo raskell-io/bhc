@@ -617,6 +617,8 @@ impl<'src> Parser<'src> {
             TokenKind::Instance => self.parse_instance_decl_with_doc(doc),
             TokenKind::Foreign => self.parse_foreign_decl_with_doc(doc),
             TokenKind::Infix | TokenKind::Infixl | TokenKind::Infixr => self.parse_fixity_decl(),
+            TokenKind::Deriving => self.parse_standalone_deriving(),
+            TokenKind::Pattern => self.parse_pattern_synonym(),
             TokenKind::Ident(_) => {
                 // Could be type signature or binding
                 self.parse_value_decl_with_doc(doc)
@@ -1496,6 +1498,14 @@ impl<'src> Parser<'src> {
             self.skip_virtual_tokens();
 
             if self.check(&TokenKind::Deriving) {
+                // Peek ahead: if next token after `deriving` is `instance`,
+                // this is a standalone deriving declaration, not part of the
+                // data type's deriving clause.
+                if self.pos + 1 < self.tokens.len()
+                    && self.tokens[self.pos + 1].node.kind == TokenKind::Instance
+                {
+                    break;
+                }
                 let classes = self.parse_single_deriving()?;
                 all_classes.extend(classes);
             } else {
@@ -1557,6 +1567,73 @@ impl<'src> Parser<'src> {
             Type::Paren(inner, _) => self.type_to_class_name(inner),
             _ => Ident::from_str("<unknown>"),
         }
+    }
+
+    /// Parse a standalone deriving declaration: `deriving instance Show Foo`
+    fn parse_standalone_deriving(&mut self) -> ParseResult<Decl> {
+        let start = self.current_span();
+        self.expect(&TokenKind::Deriving)?;
+        self.expect(&TokenKind::Instance)?;
+
+        // Parse class name
+        let class = self.parse_conid()?;
+
+        // Parse the type to derive for
+        let ty = self.parse_type()?;
+
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+
+        Ok(Decl::StandaloneDeriving(StandaloneDeriving {
+            class,
+            ty,
+            span,
+        }))
+    }
+
+    /// Parse a pattern synonym: `pattern Zero = Lit 0`
+    fn parse_pattern_synonym(&mut self) -> ParseResult<Decl> {
+        let start = self.current_span();
+        self.expect(&TokenKind::Pattern)?;
+
+        // Parse the pattern synonym name (uppercase constructor-like)
+        let name = self.parse_conid()?;
+
+        // Parse zero or more variable arguments
+        let mut args = Vec::new();
+        while let Some(&TokenKind::Ident(sym)) = self.current_kind() {
+            self.advance();
+            args.push(Ident::new(sym));
+        }
+
+        // Check direction: `=` (bidirectional) or `<-` (unidirectional)
+        let direction = if self.eat(&TokenKind::Eq) {
+            PatSynDir::Bidirectional
+        } else if self.eat(&TokenKind::LeftArrow) {
+            PatSynDir::Unidirectional
+        } else {
+            return Err(ParseError::Unexpected {
+                found: self
+                    .current()
+                    .map_or("end of input".to_string(), |t| {
+                        t.node.kind.description().to_string()
+                    }),
+                expected: "'=' or '<-' in pattern synonym".to_string(),
+                span: self.current_span(),
+            });
+        };
+
+        // Parse the RHS pattern
+        let pattern = self.parse_pattern()?;
+
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+
+        Ok(Decl::PatternSynonym(PatternSynonymDecl {
+            name,
+            args,
+            direction,
+            pattern,
+            span,
+        }))
     }
 
     /// Eat an identifier with a specific name

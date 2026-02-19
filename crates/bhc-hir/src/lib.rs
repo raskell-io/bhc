@@ -388,6 +388,12 @@ pub enum Item {
 
     /// A foreign import.
     Foreign(ForeignDecl),
+
+    /// A standalone deriving declaration.
+    StandaloneDeriving(StandaloneDeriving),
+
+    /// A pattern synonym definition.
+    PatternSynonym(PatternSynonymDef),
 }
 
 /// A value (function) definition.
@@ -658,6 +664,32 @@ pub enum ForeignConvention {
     StdCall,
     /// JavaScript FFI.
     JavaScript,
+}
+
+/// A standalone deriving declaration.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StandaloneDeriving {
+    /// The class to derive (e.g., Show).
+    pub class: Symbol,
+    /// The type to derive for (e.g., Color).
+    pub type_name: Symbol,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A pattern synonym definition.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PatternSynonymDef {
+    /// The pattern synonym name (e.g., Zero).
+    pub name: Symbol,
+    /// Pattern variable names.
+    pub args: Vec<Symbol>,
+    /// The RHS pattern.
+    pub pattern: Pat,
+    /// Whether this synonym is bidirectional (usable in expressions too).
+    pub bidirectional: bool,
+    /// Source span.
+    pub span: Span,
 }
 
 /// A HIR module.

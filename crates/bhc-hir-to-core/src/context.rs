@@ -1739,6 +1739,63 @@ impl LowerContext {
                     // For now, we create a placeholder binding
                     // TODO: Proper foreign binding representation
                 }
+                Item::StandaloneDeriving(sd) => {
+                    // Look up the data type by name in the module items
+                    // and derive the requested class for it.
+                    let class_name = sd.class;
+                    let type_name = sd.type_name;
+
+                    // Search for matching data or newtype definition
+                    let mut found = false;
+                    for other_item in &module.items {
+                        match other_item {
+                            Item::Data(data_def) if data_def.name == type_name => {
+                                if let Some(derived) = deriv_ctx
+                                    .derive_for_data(data_def, class_name)
+                                    .or_else(|| {
+                                        self.try_derive_any_class(
+                                            data_def.name,
+                                            &data_def.params,
+                                            class_name,
+                                            data_def.span,
+                                        )
+                                    })
+                                {
+                                    self.class_registry.register_instance(derived.instance);
+                                    bindings.extend(derived.bindings);
+                                }
+                                found = true;
+                                break;
+                            }
+                            Item::Newtype(newtype_def) if newtype_def.name == type_name => {
+                                if let Some(derived) = deriv_ctx
+                                    .derive_for_newtype(newtype_def, class_name)
+                                    .or_else(|| {
+                                        self.try_derive_any_class(
+                                            newtype_def.name,
+                                            &newtype_def.params,
+                                            class_name,
+                                            newtype_def.span,
+                                        )
+                                    })
+                                {
+                                    self.class_registry.register_instance(derived.instance);
+                                    bindings.extend(derived.bindings);
+                                }
+                                found = true;
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !found {
+                        // Type not found — silently ignore (may be imported)
+                    }
+                }
+                Item::PatternSynonym(_) => {
+                    // Pattern synonyms are fully handled during AST→HIR lowering.
+                    // No Core bindings needed.
+                }
             }
         }
 

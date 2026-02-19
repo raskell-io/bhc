@@ -372,8 +372,20 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                 }
             }
 
-            ast::Decl::Fixity(_) | ast::Decl::InstanceDecl(_) | ast::Decl::PragmaDecl(_) => {
+            ast::Decl::Fixity(_) | ast::Decl::InstanceDecl(_) | ast::Decl::PragmaDecl(_)
+            | ast::Decl::StandaloneDeriving(_) => {
                 // These don't introduce new names
+            }
+
+            ast::Decl::PatternSynonym(ps) => {
+                // Register the pattern synonym name as a constructor-like name
+                let name = ps.name.name;
+                let con_def_id = ctx.fresh_def_id();
+                ctx.define(con_def_id, name, DefKind::Constructor, ps.span);
+                ctx.bind_constructor(name, con_def_id);
+                // Store the pattern synonym definition for expansion during lower_pat
+                let args: Vec<Symbol> = ps.args.iter().map(|a| a.name).collect();
+                ctx.register_pattern_synonym(name, args, ps.pattern.clone());
             }
         }
     }

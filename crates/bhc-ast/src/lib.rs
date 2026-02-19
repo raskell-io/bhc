@@ -435,6 +435,45 @@ pub enum Decl {
     Fixity(FixityDecl),
     /// Pragma declaration: `{-# MINIMAL ... #-}`
     PragmaDecl(Pragma),
+    /// Standalone deriving: `deriving instance Show Foo`
+    StandaloneDeriving(StandaloneDeriving),
+    /// Pattern synonym: `pattern Zero = Lit 0`
+    PatternSynonym(PatternSynonymDecl),
+}
+
+/// A standalone deriving declaration: `deriving instance Show Foo`
+#[derive(Clone, Debug)]
+pub struct StandaloneDeriving {
+    /// The class to derive (e.g., Show, Eq).
+    pub class: Ident,
+    /// The type to derive for (e.g., Foo).
+    pub ty: Type,
+    /// Source span.
+    pub span: Span,
+}
+
+/// A pattern synonym declaration: `pattern Zero = Lit 0`
+#[derive(Clone, Debug)]
+pub struct PatternSynonymDecl {
+    /// The pattern synonym name (e.g., Zero).
+    pub name: Ident,
+    /// Pattern variables.
+    pub args: Vec<Ident>,
+    /// Direction: bidirectional (`=`) or unidirectional (`<-`).
+    pub direction: PatSynDir,
+    /// The RHS pattern.
+    pub pattern: Pat,
+    /// Source span.
+    pub span: Span,
+}
+
+/// Direction of a pattern synonym.
+#[derive(Clone, Debug)]
+pub enum PatSynDir {
+    /// `pattern Foo x = Con x 0` — usable in both patterns and expressions.
+    Bidirectional,
+    /// `pattern Foo x <- Con x _` — usable only in patterns.
+    Unidirectional,
 }
 
 /// A type signature.

@@ -451,7 +451,10 @@ fn collect_decl_exports(
             }
         }
 
-        ast::Decl::Fixity(_) | ast::Decl::PragmaDecl(_) => {
+        ast::Decl::Fixity(_)
+        | ast::Decl::PragmaDecl(_)
+        | ast::Decl::StandaloneDeriving(_)
+        | ast::Decl::PatternSynonym(_) => {
             // These don't create exports
         }
     }
