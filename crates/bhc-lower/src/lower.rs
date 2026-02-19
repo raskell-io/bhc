@@ -116,6 +116,14 @@ pub fn lower_module_with_cache(
         }
     });
 
+    let has_gadts = module.pragmas.iter().any(|p| {
+        if let ast::PragmaKind::Language(exts) = &p.kind {
+            exts.iter().any(|e| e.as_str() == "GADTs")
+        } else {
+            false
+        }
+    });
+
     let already_imports_prelude = module.imports.iter().any(|imp| {
         let name = imp
             .module
@@ -197,6 +205,7 @@ pub fn lower_module_with_cache(
         generalized_newtype_deriving: has_generalized_newtype_deriving,
         flexible_instances: has_flexible_instances,
         flexible_contexts: has_flexible_contexts,
+        gadts: has_gadts,
     })
 }
 
@@ -2813,6 +2822,8 @@ fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<
         .lookup_type(data.name.name)
         .expect("type should be pre-bound");
 
+    let is_gadt = !data.gadt_constrs.is_empty();
+
     // Collect all field types from constructors to infer parameter kinds
     let field_types = collect_field_types(&data.constrs);
 
@@ -2827,7 +2838,14 @@ fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<
         })
         .collect();
 
-    let cons: Vec<hir::ConDef> = data.constrs.iter().map(|c| lower_con_def(ctx, c)).collect();
+    let cons: Vec<hir::ConDef> = if is_gadt {
+        data.gadt_constrs
+            .iter()
+            .map(|c| lower_gadt_con_def(ctx, c))
+            .collect()
+    } else {
+        data.constrs.iter().map(|c| lower_con_def(ctx, c)).collect()
+    };
 
     let deriving: Vec<Symbol> = data.deriving.iter().map(|c| c.name).collect();
 
@@ -2836,6 +2854,7 @@ fn lower_data_decl(ctx: &mut LowerContext, data: &ast::DataDecl) -> LowerResult<
         name: data.name.name,
         params,
         cons,
+        is_gadt,
         deriving,
         span: data.span,
     })
@@ -2877,6 +2896,43 @@ fn lower_con_def(ctx: &mut LowerContext, con: &ast::ConDecl) -> hir::ConDef {
         id: con_def_id,
         name: con.name.name,
         fields,
+        gadt_return_ty: None,
+        span: con.span,
+    }
+}
+
+/// Lower a GADT constructor definition.
+///
+/// Decomposes the full constructor type `A -> B -> ... -> RetType` into
+/// field types `[A, B, ...]` and a return type `RetType`.
+fn lower_gadt_con_def(ctx: &mut LowerContext, con: &ast::GadtConDecl) -> hir::ConDef {
+    let con_def_id = ctx
+        .lookup_constructor(con.name.name)
+        .expect("GADT constructor should be pre-bound");
+
+    // Decompose the constructor type: strip forall, then peel function arrows
+    let full_ty = &con.ty;
+
+    // Strip forall if present
+    let inner_ty = match full_ty {
+        ast::Type::Forall(_, inner, _) => inner.as_ref(),
+        _ => full_ty,
+    };
+
+    // Walk the function arrow chain to separate argument types from return type
+    let mut arg_types = Vec::new();
+    let mut current = inner_ty;
+    while let ast::Type::Fun(from, to, _) = current {
+        arg_types.push(lower_type(ctx, from));
+        current = to.as_ref();
+    }
+    let return_ty = lower_type(ctx, current);
+
+    hir::ConDef {
+        id: con_def_id,
+        name: con.name.name,
+        fields: hir::ConFields::Positional(arg_types),
+        gadt_return_ty: Some(return_ty),
         span: con.span,
     }
 }

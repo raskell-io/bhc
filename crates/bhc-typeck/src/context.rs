@@ -115,6 +115,10 @@ pub struct TyCtxt {
     /// Constraints for these classes flow through dict-passing.
     /// Builtin classes (Show, Eq, Monad, MonadState, etc.) are handled by codegen.
     pub(crate) user_defined_classes: rustc_hash::FxHashSet<Symbol>,
+
+    /// Type names that are GADTs (have constructors with explicit return types).
+    /// Used to enable save/restore of substitution in case expressions.
+    pub(crate) gadt_types: rustc_hash::FxHashSet<Symbol>,
 }
 
 impl TyCtxt {
@@ -137,6 +141,7 @@ impl TyCtxt {
             scoped_type_variables: false,
             scoped_type_vars: FxHashMap::default(),
             user_defined_classes: rustc_hash::FxHashSet::default(),
+            gadt_types: rustc_hash::FxHashSet::default(),
         }
     }
 
@@ -3002,6 +3007,11 @@ impl TyCtxt {
         let tycon = TyCon::new(data.name, kind);
         self.env.register_type_con(tycon);
 
+        // Track GADT types for case expression refinement
+        if data.is_gadt {
+            self.gadt_types.insert(data.name);
+        }
+
         // Register data constructors and field accessors
         for con in &data.cons {
             let scheme = self.compute_data_con_scheme(data, con);
@@ -3201,30 +3211,52 @@ impl TyCtxt {
     fn compute_data_con_scheme(&self, data: &DataDef, con: &bhc_hir::ConDef) -> Scheme {
         use bhc_hir::ConFields;
 
-        // Build the result type: T a1 a2 ... an
-        let result_ty = Self::build_applied_type(data.name, &data.params);
+        // For GADT constructors, use the explicit return type
+        if let Some(ref gadt_ret_ty) = con.gadt_return_ty {
+            let field_types = match &con.fields {
+                ConFields::Positional(tys) => tys.clone(),
+                ConFields::Named(fields) => fields.iter().map(|f| f.ty.clone()).collect(),
+            };
 
-        // Build the function type from field types to result type
-        let field_types = match &con.fields {
-            ConFields::Positional(tys) => tys.clone(),
-            ConFields::Named(fields) => fields.iter().map(|f| f.ty.clone()).collect(),
-        };
+            // Build: field1 -> field2 -> ... -> ReturnType
+            let con_ty = field_types
+                .into_iter()
+                .rev()
+                .fold(gadt_ret_ty.clone(), |acc, field_ty| {
+                    Ty::fun(field_ty, acc)
+                });
 
-        // Fix the kinds of type variables in field types to match params.
-        // The field types were lowered without kind information, so type
-        // variables have kind Star. We need to update them to have the
-        // correct kinds from data.params.
-        let fixed_field_types: Vec<Ty> = field_types
-            .into_iter()
-            .map(|ty| Self::fix_type_var_kinds(&ty, &data.params))
-            .collect();
+            // Quantify over all free type variables in the constructor type
+            let free = con_ty.free_vars();
+            if free.is_empty() {
+                Scheme::mono(con_ty)
+            } else {
+                Scheme::poly(free, con_ty)
+            }
+        } else {
+            // H98 constructor: standard scheme
+            // Build the result type: T a1 a2 ... an
+            let result_ty = Self::build_applied_type(data.name, &data.params);
 
-        let con_ty = fixed_field_types
-            .into_iter()
-            .rev()
-            .fold(result_ty, |acc, field_ty| Ty::fun(field_ty, acc));
+            // Build the function type from field types to result type
+            let field_types = match &con.fields {
+                ConFields::Positional(tys) => tys.clone(),
+                ConFields::Named(fields) => fields.iter().map(|f| f.ty.clone()).collect(),
+            };
 
-        Scheme::poly(data.params.clone(), con_ty)
+            // Fix the kinds of type variables in field types to match params.
+            let fixed_field_types: Vec<Ty> = field_types
+                .into_iter()
+                .map(|ty| Self::fix_type_var_kinds(&ty, &data.params))
+                .collect();
+
+            let con_ty = fixed_field_types
+                .into_iter()
+                .rev()
+                .fold(result_ty, |acc, field_ty| Ty::fun(field_ty, acc));
+
+            Scheme::poly(data.params.clone(), con_ty)
+        }
     }
 
     /// Fix the kinds of type variables in a type to match the given params.

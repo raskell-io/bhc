@@ -429,6 +429,8 @@ pub struct DataDef {
     pub params: Vec<TyVar>,
     /// The data constructors.
     pub cons: Vec<ConDef>,
+    /// Whether this is a GADT (uses `where` syntax with explicit return types).
+    pub is_gadt: bool,
     /// Derived instances.
     pub deriving: Vec<Symbol>,
     /// Source span.
@@ -444,6 +446,8 @@ pub struct ConDef {
     pub name: Symbol,
     /// The field types.
     pub fields: ConFields,
+    /// For GADT constructors: the explicit return type (e.g., `Expr Int`).
+    pub gadt_return_ty: Option<Ty>,
     /// Source span.
     pub span: Span,
 }
@@ -679,6 +683,8 @@ pub struct Module {
     pub flexible_instances: bool,
     /// Whether {-# LANGUAGE FlexibleContexts #-} is enabled.
     pub flexible_contexts: bool,
+    /// Whether {-# LANGUAGE GADTs #-} is enabled.
+    pub gadts: bool,
 }
 
 /// An export specification.

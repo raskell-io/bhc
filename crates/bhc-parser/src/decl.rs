@@ -1124,14 +1124,22 @@ impl<'src> Parser<'src> {
         let name = self.parse_conid()?;
         let params = self.parse_ty_var_list()?;
 
-        // EmptyDataDecls: allow data declarations without `=` or constructors
-        let (constrs, deriving) = if self.eat(&TokenKind::Eq) {
+        // Three forms:
+        // 1. H98: `data T a = Con1 a | Con2`
+        // 2. GADT: `data T a where Con1 :: a -> T a; ...`
+        // 3. EmptyDataDecls: `data T a`
+        let (constrs, gadt_constrs, deriving) = if self.eat(&TokenKind::Eq) {
             let constrs = self.parse_constructors()?;
             let deriving = self.parse_deriving()?;
-            (constrs, deriving)
+            (constrs, vec![], deriving)
+        } else if self.check(&TokenKind::Where) {
+            // GADT syntax
+            let gadt_constrs = self.parse_gadt_constructors()?;
+            let deriving = self.parse_deriving()?;
+            (vec![], gadt_constrs, deriving)
         } else {
             let deriving = self.parse_deriving()?;
-            (vec![], deriving)
+            (vec![], vec![], deriving)
         };
 
         let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
@@ -1141,9 +1149,62 @@ impl<'src> Parser<'src> {
             name,
             params,
             constrs,
+            gadt_constrs,
             deriving,
             span,
         }))
+    }
+
+    /// Parse GADT constructors in a `where` block.
+    ///
+    /// Each entry is `ConName :: Type` separated by layout or semicolons.
+    fn parse_gadt_constructors(&mut self) -> ParseResult<Vec<GadtConDecl>> {
+        self.expect(&TokenKind::Where)?;
+
+        let mut constrs = Vec::new();
+
+        if self.eat(&TokenKind::LBrace) {
+            // Explicit braces
+            if !self.check(&TokenKind::RBrace) {
+                constrs.push(self.parse_gadt_con_decl()?);
+                while self.eat(&TokenKind::Semi) {
+                    if self.check(&TokenKind::RBrace) {
+                        break;
+                    }
+                    constrs.push(self.parse_gadt_con_decl()?);
+                }
+            }
+            self.expect(&TokenKind::RBrace)?;
+        } else if self.eat(&TokenKind::VirtualLBrace) {
+            // Layout-based declarations
+            if !self.check(&TokenKind::VirtualRBrace) {
+                constrs.push(self.parse_gadt_con_decl()?);
+                while self.eat(&TokenKind::VirtualSemi) {
+                    if self.check(&TokenKind::VirtualRBrace) {
+                        break;
+                    }
+                    constrs.push(self.parse_gadt_con_decl()?);
+                }
+            }
+            self.eat(&TokenKind::VirtualRBrace);
+        }
+
+        Ok(constrs)
+    }
+
+    /// Parse a single GADT constructor declaration: `ConName :: Type`.
+    fn parse_gadt_con_decl(&mut self) -> ParseResult<GadtConDecl> {
+        let start = self.current_span();
+        let name = self.parse_conid()?;
+        self.expect(&TokenKind::DoubleColon)?;
+        let ty = self.parse_type()?;
+        let span = start.to(self.tokens[self.pos.saturating_sub(1)].span);
+        Ok(GadtConDecl {
+            doc: None,
+            name,
+            ty,
+            span,
+        })
     }
 
     /// Parse a constructor identifier.

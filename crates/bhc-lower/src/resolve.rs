@@ -232,7 +232,7 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
 
                 let type_param_count = data_decl.params.len();
 
-                // Bind constructors
+                // Bind constructors (H98 syntax)
                 for con in &data_decl.constrs {
                     let con_name = con.name.name;
                     let con_def_id = ctx.fresh_def_id();
@@ -266,6 +266,25 @@ pub fn collect_module_definitions(ctx: &mut LowerContext, module: &ast::Module) 
                             ctx.bind_value(field_name, field_def_id);
                         }
                     }
+                }
+
+                // Bind GADT constructors
+                for con in &data_decl.gadt_constrs {
+                    let con_name = con.name.name;
+                    let con_def_id = ctx.fresh_def_id();
+
+                    // Count arity by counting function arrows in the type
+                    let arity = count_type_arrows(&con.ty);
+                    ctx.define_constructor_with_type(
+                        con_def_id,
+                        con_name,
+                        con.span,
+                        arity,
+                        type_name,
+                        type_param_count,
+                        None,
+                    );
+                    ctx.bind_constructor(con_name, con_def_id);
                 }
             }
 
@@ -435,6 +454,23 @@ fn collect_type_vars(ctx: &mut LowerContext, ty: &ast::Type, bindings: &mut Vec<
             // No type variables to collect in these
         }
     }
+}
+
+/// Count the number of function arrows in an AST type (for GADT arity).
+///
+/// Strips forall and then counts `->` occurrences.
+fn count_type_arrows(ty: &ast::Type) -> usize {
+    let inner = match ty {
+        ast::Type::Forall(_, inner, _) => inner.as_ref(),
+        _ => ty,
+    };
+    let mut count = 0;
+    let mut current = inner;
+    while let ast::Type::Fun(_, to, _) = current {
+        count += 1;
+        current = to.as_ref();
+    }
+    count
 }
 
 #[cfg(test)]

@@ -524,10 +524,25 @@ pub struct DataDecl {
     pub name: Ident,
     /// Type parameters.
     pub params: Vec<TyVar>,
-    /// Constructors.
+    /// Constructors (H98 syntax).
     pub constrs: Vec<ConDecl>,
+    /// GADT constructors (where syntax).
+    pub gadt_constrs: Vec<GadtConDecl>,
     /// Deriving clause.
     pub deriving: Vec<Ident>,
+    /// The span.
+    pub span: Span,
+}
+
+/// A GADT constructor declaration: `ConName :: Type`.
+#[derive(Clone, Debug)]
+pub struct GadtConDecl {
+    /// Documentation comment.
+    pub doc: Option<DocComment>,
+    /// Constructor name.
+    pub name: Ident,
+    /// The full constructor type, e.g. `Int -> Expr Int`.
+    pub ty: Type,
     /// The span.
     pub span: Span,
 }

@@ -36587,19 +36587,11 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                         Ok(truncated.into())
                     }
                     "Bool" => {
-                        let int_val = self
-                            .builder()
-                            .build_ptr_to_int(ptr, tm.i64_type(), "unbox_bool")
-                            .map_err(|e| {
-                                CodegenError::Internal(format!("failed to unbox bool: {:?}", e))
-                            })?;
-                        let bool_val = self
-                            .builder()
-                            .build_int_truncate(int_val, tm.bool_type(), "to_bool")
-                            .map_err(|e| {
-                                CodegenError::Internal(format!("failed to truncate bool: {:?}", e))
-                            })?;
-                        Ok(bool_val.into())
+                        // Bool values are always pointers (either tagged-int-as-pointer
+                        // 0/1 or heap-allocated Bool ADT). Keep as pointer — the case
+                        // expression handler uses extract_bool_tag() to handle both
+                        // representations correctly.
+                        Ok(ptr.into())
                     }
                     "Char" | "Char#" => {
                         let int_val = self

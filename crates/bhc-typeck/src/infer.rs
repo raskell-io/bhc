@@ -199,12 +199,27 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
             // Infer scrutinee type
             let scrut_ty = infer_expr(ctx, scrutinee);
 
+            // Check if the scrutinee type involves a GADT
+            let is_gadt_case = is_gadt_scrutinee(ctx, &scrut_ty);
+
             // All alternatives must produce the same type
             let result_ty = ctx.fresh_ty();
 
             for alt in alts {
-                let alt_ty = infer_case_alt(ctx, alt, &scrut_ty);
-                ctx.unify(&alt_ty, &result_ty, *span);
+                if is_gadt_case {
+                    // Save substitution before each GADT alternative
+                    let saved_subst = ctx.subst.clone();
+
+                    let alt_ty = infer_case_alt(ctx, alt, &scrut_ty);
+                    ctx.unify(&alt_ty, &result_ty, *span);
+
+                    // Restore substitution after each alternative
+                    // This keeps GADT type refinements local to each branch
+                    ctx.subst = saved_subst;
+                } else {
+                    let alt_ty = infer_case_alt(ctx, alt, &scrut_ty);
+                    ctx.unify(&alt_ty, &result_ty, *span);
+                }
             }
 
             result_ty
@@ -443,6 +458,33 @@ fn infer_case_alt(ctx: &mut TyCtxt, alt: &CaseAlt, scrut_ty: &Ty) -> Ty {
     ctx.env.pop_scope();
 
     rhs_ty
+}
+
+/// Check if a scrutinee type involves a GADT.
+///
+/// Applies the current substitution to resolve type variables, then extracts
+/// the type constructor head and checks if it's registered as a GADT.
+fn is_gadt_scrutinee(ctx: &TyCtxt, scrut_ty: &Ty) -> bool {
+    if ctx.gadt_types.is_empty() {
+        return false;
+    }
+    let resolved = ctx.subst.apply(scrut_ty);
+    let head = extract_type_head(&resolved);
+    if let Ty::Con(tc) = head {
+        ctx.gadt_types.contains(&tc.name)
+    } else {
+        false
+    }
+}
+
+/// Extract the head type constructor from a type.
+///
+/// Given `T a b`, returns `T`. Given `a -> b`, returns `->`.
+fn extract_type_head(ty: &Ty) -> Ty {
+    match ty {
+        Ty::App(f, _) => extract_type_head(f),
+        _ => ty.clone(),
+    }
 }
 
 /// Extract the result type from a constructor type.

@@ -882,6 +882,16 @@ fn test_tier3_strict_fields_native() {
     run_native_test("tier3_io/strict_fields", Profile::Default);
 }
 
+#[test]
+fn test_tier3_gadt_basic_native() {
+    run_native_test("tier3_io/gadt_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_gadt_phantom_native() {
+    run_native_test("tier3_io/gadt_phantom", Profile::Default);
+}
+
 // =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
