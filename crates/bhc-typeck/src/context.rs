@@ -501,6 +501,10 @@ impl TyCtxt {
         let class_name = class.as_str();
 
         match class_name {
+            // E.63: Generic/NFData satisfied by any concrete type
+            "Generic" | "NFData" if args.len() == 1 => {
+                return !matches!(&args[0], Ty::Var(_));
+            }
             // Monad IO is always satisfied
             "Monad" if args.len() == 1 => {
                 if let Ty::Con(tycon) = &args[0] {
@@ -548,6 +552,12 @@ impl TyCtxt {
     /// Check if a type has a built-in instance for a class.
     fn is_builtin_instance(&self, class: Symbol, ty: &Ty) -> bool {
         let class_name = class.as_str();
+
+        // E.63: Generic and NFData are satisfied by any concrete type
+        // (Generic is a stub class; NFData is a no-op in strict runtime)
+        if matches!(class_name, "Generic" | "NFData") {
+            return !matches!(ty, Ty::Var(_));
+        }
 
         match ty {
             Ty::Con(tycon) => {

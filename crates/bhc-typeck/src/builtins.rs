@@ -5485,6 +5485,45 @@ impl Builtins {
             );
         }
 
+        // E.63: Generic/NFData stubs at fixed DefIds 12200-12212
+        {
+            let a = TyVar::new(BUILTIN_TYVAR_A, Kind::Star);
+            let b = TyVar::new(BUILTIN_TYVAR_B, Kind::Star);
+            // from :: a -> Rep a  (stub — not used at runtime)
+            env.register_value(
+                DefId::new(12200),
+                Symbol::intern("from"),
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+            );
+            // to :: Rep a -> a  (stub — not used at runtime)
+            env.register_value(
+                DefId::new(12201),
+                Symbol::intern("to"),
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
+            );
+            // rnf :: a -> ()
+            env.register_value(
+                DefId::new(12210),
+                Symbol::intern("rnf"),
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::unit())),
+            );
+            // deepseq :: a -> b -> b
+            env.register_value(
+                DefId::new(12211),
+                Symbol::intern("deepseq"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                ),
+            );
+            // force :: a -> a
+            env.register_value(
+                DefId::new(12212),
+                Symbol::intern("force"),
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(a))),
+            );
+        }
+
         // Register transformer types and operations at fixed DefIds (10000+)
         self.register_transformer_ops(env);
 
@@ -6907,6 +6946,29 @@ impl Builtins {
             assoc_type_impls: vec![],
         });
 
+        // E.63: Register Generic class (stub — no real from/to codegen)
+        let generic_sym = Symbol::intern("Generic");
+        let generic_class = ClassInfo {
+            name: generic_sym,
+            params: vec![a.clone()],
+            fundeps: vec![],
+            supers: vec![],
+            methods: rustc_hash::FxHashMap::default(), // Empty: stub class
+            assoc_types: vec![],
+        };
+        env.register_class(generic_class);
+
+        // E.63: Register NFData class (stub — rnf is no-op in strict runtime)
+        let nfdata_sym = Symbol::intern("NFData");
+        let nfdata_class = ClassInfo {
+            name: nfdata_sym,
+            params: vec![a.clone()],
+            fundeps: vec![],
+            supers: vec![],
+            methods: rustc_hash::FxHashMap::default(), // Empty: rnf/deepseq/force are standalone builtins
+            assoc_types: vec![],
+        };
+        env.register_class(nfdata_class);
     }
 }
 

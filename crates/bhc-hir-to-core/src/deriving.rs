@@ -80,6 +80,7 @@ impl DerivingContext {
             "Functor" => self.derive_functor_data(data_def),
             "Foldable" => self.derive_foldable_data(data_def),
             "Traversable" => self.derive_traversable_data(data_def),
+            "Generic" | "NFData" => self.derive_empty_instance(data_def.name, &data_def.params, class_name),
             _ => {
                 // Unsupported class for derivation
                 None
@@ -101,8 +102,47 @@ impl DerivingContext {
             "Functor" => self.derive_functor_newtype(newtype_def),
             "Foldable" => self.derive_foldable_newtype(newtype_def),
             "Traversable" => self.derive_traversable_newtype(newtype_def),
+            "Generic" | "NFData" => self.derive_empty_instance(newtype_def.name, &newtype_def.params, class_name),
             _ => None,
         }
+    }
+
+    // =========================================================================
+    // Empty instance derivation (Generic, NFData)
+    // =========================================================================
+
+    /// Derive an empty instance (no bindings) for classes like Generic and NFData.
+    ///
+    /// Generic is a stub class in BHC — no from/to methods are generated.
+    /// NFData is a no-op since BHC evaluates strictly by default.
+    fn derive_empty_instance(
+        &mut self,
+        type_name: Symbol,
+        params: &[TyVar],
+        class_name: Symbol,
+    ) -> Option<DerivedInstance> {
+        let base = Ty::Con(TyCon::new(type_name, Kind::Star));
+        let instance_type = if params.is_empty() {
+            base
+        } else {
+            params.iter().fold(base, |acc, param| {
+                Ty::App(Box::new(acc), Box::new(Ty::Var(param.clone())))
+            })
+        };
+
+        let instance = InstanceInfo {
+            class: class_name,
+            instance_types: vec![instance_type],
+            methods: FxHashMap::default(),
+            superclass_instances: vec![],
+            assoc_type_impls: FxHashMap::default(),
+            instance_constraints: vec![],
+        };
+
+        Some(DerivedInstance {
+            instance,
+            bindings: vec![],
+        })
     }
 
     // =========================================================================

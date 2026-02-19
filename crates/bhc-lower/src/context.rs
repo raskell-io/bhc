@@ -1575,9 +1575,24 @@ impl LowerContext {
             self.bind_value(sym, def_id);
         }
 
+        // E.63: Generic/NFData stubs (fixed DefIds 12200-12212)
+        let generic_nfdata_fns: &[(usize, &str)] = &[
+            (12200, "from"),
+            (12201, "to"),
+            (12210, "rnf"),
+            (12211, "deepseq"),
+            (12212, "force"),
+        ];
+        for &(id, name) in generic_nfdata_fns {
+            let sym = Symbol::intern(name);
+            let def_id = DefId::new(id);
+            self.define(def_id, sym, DefKind::Value, Span::default());
+            self.bind_value(sym, def_id);
+        }
+
         // Ensure next_def_id is past the fixed DefId ranges
-        if self.next_def_id <= 12104 {
-            self.next_def_id = 12104;
+        if self.next_def_id <= 12213 {
+            self.next_def_id = 12213;
         }
     }
 

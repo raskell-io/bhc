@@ -3020,6 +3020,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "const" => Some(2),
             "not" => Some(1),
             "otherwise" => Some(0),
+            // E.63: DeepSeq stubs (no-ops in strict runtime)
+            "rnf" => Some(1),
+            "deepseq" => Some(2),
+            "force" => Some(1),
 
             // IO operations
             "putStrLn" => Some(1),
@@ -3664,6 +3668,21 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "id" => self.lower_expr(args[0]),
             "const" => self.lower_expr(args[0]),
             "not" => self.lower_builtin_not(args[0]),
+            // E.63: DeepSeq stubs (no-ops in strict runtime)
+            "rnf" => {
+                // rnf evaluates arg (already done since BHC is strict), returns unit
+                let _val = self.lower_expr(args[0])?;
+                Ok(Some(self.type_mapper().ptr_type().const_null().into()))
+            }
+            "deepseq" => {
+                // deepseq evaluates first arg (already done), returns second arg
+                let _val = self.lower_expr(args[0])?;
+                self.lower_expr(args[1])
+            }
+            "force" => {
+                // force is identity — value is already in normal form
+                self.lower_expr(args[0])
+            }
             "otherwise" => Ok(Some(
                 self.type_mapper().i64_type().const_int(1, false).into(),
             )),
@@ -17326,6 +17345,12 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             }
             // Function applications returning known types
             Expr::App(f, _arg, _) => {
+                // E.63: force/id are identity functions — infer from argument
+                if let Expr::Var(fv, _) = f.as_ref() {
+                    if fv.name.as_str() == "force" || fv.name.as_str() == "id" {
+                        return self.infer_show_from_expr(_arg);
+                    }
+                }
                 // E.51: fmap/(<$>) preserves the functor type — infer from the second arg
                 if let Expr::App(ff, _, _) = f.as_ref() {
                     if let Expr::Var(fv, _) = ff.as_ref() {
@@ -30717,9 +30742,10 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             // A constructor application: e.g., `Circle 5`
             Expr::App(f, arg, _) => {
                 // E.54: succ/pred preserve ADT type from their argument
+                // E.63: force/id are identity — preserve ADT type from argument
                 if let Expr::Var(fv, _) = f.as_ref() {
                     let fname = fv.name.as_str();
-                    if fname == "succ" || fname == "pred" {
+                    if fname == "succ" || fname == "pred" || fname == "force" || fname == "id" {
                         return self.infer_adt_type_from_expr(arg);
                     }
                     // E.54: toEnum — use single-enum heuristic
@@ -33031,6 +33057,19 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
                 Ok(Some(
                     self.type_mapper().i64_type().const_int(1, false).into(),
                 ))
+            }
+            // E.63: DeepSeq stubs (no-ops in strict runtime)
+            "rnf" => {
+                // rnf: evaluate arg (already done), return unit
+                Ok(Some(ptr_type.const_null().into()))
+            }
+            "deepseq" => {
+                // deepseq: evaluate first arg (already done), return second
+                Ok(Some(args[1]))
+            }
+            "force" => {
+                // force: identity — value already in normal form
+                Ok(Some(args[0]))
             }
 
             "toUpper" | "toLower" => {

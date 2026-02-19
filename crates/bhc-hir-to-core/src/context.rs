@@ -1333,6 +1333,8 @@ impl LowerContext {
             "Semigroup",
             "Monoid",
             "IsString",
+            "Generic",
+            "NFData",
         ];
         let name_str = class_name.as_str();
         !BUILTIN_CLASSES.contains(&name_str)

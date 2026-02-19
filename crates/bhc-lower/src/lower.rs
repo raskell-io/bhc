@@ -947,6 +947,15 @@ fn register_standard_module_exports(ctx: &mut LowerContext, module_name: &str) {
             "getLine",
             "getContents",
         ],
+        "GHC.Generics" => &[
+            "Generic",
+        ],
+        "Control.DeepSeq" => &[
+            "NFData",
+            "rnf",
+            "deepseq",
+            "force",
+        ],
         _ => &[],
     };
 
