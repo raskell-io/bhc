@@ -3,7 +3,7 @@
 **Document ID:** BHC-TODO-PANDOC
 **Status:** In Progress
 **Created:** 2026-01-30
-**Updated:** 2026-02-12
+**Updated:** 2026-02-21
 
 ---
 
@@ -18,66 +18,75 @@ north-star integration target for BHC's real-world Haskell compatibility.
 ## Current State
 
 BHC compiles real Haskell programs to native executables via LLVM:
-- 96 native E2E tests passing (including monad transformers, file IO, markdown parser, JSON parser)
+- **163 native E2E tests** registered (including monad transformers, file IO, markdown parser, JSON parser, GADTs, type extensions)
+- All intermediate milestones A–E.64 done
+
+### Standard Library & IO (E.5–E.31)
 - Monad transformers: StateT, ReaderT, ExceptT, WriterT all working
-- Nested transformer stacks: `StateT s (ReaderT r IO)` with cross-transformer `ask` working
-- MTL typeclasses registered: MonadReader, MonadState, MonadError, MonadWriter
+- Nested transformer stacks: all cross-transformer combinations working (E.55–E.57)
+- MTL typeclasses: MonadReader, MonadState, MonadError, MonadWriter
 - Exception handling: catch, bracket, finally, onException (E.5)
 - Multi-package support with import paths (E.6)
 - Data.Text: packed UTF-8 with 25+ operations (E.7)
 - Data.ByteString: 24 RTS functions, Data.Text.Encoding bridge (E.8)
-- Data.Char predicates, type-specialized show functions (E.9)
+- Data.Char predicates + Char Enum ranges, first-class predicates (E.9, E.36, E.37)
 - Data.Text.IO: native Text file/handle I/O (E.10)
-- Show for compound types: String, [a], Maybe, Either, (a,b), () (E.11)
-- Show for nested compound types: recursive ShowTypeDesc descriptors (E.31)
+- Show for compound/nested types via recursive ShowTypeDesc (E.11, E.31)
 - Numeric ops: even/odd, gcd/lcm, divMod/quotRem, fromIntegral + IORef (E.12)
-- Data.Maybe: fromMaybe, maybe, listToMaybe, maybeToList, catMaybes, mapMaybe (E.13)
-- Data.Either: either, fromLeft, fromRight, lefts, rights, partitionEithers (E.13)
-- Control.Monad: when, unless, guard, mapM_, any, all, filterM, foldM, foldM_, replicateM, replicateM_, zipWithM, zipWithM_ (E.13, E.14, E.18)
-- Data.List: scanr, scanl1, scanr1, unfoldr, intersect, zip3, zipWith3 (E.15)
-- Data.List: take-fused iterate, repeat, cycle (E.15)
-- Data.List: elemIndex, findIndex, isPrefixOf, isSuffixOf, isInfixOf, tails, inits (E.16)
-- Fixed stubs: maximum, minimum, and, or, Data.Map.notMember (E.16)
-- maximumBy, minimumBy, foldMap (E.16)
+- Data.Maybe, Data.Either, Control.Monad combinators (E.13, E.14, E.18)
+- Extensive Data.List: 70+ operations (E.15, E.16, E.26)
 - Ordering ADT (LT/EQ/GT), compare returning Ordering (E.17)
-- System.FilePath: takeFileName, takeDirectory, takeExtension, dropExtension, takeBaseName, replaceExtension, isAbsolute, isRelative, hasExtension, splitExtension, </> (E.19)
-- System.Directory: setCurrentDirectory, removeDirectory, renameFile, copyFile (E.19)
-- Data.Map: full operation set including update, alter, unions, keysSet, mapMaybe, mapMaybeWithKey (E.21, E.29)
-- Data.Set: full type support + unions, partition codegen (E.22)
-- Data.IntMap/Data.IntSet: full type support + filter, foldr codegen (E.22)
-- Fixed Bool ADT returns for container predicates (member, null, isSubmapOf) (E.21)
-- Fixed VarId suffix bug in Set/IntSet binary/predicate dispatches (E.22)
+- System.FilePath + System.Directory (E.19)
+- Data.Map/Set/IntMap/IntSet: full operation sets (E.21, E.22, E.29)
 - Stock deriving: Eq, Show, Ord for user-defined ADTs (E.23, E.24)
-- Polymorphic compare and comparison operators for derived Ord (E.24)
-- String methods: fromString, read, readMaybe (E.25)
-- Data.List: sortOn, nubBy, groupBy, deleteBy, unionBy, intersectBy, stripPrefix, insert, mapAccumL, mapAccumR (E.26)
-- Data.Function: succ, pred, (&) reverse application (E.27)
-- Data.Tuple: swap, curry, uncurry + fst/snd as first-class closures (E.27)
-- Arithmetic: min, max, subtract + Enum: enumFrom, enumFromThen, enumFromThenTo (E.28)
-- Folds: foldl1, foldr1 + Higher-order: comparing, until (E.28)
-- IO Input: getChar, isEOF, getContents, interact (E.28)
-- Partial application of codegen-only builtins: map (min 5) xs now works (E.28)
-- Fix flip calling convention (flat 3-arg), show Double/Float, Data.Map.mapMaybe (E.29)
-- Unified Bool extraction (extract_bool_tag) for filter/takeWhile/dropWhile/span/break/find/partition (E.30)
-- Show nested compound types: recursive ShowTypeDesc + bhc_show_with_desc (E.31)
-- All intermediate milestones A–E.31 done
+- Arithmetic, Enum, Folds, Higher-order, IO Input builtins (E.25–E.30)
+
+### Language Extensions (E.32–E.64)
+- OverloadedStrings + IsString typeclass (E.32)
+- Record syntax: named fields, accessors, construction, update, RecordWildCards, NamedFieldPuns (E.33)
+- ViewPatterns codegen with fallthrough (E.34)
+- TupleSections + MultiWayIf (E.35)
+- Manual typeclass instances with Show dispatch (E.38)
+- User-defined typeclasses: dictionary-passing, higher-kinded, default methods, superclasses (E.39–E.41)
+- DeriveAnyClass for user-defined typeclasses (E.42)
+- Word types (Word8/16/32/64), Integer arbitrary precision, lazy let-bindings (E.43–E.45)
+- ScopedTypeVariables (E.46)
+- GeneralizedNewtypeDeriving with newtype erasure (E.47)
+- FlexibleInstances, FlexibleContexts, instance context propagation (E.48)
+- MultiParamTypeClasses (E.49)
+- FunctionalDependencies (E.50)
+- DeriveFunctor, DeriveFoldable, DeriveTraversable (E.51–E.53)
+- DeriveEnum + DeriveBounded (E.54)
+- Cross-transformer codegen: ReaderT/StateT, ExceptT/StateT+ReaderT, WriterT/StateT+ReaderT (E.55–E.57)
+- Full lazy let-bindings for Haskell semantics (E.58)
+- EmptyDataDecls + strict field annotations (E.59)
+- GADTs with type refinement (E.60)
+- TypeOperators for infix type syntax (E.61)
+- StandaloneDeriving + PatternSynonyms + nested pattern fallthrough (E.62)
+- DeriveGeneric + NFData/DeepSeq stubs for Pandoc compatibility (E.63)
+- EmptyCase, StrictData, DefaultSignatures, OverloadedLists (E.64)
 
 ### Gap to Pandoc
 
-**Completed:** Self-contained programs with transformers, parsing, file IO, Text, ByteString, Text.IO, Data.Char, show for compound/nested types, numeric conversions, IORef, exceptions, multi-package imports, Data.Maybe/Either utilities, extensive Data.List operations, when/unless/guard/any/all, monadic combinators (filterM/foldM/replicateM/zipWithM), Ordering ADT with compare, System.FilePath + System.Directory, Data.Map complete (update/alter/unions/keysSet/mapMaybe), fixed DefId misalignment for Text/ByteString/exceptions (E.20), Bool ADT for container predicates (E.21), Data.Set/IntMap/IntSet full type support + codegen completions (E.22), stock deriving Eq/Show/Ord for user ADTs (E.23, E.24), String read/readMaybe/fromString (E.25), sortOn/nubBy/groupBy/... (E.26), succ/pred/(&)/swap/curry/uncurry (E.27), min/max/subtract/enum/folds/comparing/until/IO input + partial builtin application (E.28), flip/show Double/mapMaybe (E.29), unified Bool extraction (E.30), show nested compounds (E.31)
+**Completed (previously missing, now done):**
+1. ~~OverloadedStrings + IsString~~ — Done (E.32)
+2. ~~Record syntax~~ — Done (E.33): named fields, accessors, construction, update, RecordWildCards
+3. ~~ViewPatterns codegen~~ — Done (E.34)
+4. ~~TupleSections + MultiWayIf~~ — Done (E.35)
+5. ~~GeneralizedNewtypeDeriving~~ — Done (E.47): newtype erasure lifting instances
+6. ~~GHC.Generics~~ — Partial (E.63): DeriveGeneric stubs for Pandoc compatibility
 
-**Missing for Pandoc (prioritized):**
-1. **OverloadedStrings + IsString** — Pandoc uses `{-# LANGUAGE OverloadedStrings #-}` pervasively. Need `IsString` typeclass with `fromString` method + implicit coercion from string literals to `Text`/`ByteString`
-2. **Record syntax** — Named fields, field accessors as functions, record update syntax `r { field = val }`, `RecordWildCards`
-3. **ViewPatterns codegen** — Parser recognizes `ViewPatterns` but codegen doesn't handle `f -> pat` in pattern positions
-4. **TupleSections + MultiWayIf** — `(,x)` partial tuple constructors; `if | cond1 -> ... | cond2 -> ...` syntax
-5. **GeneralizedNewtypeDeriving** — Lift instances through newtypes; critical for Pandoc's `newtype` wrappers
-6. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
-7. **Lazy Text/ByteString** — Only strict variants implemented
-8. **GHC.Generics or TH** — Required for aeson JSON deriving
-9. **CPP preprocessing** — Pandoc and many deps use `#ifdef` for platform/version conditionals
-10. ~~**show for Bool from builtins**~~ — Fixed in E.21: container predicates now return proper Bool ADT
-11. ~~**show for nested types**~~ — Fixed in E.31: recursive ShowTypeDesc descriptors handle `[(1,2)]`, `Just [1,2]`, `[[1,2]]` etc.
+**Still missing for Pandoc (prioritized):**
+1. **Full package system** — Basic import paths work (E.6), but no Hackage .cabal parsing yet
+2. **Lazy Text/ByteString** — Only strict variants implemented
+3. **Template Haskell** — Required for aeson JSON deriving (alternative: full GHC.Generics)
+4. **CPP preprocessing** — Pandoc and many deps use `#ifdef` for platform/version conditionals
+5. **Exception hierarchy** — `Exception` typeclass with `toException`/`fromException`
+6. **Full GHC.Generics** — E.63 added stubs; full `Rep` type family + `from`/`to` still needed
+7. **parsec/megaparsec** — Pandoc depends on parsec for some formats
+8. **aeson** — JSON serialization with ToJSON/FromJSON (requires TH or full Generics)
+9. **Data.Sequence** — Finger tree (not started)
+10. **process/time/network-uri** — External dependency packages
 
 ---
 
@@ -201,10 +210,10 @@ Required for Pandoc but solvable without architectural changes.
 
 ### 2.1 GADT and Type Family Completion
 
-**Status:** Parsed, partially type-checked
-**Scope:** Medium
+**Status:** ✅ GADTs working (E.60), type families partially type-checked
+**Scope:** Medium (remaining: type families)
 
-- [ ] GADT type checking: refine types in branches based on constructor
+- [x] GADT type checking: refine types in branches based on constructor (E.60)
 - [ ] Type family reduction during type checking
 - [ ] Closed type families with overlapping equations
 - [ ] Data families
@@ -244,7 +253,9 @@ compiled from Hackage source.
 - [x] `lift`, `liftIO` — working for single-layer transformers
 - [x] MonadReader, MonadState, MonadError, MonadWriter classes — registered in type system
 - [x] Codegen for nested transformer stacks: `StateT s (ReaderT r IO)` working
-- [ ] Codegen for nested transformer stacks: `ReaderT r (StateT s IO)` (lifting StateT into ReaderT)
+- [x] Codegen for nested transformer stacks: `ReaderT r (StateT s IO)` working (E.55)
+- [x] ExceptT cross-transformer: ExceptT over StateT, ExceptT over ReaderT (E.56)
+- [x] WriterT cross-transformer: WriterT over StateT, WriterT over ReaderT (E.57)
 
 #### parsec / megaparsec
 - [ ] Pandoc has its own parsers but depends on parsec for some formats
@@ -277,20 +288,25 @@ compiled from Hackage source.
 
 ### 2.4 Deriving Infrastructure
 
-**Status:** Basic deriving works
-**Scope:** Medium
+**Status:** ✅ Extensive — 8 stock derivable classes + DeriveAnyClass + GND + DeriveGeneric stubs
+**Scope:** Small (remaining: full GHC.Generics, DerivingVia, Read, Ix)
 
-- [ ] `GHC.Generics` — `Generic` class with `Rep` type family
-- [ ] Generic representations: `V1`, `U1`, `K1`, `M1`, `:+:`, `:*:`
+- [x] `GHC.Generics` — DeriveGeneric stubs for Pandoc compatibility (E.63)
+- [ ] Generic representations: `V1`, `U1`, `K1`, `M1`, `:+:`, `:*:` (full Rep type family)
 - [ ] `from` / `to` methods for converting to/from generic rep
-- [ ] Derive `Generic` for user-defined types
+- [x] Derive `Generic` for user-defined types (E.63, stub — needs full Rep)
 - [x] Stock deriving: `Eq`, `Show` for simple enums and ADTs with fields (E.23)
 - [x] Stock deriving: `Ord` for simple enums and ADTs with fields (E.24)
-- [ ] Stock deriving: `Read`, `Bounded`, `Enum`, `Ix`
+- [x] Stock deriving: `Enum`, `Bounded` for enums (E.54)
+- [x] Stock deriving: `Functor` (E.51)
+- [x] Stock deriving: `Foldable` (E.52)
+- [x] Stock deriving: `Traversable` (E.53)
+- [ ] Stock deriving: `Read`, `Ix`
 - [ ] `DerivingStrategies`: stock, newtype, anyclass, via
-- [ ] `DeriveAnyClass` for type classes with default method implementations
+- [x] `DeriveAnyClass` for type classes with default method implementations (E.42)
 - [ ] `DerivingVia` for newtype-based instance delegation
-- [ ] `GeneralizedNewtypeDeriving` for lifting instances through newtypes
+- [x] `GeneralizedNewtypeDeriving` for lifting instances through newtypes (E.47)
+- [x] `StandaloneDeriving` (E.62)
 
 ---
 
@@ -669,16 +685,13 @@ Rather than jumping straight to Pandoc, build toward it incrementally:
 - [x] E2E tests: show_nested (list of tuples), show_nested_maybe (Maybe of list), show_nested_list (list of lists)
 - [x] 96 total E2E tests pass
 
-### Milestone E.32+: Road to Pandoc (Proposed)
+### Milestone E.32+: Road to Pandoc
 
-The following milestones are prioritized based on Pandoc's requirements:
-
-#### E.32: OverloadedStrings + IsString (HIGH PRIORITY)
-- [ ] `IsString` typeclass with `fromString :: String -> a` method
-- [ ] `OverloadedStrings` extension: string literals desugar to `fromString "..."` calls
-- [ ] `IsString` instances for Text, ByteString (via pack)
-- [ ] Identity instance for String (already have `fromString` as pass-through)
-- **Why**: Pandoc uses `{-# LANGUAGE OverloadedStrings #-}` in nearly every module
+#### E.32: OverloadedStrings + IsString ✅
+- [x] `IsString` typeclass with `fromString :: String -> a` method
+- [x] `OverloadedStrings` extension: string literals desugar to `fromString "..."` calls
+- [x] `IsString` instances for Text, ByteString (via pack)
+- [x] Identity instance for String
 
 #### E.33: Record Syntax ✅
 - [x] Named field declarations in data types
@@ -686,36 +699,119 @@ The following milestones are prioritized based on Pandoc's requirements:
 - [x] Record construction syntax `Foo { bar = 1, baz = "x" }`
 - [x] Record update syntax `r { field = newVal }`
 - [x] `RecordWildCards` extension (`Foo{..}` brings fields into scope)
-- **Why**: Pandoc's AST types (Block, Inline, Meta, etc.) are record-heavy
+- [x] `NamedFieldPuns` extension
 
 #### E.34: ViewPatterns Codegen ✅
 - [x] Lower `f -> pat` patterns to `let tmp = f arg in case tmp of pat -> ...`
 - [x] Handle in case expressions and function argument patterns
-- **Why**: Parser already recognizes ViewPatterns; codegen is the remaining gap
+- [x] Fallthrough semantics for non-matching patterns
 
 #### E.35: TupleSections + MultiWayIf ✅
 - [x] `TupleSections`: `(,x)` as partial tuple constructors, `(x,,z)` etc. — parser desugars to lambda
 - [x] `MultiWayIf`: `if | cond1 -> e1 | cond2 -> e2 | otherwise -> e3` — parser desugars to nested if-then-else
 - [x] Added `otherwise` to `lower_builtin_direct` for first-class use
-- **Why**: Common GHC extensions used in Pandoc and dependencies
 
-#### E.36: GeneralizedNewtypeDeriving
-- [ ] Lift typeclass instances through `newtype` wrappers
-- [ ] Support in `deriving` clause and standalone deriving
-- **Why**: Pandoc's newtypes (e.g., `newtype Pandoc = Pandoc ...`) need inherited instances
+#### E.36: Char Enum Ranges ✅
+- [x] Polymorphic enum functions for Char type
+- [x] Char range syntax: `['a'..'z']`
 
-#### E.37: CPP Preprocessing
-- [ ] `{-# LANGUAGE CPP #-}` — run C preprocessor on source before parsing
-- [ ] Handle `#ifdef`, `#if`, `#else`, `#endif`, `#define`, `#include`
-- [ ] Predefined macros: `__GLASGOW_HASKELL__`, `MIN_VERSION_base(...)`, OS/arch macros
-- **Why**: Many Hackage packages use CPP for platform/version conditionals
+#### E.37: Char First-Class Predicates ✅
+- [x] Data.Char predicates usable as first-class functions
+- [x] Fix print Bool ADT dispatch
 
-#### E.38: Package Management + .cabal Parsing
-- [ ] Parse `.cabal` files (exposed-modules, build-depends, hs-source-dirs)
-- [ ] Resolve transitive dependency graphs
-- [ ] Fetch packages from Hackage (tar.gz download + unpack)
-- [ ] Cache compiled packages
-- **Why**: Pandoc depends on ~80 packages; manual compilation is impractical
+#### E.38: Manual Typeclass Instances ✅
+- [x] Three-layer approach: lower → HIR-to-Core rename → codegen detect
+- [x] `$instance_show_`/`$instance_==_`/`$instance_compare_` prefix dispatch
+
+#### E.39: Dictionary-Passing for User-Defined Typeclasses ✅
+- [x] Full dictionary-passing pipeline for user-defined typeclasses
+- [x] ClassRegistry, DictContext, dict construction, `$sel_N` selectors
+
+#### E.40: Higher-Kinded Dictionary Passing ✅
+- [x] Dictionary passing for higher-kinded type variables (e.g., `Functor f`)
+
+#### E.41: Default Methods + Superclass Constraints ✅
+- [x] Default method implementations in typeclass declarations
+- [x] Superclass constraint propagation
+
+#### E.42: DeriveAnyClass ✅
+- [x] Derive instances for user-defined typeclasses with default methods
+
+#### E.43–E.45: Word Types + Integer + Lazy Let ✅
+- [x] Word8/Word16/Word32/Word64 types with conversion operations
+- [x] Integer arbitrary precision via `num-bigint` RTS (19 FFI functions)
+- [x] Lazy let-bindings (initial support)
+
+#### E.46: ScopedTypeVariables ✅
+- [x] `ScopedTypeVariables` extension enabling type variable scoping
+
+#### E.47: GeneralizedNewtypeDeriving ✅
+- [x] Lift typeclass instances through `newtype` wrappers via newtype erasure
+- [x] Support in `deriving` clause
+
+#### E.48: FlexibleInstances + FlexibleContexts ✅
+- [x] `FlexibleInstances` — instances on concrete types, nested types
+- [x] `FlexibleContexts` — non-variable constraints in contexts
+- [x] Instance context propagation
+
+#### E.49: MultiParamTypeClasses ✅
+- [x] Multiple type parameters in class declarations
+
+#### E.50: FunctionalDependencies ✅
+- [x] `| a -> b` functional dependency syntax in class declarations
+
+#### E.51: DeriveFunctor ✅
+- [x] Automatic `fmap` derivation for pure types
+
+#### E.52: DeriveFoldable ✅
+- [x] Automatic `foldr` derivation for user ADTs
+
+#### E.53: DeriveTraversable ✅
+- [x] Automatic `traverse` derivation for user ADTs
+
+#### E.54: DeriveEnum + DeriveBounded ✅
+- [x] Enum instances (toEnum/fromEnum) for simple enums
+- [x] Bounded instances (minBound/maxBound) for simple enums
+
+#### E.55: ReaderT-over-StateT Cross-Transformer ✅
+- [x] `ReaderT r (StateT s IO)` nested codegen with 3-arg closures
+
+#### E.56: ExceptT Cross-Transformer ✅
+- [x] ExceptT over StateT and ExceptT over ReaderT codegen
+
+#### E.57: WriterT Cross-Transformer ✅
+- [x] WriterT over StateT and WriterT over ReaderT codegen
+
+#### E.58: Full Lazy Let-Bindings ✅
+- [x] Full Haskell-semantics lazy let-bindings
+
+#### E.59: EmptyDataDecls + Strict Fields ✅
+- [x] `EmptyDataDecls` extension (data types with no constructors)
+- [x] `Type::Bang` for strict field annotations
+
+#### E.60: GADTs ✅
+- [x] GADT syntax with type refinement in pattern matches
+- [x] Bool field extraction fix
+
+#### E.61: TypeOperators ✅
+- [x] Infix type syntax (e.g., `a :+: b`)
+
+#### E.62: StandaloneDeriving + PatternSynonyms ✅
+- [x] `deriving instance Eq Foo` standalone syntax
+- [x] `pattern P x = Constructor x` bidirectional pattern synonyms
+- [x] Nested pattern fallthrough fix
+
+#### E.63: DeriveGeneric + NFData/DeepSeq Stubs ✅
+- [x] `DeriveGeneric` generates stub Generic instances
+- [x] NFData/DeepSeq stubs for Pandoc compatibility
+
+#### E.64: EmptyCase + StrictData + DefaultSignatures + OverloadedLists ✅
+- [x] `EmptyCase` — case with no alternatives
+- [x] `StrictData` — all fields strict by default in module
+- [x] `DefaultSignatures` — default method type signatures in classes
+- [x] `OverloadedLists` — list literal desugaring via `fromList`
+
+#### E.65+: Remaining Road to Pandoc (Proposed)
 
 ### Milestone F: Pandoc (Minimal)
 - [ ] Compile Pandoc with a subset of readers/writers (e.g., Markdown → HTML only)
@@ -755,253 +851,80 @@ The following milestones are prioritized based on Pandoc's requirements:
 
 ## Recent Progress
 
-### 2026-02-12: Milestone E.31 Show Nested Compound Types
-- Replaced flat i64 type tags with recursive `ShowTypeDesc` structs for nested show support
-- `ShowTypeDesc`: `#[repr(C)]` struct with `tag` (i64), `child1`/`child2` (*const ShowTypeDesc)
-- Tag scheme: 0-7 primitives, 10=List, 11=Maybe, 12=Tuple2, 13=Either
-- RTS: `show_any()` recursive dispatch, `show_any_prec()` for precedence parens, helper functions for list/maybe/tuple/either
-- `bhc_show_with_desc(ptr, desc)` FFI entry point at VarId 1000099
-- Codegen: `create_show_desc_global()` builds LLVM global constant descriptors at compile time
-- `build_show_descriptor()` recursively infers nested types from expression structure (Cons cells, Just/Nothing, tuple constructors, Left/Right)
-- Primitive ShowCoerce variants unchanged — backward compatible
-- E2E tests: show_nested `[(1,2),(3,4),(5,6)]`, show_nested_maybe `Just [10,20,30]`, show_nested_list `[[1,2],[3,4]]`
-- 96 E2E tests pass (93 existing + 3 new, 0 failures)
+### 2026-02-21: Roadmap Assessment (E.32–E.64)
 
-### 2026-02-12: Milestone E.30 Fix Bool Predicate Bug
-- Two Bool representations: tagged-int-as-pointer (0/1 from comparison ops) and Bool ADT (heap struct from even/odd/isAlpha)
-- `extract_bool_tag()`: unified helper checks `ptr_to_int <= 1` — if so, raw value; else loads ADT tag from struct
-- Applied to 7 list functions: filter, takeWhile, dropWhile, span, break, find, partition
-- Creates 3 new blocks per call site; phi nodes must reference `bool_merge` block (via `get_insert_block()`)
-- E2E tests: filter_bool, list_predicate_ops, partition_test
-- 93 E2E tests pass (90 existing + 3 new, 0 failures)
+33 milestones completed since last update, adding 66+ E2E tests. Major areas:
 
-### 2026-02-12: Milestone E.29 flip + show Double + Data.Map.mapMaybe
-- Fixed flip calling convention: was using curried 2-step calls (segfault), fixed to flat 3-arg `fn(env, arg2, arg1)`
-- Show Double/Float literals: `ShowCoerce::Double` handles `FloatValue` directly via fpext f32→f64
-- `expr_returns_double()`: recognizes unary (sqrt/sin/cos/...) and binary (/, **) Double-returning functions
-- `expr_looks_like_list`: Added Data.Map.toList/keys/elems/assocs, Data.Set.toList/elems
-- Data.Map.mapMaybe/mapMaybeWithKey at Fixed DefIds 11700-11701
-- flip/const added to `lower_builtin_direct` for first-class closure use
-- E2E tests: flip_test, show_double, map_maybe
-- 90 E2E tests pass (87 existing + 3 new, 0 failures)
+**Language Extensions (E.32–E.35):**
+- OverloadedStrings + IsString (E.32), Record syntax with wildcards/puns (E.33)
+- ViewPatterns codegen (E.34), TupleSections + MultiWayIf (E.35)
 
-### 2026-02-12: Milestone E.28 Arithmetic, Enum, Folds, Higher-Order, IO Input
-- 14 new builtins: min, max, subtract, enumFrom, enumFromThen, enumFromThenTo, foldl1, foldr1, comparing, until, getChar, isEOF, getContents, interact
-- `min`/`max`: inline LLVM `icmp slt/sgt` + `select` + `int_to_ptr`
-- `subtract`: flipped subtraction `y - x` (Haskell semantics)
-- `enumFrom`/`enumFromThen`: build bounded list (10000 elements max), `enumFromThenTo`: finite with runtime step-sign check
-- `foldl1`: extract head as init accumulator, foldl on tail; `foldr1`: reverse list, head of reversed as init, foldl with f(elem, acc)
-- `comparing f x y`: call f(x), f(y) via closure, inline compare → `allocate_ordering_adt`
-- `until p f x`: loop with phi, call predicate via closure, `ptr_to_int` for Bool check (tagged-int-as-pointer, NOT ADT)
-- 3 RTS functions: `bhc_getChar` (read single byte), `bhc_isEOF` (BufRead::fill_buf), `bhc_getContents` (read_to_string)
-- `interact`: codegen-composed getContents → closure call → putStr
-- New `create_partial_builtin_closure()`: enables partial application of codegen-only builtins (e.g., `map (min 5) xs`). Creates wrapper that captures provided args in env, accepts remaining args.
-- Fixed DefIds 11600-11613, VarIds 1000560-1000562
-- E2E tests: enum_functions (9 assertions), fold_misc (5 assertions including partial application)
-- 87 E2E tests pass (85 existing + 2 new, 0 failures)
+**Typeclass Revolution (E.38–E.42):**
+- Manual instances (E.38), dictionary-passing (E.39), higher-kinded (E.40)
+- Default methods + superclasses (E.41), DeriveAnyClass (E.42)
 
-### 2026-02-12: Milestone E.27 Data.Function + Data.Tuple Builtins
-- 6 new builtins: succ, pred, (&), swap, curry, uncurry
-- `succ`/`pred`: inline LLVM `build_int_add`/`build_int_sub` with `coerce_to_int` → `int_to_ptr`
-- `(&)`: reverse application — mirror of `lower_builtin_apply` with args swapped
-- `swap`: extract fst/snd via `extract_adt_field`, allocate reversed tuple via new `allocate_ptr_pair_tuple()` helper
-- `curry`: allocate tuple from (x, y) via `allocate_ptr_pair_tuple`, call f(tuple) via 1-arg closure
-- `uncurry`: extract fst/snd from pair, flat 3-arg call `fn_ptr(f_env, fst, snd)` — BHC uses flat calling convention, NOT curried
-- Added 5 entries to `lower_builtin_direct` for first-class closure use: fst, snd, succ, pred, swap
-- Fixed DefIds 11500-11505, arity entries in `builtin_info()`, dispatch in `lower_builtin()`
-- Key pitfall: uncurry initially used curried 2-step calls causing segfault — BHC compiles multi-arg user functions as FLAT `fn(env, x, y) -> result`
-- E2E tests: data_function (7 assertions), tuple_functions (10 assertions)
-- 85 E2E tests pass (83 existing + 2 new, 0 failures)
+**Type System Extensions (E.43–E.50):**
+- Word types + Integer + lazy let (E.43–E.45), ScopedTypeVariables (E.46)
+- GeneralizedNewtypeDeriving (E.47), FlexibleInstances/Contexts (E.48)
+- MultiParamTypeClasses (E.49), FunctionalDependencies (E.50)
 
-### 2026-02-11: Milestone E.26 More List Operations
-- 10 new RTS functions in `stdlib/bhc-base/src/list.rs`: sortOn, nubBy, groupBy, deleteBy, unionBy, intersectBy, stripPrefix, insert, mapAccumL, mapAccumR
-- Internal helpers: `extract_bool()` (handles both tagged-int-as-pointer and Bool ADT), `call_eq_closure()`, `alloc_nothing/just/tuple()`
-- Fixed DefIds 11400-11409, VarIds 1000550-1000559
-- Integrated `expr_looks_like_list()` into `infer_show_from_expr` App case for automatic list show dispatch
-- Key pitfall: polymorphic extractors (fromMaybe, snd, head) must NOT be in `expr_looks_like_list` — causes segfaults in tests where they return non-list types. Use recognized list wrappers instead: `concat (maybeToList (...))`, `take 100 (snd (...))`
-- E2E test: list_by_ops (13 assertions covering all 10 functions)
-- 83 E2E tests pass (82 existing + 1 new, 0 failures)
+**Deriving Infrastructure (E.51–E.54):**
+- DeriveFunctor (E.51), DeriveFoldable (E.52), DeriveTraversable (E.53)
+- DeriveEnum + DeriveBounded (E.54)
 
-### 2026-02-11: Milestone E.25 String Type Class Methods
-- `fromString` as identity pass-through, `read` (String→Int via RTS bhc_read_int), `readMaybe` (String→Maybe Int via RTS bhc_try_read_int)
-- Fixed DefIds 11300-11302, VarIds 1000540-1000541
-- Show inference: readMaybe recognized as Maybe-returning
-- E2E test: string_read
-- 82 E2E tests pass
+**Monad Transformers (E.55–E.57):**
+- ReaderT-over-StateT (E.55), ExceptT cross-transformer (E.56), WriterT cross-transformer (E.57)
 
-### 2026-02-12: Milestone E.24 Stock Deriving — Ord for User ADTs
-- Added `derived_compare_fns` dispatch table (mirrors derived_show_fns/derived_eq_fns from E.23)
-- Extended `detect_derived_instance_methods` to detect `$derived_compare_*` bindings
-- `lower_builtin_compare` checks for user ADTs with derived Ord before falling through to Int comparison
-- `PrimOp::Lt/Le/Gt/Ge` dispatch through derived compare: extract Ordering tag (0=LT, 1=EQ, 2=GT), compare (Lt: tag==0, Le: tag!=2, Gt: tag==2, Ge: tag!=0)
-- Made `compare` and comparison operators polymorphic in THREE places: `builtins.rs`, `typeck/context.rs` `cmp_binop()`, and fixed DefId block — previously monomorphic (`Int -> Int -> ...`)
-- E2E test: derive_ord (compare on enums, </<=/>/>=, multiple types)
-- 81 E2E tests pass (80 existing + 1 new, 0 failures)
+**Advanced Features (E.58–E.64):**
+- Full lazy let-bindings (E.58), EmptyDataDecls + strict fields (E.59)
+- GADTs with type refinement (E.60), TypeOperators (E.61)
+- StandaloneDeriving + PatternSynonyms (E.62), DeriveGeneric + NFData stubs (E.63)
+- EmptyCase + StrictData + DefaultSignatures + OverloadedLists (E.64)
 
-### 2026-02-12: Milestone E.23 Stock Deriving — Eq, Show for User ADTs
-- Fixed `fresh_var` off-by-one in `deriving.rs`: name used counter value N but VarId used N+1 (counter incremented between them). Fixed by capturing counter before increment.
-- Fixed `DerivingContext` creation: was recreated per data type in `context.rs`, causing VarId collision when multiple types derive in same module. Fixed by sharing single `DerivingContext` across module items.
-- `fresh_counter` starts at 50000 to avoid collision with fixed DefId ranges (10000-11273)
-- Added `type_name: Option<String>` to `ConstructorMeta` — tracks which data type each constructor belongs to
-- Pre-pass `detect_derived_instance_methods` scans bindings for `$derived_show_*`/`$derived_eq_*`, populates dispatch tables `derived_show_fns`/`derived_eq_fns`, and calls `tag_constructors_with_type` to label constructors
-- `strip_deriving_counter_suffix("Color_50000")` → `"Color"` using `rsplit_once('_')` + digit check
-- `infer_adt_type_from_expr` checks Var/App/Let/Case expressions against constructor_metadata for type_name
-- Show dispatch: `lower_builtin_show` calls derived show function via `build_indirect_call(fn_ptr, [env_ptr, value])` → returns string pointer
-- Eq dispatch: `PrimOp::Eq` calls derived eq function via `build_indirect_call(fn_ptr, [env_ptr, lhs, rhs])` → returns Bool ADT → `extract_adt_tag()` for i64 result
-- Fixed `register_constructor` to use `get_mut` + update (preserves existing `type_name`) instead of `.insert()` (which overwrote to None)
-- E2E tests: derive_show (Red/Green/Blue enum + Circle/Rectangle ADT with fields), derive_eq (enum equality and inequality)
-- 80 E2E tests pass (78 existing + 2 new, 0 failures)
+**Impact on Pandoc gaps:** Items #1-5 from the original "Missing for Pandoc" list are now complete
+(OverloadedStrings, Records, ViewPatterns, TupleSections/MultiWayIf, GeneralizedNewtypeDeriving).
+Remaining blockers: package system, CPP preprocessing, full GHC.Generics, type families.
 
-### 2026-02-11: Milestone E.22 Data.Set/IntMap/IntSet Type Completion
-- Added ~70 type match entries to typeck/context.rs for Data.Set (30 entries), Data.IntMap (25 entries), Data.IntSet (15 entries) — fixes triple registration pitfall where functions were in builtins.rs and lower/context.rs but missing from typeck/context.rs
-- Replaced 4 stub dispatches in lower.rs: Set.unions (cons-list walk + bhc_set_union accumulator), Set.partition (dual-accumulator with predicate → tuple return via alloc_adt), IntSet.filter (reuse Set.filter), IntSet.foldr (reuse Set.foldr)
-- Discovered and fixed pre-existing VarId suffix bug: `lower_builtin_set_binary`, `lower_builtin_set_predicate`, etc. take `rts_id: usize` and do `VarId::new(rts_id)` — dispatch sites were passing suffixes (e.g., 1127) instead of full VarIds (1000127), creating non-existent VarIds. Fixed 13 dispatch sites for Set and IntSet operations.
-- E2E tests: set_basic (fromList/size/member/insert/delete/union/intersection/difference/filter/foldr), intmap_intset (IntSet size/member/filter/foldr + IntMap size/member/insert/delete)
-- 78 E2E tests pass (76 existing + 2 new, 0 failures)
+### 2026-02-12: Milestones E.25–E.31
+- E.25: String read/readMaybe/fromString (82 tests)
+- E.26: 10 RTS list functions: sortOn, nubBy, groupBy, etc. (83 tests)
+- E.27: succ/pred/(&)/swap/curry/uncurry (85 tests)
+- E.28: 14 builtins (min/max/subtract/enum/folds/comparing/until/IO input), partial builtin application (87 tests)
+- E.29: flip fix (flat 3-arg), show Double/Float, Data.Map.mapMaybe (90 tests)
+- E.30: Unified Bool extraction (extract_bool_tag) for 7 list functions (93 tests)
+- E.31: Recursive ShowTypeDesc for nested compound show (96 tests)
 
-### 2026-02-10: Milestone E.21 Data.Map Completion
-- Linked bhc-containers in driver so Data.Map RTS functions are available at link time
-- Implemented 4 stubbed codegen functions: `unions` (cons-list fold via bhc_map_union), `keysSet` (iterate map keys into set), `update` (lookup + Maybe-returning closure + conditional delete/insert), `alter` (build input Maybe + closure + conditional delete/insert)
-- Fixed Bool ADT returns for 5 container predicates: `map_member`, `map_null`, `map_is_submap_of`, `set_null`, `set_member` — changed from `int_to_ptr()` (tagged-int-as-pointer) to `allocate_bool_adt()` (proper ADT struct)
-- Fixed show inference: `expr_returns_bool()` now recognizes qualified container names (Data.Map.member, Data.Map.null, Data.Set.member, Data.Set.null, Data.Map.isSubmapOf, etc.)
-- Fixed type signatures for `Data.Map.update` and `Data.Map.alter` in both builtins.rs and typeck/context.rs — closure types must include Maybe (`b -> Maybe b` and `Maybe b -> Maybe b`)
-- E2E tests: map_basic (un-ignored, was blocked by missing bhc-containers link), map_complete (new: tests update/alter/unions)
-- 76 E2E tests pass (74 existing + 2 new, 0 failures)
+### 2026-02-11: Milestones E.20–E.24
+- E.20: Fixed DefId misalignment for Text/ByteString/exceptions (74 tests)
+- E.21: Data.Map completion (update/alter/unions), Bool ADT fixes (76 tests)
+- E.22: Data.Set/IntMap/IntSet type completion, VarId suffix bug fix (78 tests)
+- E.23: Stock deriving Eq/Show for user ADTs (80 tests)
+- E.24: Stock deriving Ord, polymorphic compare (81 tests)
 
-### 2026-02-10: Milestone E.20 Fix DefId Misalignment
-- Fixed DefId misalignment for Data.Text (38 funcs), Data.ByteString (24 funcs), Data.Text.Encoding (2 funcs) + exception functions
-- Fixed DefIds 11200-11273 for all affected functions
-- Added typeck/context.rs match entries for throwIO/throw/try/evaluate and all Data.Text/ByteString/Map functions
-- 74 E2E tests pass (72 + 4 previously-broken text/exception tests fixed)
+### 2026-02-09: Milestones E.15–E.19
+- E.15: Data.List completions (scanr, unfoldr, zip3, iterate, repeat, cycle) (66 tests)
+- E.16: Fix broken stubs + 10 new list operations (69 tests)
+- E.17: Ordering ADT with compare (70 tests)
+- E.18: 7 monadic combinators (70 tests)
+- E.19: System.FilePath + System.Directory (72 tests)
 
-### 2026-02-09: Milestone E.19 System.FilePath + System.Directory
-- 14 RTS FFI functions in `rts/bhc-rts/src/ffi.rs`: takeFileName, takeDirectory, takeExtension, dropExtension, takeBaseName, replaceExtension, isAbsolute, isRelative, hasExtension, combine, setCurrentDirectory, removeDirectory, renameFile, copyFile
-- 1 codegen-composed function: splitExtension (calls dropExtension + takeExtension, packs into tuple)
-- Fixed DefIds 11100-11115, VarIds 1000520-1000534
-- Key bug found: `typeck/context.rs` has a separate type lookup match (`register_builtins_from_lowering_defs`) that must handle ALL builtins. Functions not in this match get fresh type variables in the second pass, causing type mismatch errors. This also affected previously-untested functions: createDirectory, removeFile, removeDirectory
-- Added type entries for 15 E.19 functions + 4 previously-missing functions in typeck/context.rs
-- E2E tests: filepath_basic (13 assertions), directory_ops (create/write/copy/rename/remove)
-- 72 E2E tests pass (70 existing + 2 new)
+### 2026-02-07: Milestones E.11–E.14
+- E.11: Show compound types (52 tests)
+- E.12: Numeric conversions + IORef (55 tests)
+- E.13: Data.Maybe + Data.Either + guard (58 tests)
+- E.14: when/unless + any/all + closure wrapping (61 tests)
 
-### 2026-02-09: Milestones E.17–E.18
-- E.17: Ordering ADT (LT/EQ/GT) with proper `compare` returning Ordering. ShowCoerce::Ordering. Fixed flat calling convention in maximumBy/minimumBy.
-- E.18: 7 monadic combinators (filterM, foldM, foldM_, replicateM, replicateM_, zipWithM, zipWithM_). Fixed DefIds 11000-11006. Key pitfall: replicateM/replicateM_ re-lower action_expr each iteration which creates new blocks.
-- 70 E2E tests pass after E.17-E.18
+### 2026-02-05–07: Milestones E.7–E.10
+- E.7: Data.Text packed UTF-8 (43 tests)
+- E.8: Data.ByteString + Text.Encoding (43 tests)
+- E.9: Data.Char predicates + type-specialized show (45 tests)
+- E.10: Data.Text.IO (46 tests)
 
-### 2026-02-07: Milestone E.16 Fix Broken Stubs + List Operations
-- Fixed 5 broken stubs: `maximum` (proper accumulator loop with `icmp sgt`), `minimum` (`icmp slt`), `and` (Bool ADT tag check, short-circuit on False), `or` (short-circuit on True), `Data.Map.notMember` (call member, XOR tag with 1)
-- 10 new functions at Fixed DefIds 10800-10809: `elemIndex`, `findIndex`, `isPrefixOf`, `isSuffixOf`, `isInfixOf`, `tails`, `inits`, `maximumBy`, `minimumBy`, `foldMap`
-- `isSuffixOf` reverses both lists then runs isPrefixOf logic; `isInfixOf` runs outer loop with inner isPrefixOf at each position
-- `tails`/`inits` build list-of-lists: tails walks consing suffixes; inits accumulates reversed elements, reverses prefix at each step
-- `maximumBy`/`minimumBy` call 2-arg comparison closure (partial application pattern), check Ordering ADT tag
-- `foldMap` delegates to `concatMap` (list Foldable specialization)
-- Known limitations: `show` for Bool-returning builtins prints raw pointers (type inference doesn't propagate Bool through `and`/`or` return); `compare` returns Int not Ordering ADT so `maximumBy compare` doesn't type-check
-- E2E tests: max_min_and_or, elem_index_prefix, tails_inits
-- 69 E2E tests pass (66 existing + 3 new)
-
-### 2026-02-07: Milestone E.15 Data.List Completions
-- 7 finite list ops: `scanr`, `scanl1`, `scanr1`, `unfoldr`, `intersect`, `zip3`, `zipWith3`
-- 3 infinite generators (take-fused): `iterate`, `repeat`, `cycle` — fused with `take` to avoid infinite loops
-- Fixed DefIds 10700-10706
-- E2E tests: scanr_basic, unfoldr_basic, zip3_basic, take_iterate, intersect_basic
-- 66 E2E tests pass
-
-### 2026-02-07: Milestone E.14 when/unless + any/all
-- Fixed `when`/`unless` Bool bug: was using `ptr_to_int` (gives non-zero for ADT pointers), now uses `extract_adt_tag()`
-- Implemented `any`/`all` with loop + predicate closure call + short-circuit on Bool tag
-- Added `even`/`odd` entries in `lower_builtin_direct` so they can be passed as first-class function values (e.g., `any even xs`)
-- E2E tests: when_unless, mapm_basic, any_all
-- 61 E2E tests pass
-
-### 2026-02-07: Milestone E.13 Data.Maybe + Data.Either + guard
-- 13 pure LLVM codegen functions, no RTS needed
-- Data.Maybe: `fromMaybe`, `maybe`, `listToMaybe`, `maybeToList`, `catMaybes`, `mapMaybe`
-- Data.Either: `either`, `fromLeft`, `fromRight`, `lefts`, `rights`, `partitionEithers`
-- Control.Monad: `guard` (returns `[()]` for True, `[]` for False)
-- Implementation patterns: Group A (tag check + phi), Group B (closure call), Group C (filter loop + reverse), Group D (dual accumulator)
-- Shared helper `build_inline_reverse()` used by catMaybes, lefts, rights, mapMaybe, partitionEithers
-- Fixed DefIds 10600-10622
-- E2E tests: data_maybe, data_either, guard_basic
-- 58 E2E tests pass
-
-### 2026-02-07: Milestone E.12 Numeric Conversions + IORef
-- Numeric conversions: `fromIntegral`/`toInteger`/`fromInteger` as identity pass-through (BHC only has Int/Double/Float)
-- `even`/`odd` via inline LLVM `srem(n, 2)`, returns proper Bool ADT via `allocate_bool_adt()`
-- `gcd`/`lcm` via RTS functions `bhc_gcd`/`bhc_lcm` (Euclidean algorithm)
-- `divMod` with floor-division semantics: adjusts quotient/remainder when signs differ
-- `quotRem` with truncation-toward-zero: direct LLVM `sdiv`/`srem`
-- Both return `(Int, Int)` tuples via `allocate_int_pair_tuple()` (24 bytes: tag + two int-as-ptr fields)
-- IORef: 3 RTS functions (`bhc_new_ioref`/`bhc_read_ioref`/`bhc_write_ioref`) + codegen-composed `modifyIORef`
-- Fixed DefIds 10500-10507 for numeric ops to bypass 30-entry sequential array misalignment bug
-- Added `expr_returns_bool()`/`expr_returns_int()` to `infer_show_from_expr` for proper show dispatch
-- VarIds 1000500-1000504, DefIds 10400-10404 (IORef) and 10500-10507 (numeric ops)
-- 55 E2E tests pass (52 existing + 3 new: numeric_ops, divmod, ioref_basic)
-
-### 2026-02-07: Milestone E.11 Show Compound Types
-- 6 RTS show functions: bhc_show_string, bhc_show_list, bhc_show_maybe, bhc_show_either, bhc_show_tuple2, bhc_show_unit
-- Expression-based type inference (`infer_show_from_expr`) as fallback since `expr.ty()` returns `Ty::Error` in Core IR
-- ShowCoerce extended with 6 compound variants; RTS type tags (0-5) passed as i64 args for element formatting
-- `bhc_show_list` special-cases tag==4 (Char) to format as String `"abc"` instead of `['a','b','c']`
-- VarIds 1000092-1000097, DefIds 10105-10110
-- 52 E2E tests pass (46 existing + 6 new show_* tests)
-
-### 2026-02-07: Milestone E.10 Data.Text.IO
-- 7 RTS functions in `stdlib/bhc-text/src/text_io.rs`: readFile, writeFile, appendFile, hGetContents, hGetLine, hPutStr, hPutStrLn
-- 4 codegen-composed convenience functions: putStr, putStrLn, getLine, getContents
-- Handle functions use same sentinel-pointer pattern as bhc-rts (1=stdin, 2=stdout, 3=stderr)
-- VarIds 1000240-1000246, DefIds 10300-10310
-- Fixed import shadowing bug: `register_standard_module_exports` must not call `register_qualified_name` when the qualified name is already directly bound — otherwise it redirects to the Prelude version
-- 46 E2E tests pass
-
-### 2026-02-06: Milestone E.9 Data.Char + Type-Specialized Show
-- Data.Char predicates: isAlpha, isDigit, isUpper, isLower, isAlphaNum, isSpace, isPunctuation
-- Data.Char conversions: toUpper, toLower, ord, chr, digitToInt, intToDigit
-- Type-specialized show: showInt, showBool, showChar, showFloat with ShowCoerce enum
-- Char predicates return proper ADT booleans (tag 0=False, 1=True) for showBool compatibility
-- Fixed VarId 1000091 for showBool (was incorrectly 1000075), added showFloat at VarId 1000090
-- bhc-base linked for char/show RTS functions
-- 45 E2E tests pass
-
-### 2026-02-06: Milestone E.8 Data.ByteString + Text Completion
-- ByteString RTS: 24 FFI functions with identical memory layout to Text (`[data_ptr, offset, byte_len, ...bytes...]`)
-- Data.Text.Encoding: `encodeUtf8` (zero-copy, shares UTF-8 buffer), `decodeUtf8` (validates UTF-8)
-- Additional Text ops: filter, foldl', concat, intercalate, strip, words, lines, splitOn, replace
-- Functions returning lists (words/lines/splitOn) build BHC cons-lists via `build_text_list()`
-- VarIds: ByteString 1000400-1000423, Text.Encoding 1000430-1000431, new Text ops 1000227-1000236
-- Fixed linker library search order: debug path now searched before release (prevents stale release `.dylib` shadowing)
-- Qualified names must be registered in three places: builtins.rs, context.rs `define_builtins()`, and lower.rs
-- 43 E2E tests pass, 66 bhc-text unit tests pass
-
-### 2026-02-05: Milestone E.7 Data.Text Foundation Complete
-- Implemented packed UTF-8 `Text` type via RTS-backed functions
-- Core API: pack, unpack, append, length, null, take, drop, toUpper, toLower
-- Registered in all three systems: typeck/builtins.rs, lower/context.rs, codegen/lower.rs
-- VarIds 1000200-1000226 allocated for Data.Text RTS functions
-- E2E test `tier3_io/text_basic` passes (outputs "5", "HELLO WORLD", "Hello", "World")
-- Discovered three-system registration requirement: type checker, lowering context, AND codegen
-
-### 2026-02-05: Milestone E JSON Parser Complete
-- Self-contained JSON key-value parser compiles and runs correctly
-- Demonstrates string parsing, field extraction, and integer conversion
-- Discovered and fixed several codegen bugs:
-  - Boolean operators (`&&`, `||`) now correctly extract ADT tags instead of using pointer values
-  - `lower_binary_bool` returns proper Bool ADT pointers instead of raw integers
-  - Added `extract_bool_value` helper for handling both raw booleans and Bool ADT pointers
-- Identified workarounds for current limitations:
-  - List wildcard patterns (`_`) should use explicit `[]` and `(_:_)` patterns
-  - Duplicate cons patterns in case need if-then-else rewrite
-  - Inline arithmetic in recursive calls needs let bindings
-- E2E test `milestone_e_json` passes (outputs "Alice" and "30")
-
-### 2026-02-05: Nested Transformer Codegen
-- Implemented `StateT s (ReaderT r IO)` nested transformer support
-- `ask` now works inside StateT computations over ReaderT
-- 3-argument closure convention: `(closure_env, state, reader_env)`
-- `apply_state_t_lift_to_value()` properly runs inner ReaderT actions
-- E2E test `cross_state_reader` now passes (outputs `15` from `10 + length "Hello"`)
-- MTL typeclasses (MonadReader, MonadState, etc.) registered in type system
-
-### 2026-01-30: Milestone D Complete
-- CSV parser using `StateT String IO` compiles and runs correctly
-- Demonstrates monad transformer codegen with String state manipulation
-- E2E test `milestone_d_csv_parser` passes
+### 2026-02-05: Milestones A–E (Foundations)
+- Milestone A: Multi-module compilation
+- Milestone B: File processing (word count, transform)
+- Milestone C: Markdown parser (~500 LOC)
+- Milestone D: StateT-based CSV parser
+- Milestone E: JSON parser
+- Nested transformer codegen (StateT over ReaderT)
+- Exception handling (catch, bracket, finally)

@@ -2,7 +2,7 @@
 
 **Document ID:** BHC-ROAD-0001
 **Status:** Active
-**Last Updated:** 2026-01-30
+**Last Updated:** 2026-02-21
 
 ---
 
@@ -177,7 +177,12 @@ This roadmap tracks the implementation of the Basel Haskell Compiler (BHC) from 
 
 **Goal:** Enable BHC to compile real-world Haskell projects like xmonad, pandoc, and lens.
 
-Currently, BHC's parser requires explicit braces `{}` and doesn't support many standard Haskell features. This milestone focuses on achieving compatibility with existing Haskell codebases.
+**Progress:** 163 E2E tests, 65 milestones (E.1–E.65), 30+ GHC extensions implemented.
+BHC now compiles non-trivial Haskell programs with records, GADTs, typeclasses,
+deriving, monad transformers, and most common GHC extensions. The focus has shifted
+from basic syntax support to the remaining infrastructure for Pandoc compilation.
+
+See `TODO-pandoc.md` for the detailed Pandoc compilation roadmap.
 
 ### Principles
 
@@ -188,60 +193,71 @@ Currently, BHC's parser requires explicit braces `{}` and doesn't support many s
 
 ### Deliverables
 
-#### Phase 1: LANGUAGE Pragmas
-- [ ] Parse `{-# LANGUAGE ExtensionName #-}` at module level
-- [ ] Parse `{-# OPTIONS_GHC ... #-}` (ignore for now)
-- [ ] Parse `{-# INLINE/NOINLINE/SPECIALIZE #-}` pragmas
-- [ ] Track enabled extensions per module
-- [ ] Common extensions: `OverloadedStrings`, `LambdaCase`, `BangPatterns`, etc.
+#### Phase 1: LANGUAGE Pragmas ✅
+- [x] Parse `{-# LANGUAGE ExtensionName #-}` at module level
+- [x] Parse `{-# OPTIONS_GHC ... #-}`
+- [x] Track enabled extensions per module
+- [x] 30+ extensions supported: OverloadedStrings, LambdaCase, BangPatterns, GADTs, ScopedTypeVariables, FlexibleInstances, FlexibleContexts, MultiParamTypeClasses, FunctionalDependencies, GeneralizedNewtypeDeriving, DeriveGeneric, DeriveFunctor, DeriveFoldable, DeriveTraversable, DeriveAnyClass, StandaloneDeriving, TypeOperators, PatternSynonyms, ViewPatterns, TupleSections, MultiWayIf, RecordWildCards, NamedFieldPuns, EmptyDataDecls, EmptyCase, StrictData, DefaultSignatures, OverloadedLists, InstanceSigs, etc.
+- [ ] Parse `{-# INLINE/NOINLINE/SPECIALIZE #-}` pragmas (parsed but not used by optimizer)
 
-#### Phase 2: Layout Rule
-- [ ] Implement Haskell 2010 layout rule (Section 10.3)
-- [ ] Implicit `{`, `}`, `;` insertion based on indentation
-- [ ] Handle `where`, `let`, `do`, `of`, `case` layout contexts
-- [ ] Mixed explicit/implicit layout support
+#### Phase 2: Layout Rule ✅
+- [x] Implement Haskell 2010 layout rule (Section 10.3)
+- [x] Implicit `{`, `}`, `;` insertion based on indentation
+- [x] Handle `where`, `let`, `do`, `of`, `case` layout contexts
+- [x] Mixed explicit/implicit layout support
+- [x] Multi-line type signatures (continuation tokens prevent spurious VirtualSemi)
+- [x] Guard syntax (`|`) handled as continuation
+- [x] Multi-level dedent generates correct VirtualRBrace sequence
+- [x] Nested layout blocks (where inside where, do inside do, let inside do)
+- [x] `\case` (LambdaCase) layout detection
+- [x] EOF cleanup closes remaining implicit blocks
 - [ ] Error recovery for layout mistakes
 
-#### Phase 3: Module System
-- [ ] Full export list syntax: `module Foo (bar, Baz(..), module X) where`
-- [ ] Import declarations with all forms:
-  - `import Foo`
-  - `import Foo (bar, baz)`
-  - `import Foo hiding (bar)`
-  - `import qualified Foo`
-  - `import qualified Foo as F`
-  - `import Foo (Type(..), pattern Pat)`
-- [ ] Qualified names: `Data.Map.lookup`
-- [ ] Hierarchical module names
+**Note:** The layout rule is fully implemented in the lexer (~300 lines in `bhc-lexer/src/lib.rs`)
+with VirtualLBrace/VirtualRBrace/VirtualSemi token insertion. All 163 E2E tests use
+indentation-based layout (only 3 of 163 use explicit braces). Verified with 39 lexer unit
+tests including edge cases and a comprehensive layout-focused E2E test (E.65).
 
-#### Phase 4: Declarations
-- [ ] Type class declarations with methods and default implementations
-- [ ] Instance declarations with method implementations
-- [ ] `deriving` clauses (stock: Eq, Ord, Show, Read, Enum, Bounded)
-- [ ] Standalone deriving: `deriving instance Eq Foo`
-- [ ] GADT syntax for data declarations
-- [ ] Pattern synonyms: `pattern P x = ...`
+#### Phase 3: Module System — Mostly Complete
+- [x] Import declarations with common forms (import, qualified, as, hiding)
+- [x] Qualified names: `Data.Map.lookup`
+- [x] Hierarchical module names
+- [x] Multi-module compilation with dependency ordering (E.6)
+- [ ] Full export list syntax: `module Foo (bar, Baz(..), module X) where`
+- [ ] `import Foo (Type(..), pattern Pat)` — pattern import syntax
+
+#### Phase 4: Declarations ✅
+- [x] Type class declarations with methods and default implementations (E.39–E.41)
+- [x] Instance declarations with method implementations (E.38)
+- [x] `deriving` clauses: Eq, Ord, Show, Enum, Bounded, Functor, Foldable, Traversable, Generic (E.23–E.24, E.51–E.54, E.63)
+- [x] Standalone deriving: `deriving instance Eq Foo` (E.62)
+- [x] GADT syntax for data declarations (E.60)
+- [x] Pattern synonyms: `pattern P x = ...` (E.62)
 - [ ] Foreign declarations: `foreign import/export`
 
-#### Phase 5: Patterns & Expressions
-- [ ] Pattern guards: `f x | Just y <- g x = ...`
-- [ ] View patterns: `f (view -> pat) = ...`
-- [ ] As-patterns: `f xs@(x:_) = ...`
-- [ ] Record patterns: `f Foo{bar=x} = ...`
-- [ ] Infix constructor patterns: `f (x:xs) = ...`
-- [ ] Where clauses in function definitions
-- [ ] Multi-way if: `if | cond1 -> e1 | cond2 -> e2`
-- [ ] Lambda-case: `\case Pat1 -> e1; Pat2 -> e2`
+#### Phase 5: Patterns & Expressions ✅
+- [x] Pattern guards: `f x | Just y <- g x = ...`
+- [x] View patterns: `f (view -> pat) = ...` (E.34)
+- [x] As-patterns: `f xs@(x:_) = ...`
+- [x] Record patterns: `f Foo{bar=x} = ...` (E.33)
+- [x] Infix constructor patterns: `f (x:xs) = ...`
+- [x] Where clauses in function definitions
+- [x] Multi-way if: `if | cond1 -> e1 | cond2 -> e2` (E.35)
+- [x] Lambda-case: `\case Pat1 -> e1; Pat2 -> e2`
 - [ ] Typed holes: `_ :: Type`
 
-#### Phase 6: Types
-- [ ] `forall` quantification: `forall a. a -> a`
-- [ ] Scoped type variables
+#### Phase 6: Types — Mostly Complete
+- [x] `forall` quantification: `forall a. a -> a`
+- [x] Scoped type variables (E.46)
+- [x] Kind signatures
+- [x] Constraint kinds: `(Show a, Eq a) => ...`
+- [x] MultiParamTypeClasses (E.49)
+- [x] FunctionalDependencies (E.50)
+- [x] FlexibleInstances, FlexibleContexts (E.48)
+- [x] TypeOperators (E.61)
 - [ ] Type applications: `f @Int x`
-- [ ] Kind signatures: `data Proxy (a :: k) = Proxy`
 - [ ] Type families: `type family F a where ...`
 - [ ] Associated type families in classes
-- [ ] Constraint kinds: `(Show a, Eq a) => ...`
 
 #### Phase 7: Core IR Optimization Pipeline
 
@@ -274,20 +290,22 @@ See `rules/013-optimization.md` for detailed design.
 
 Each phase will be validated against real codebases:
 
-| Phase | Test Target |
-|-------|-------------|
-| 1-2 | Parse xmonad's StackSet.hs without errors |
-| 3 | Resolve imports in a multi-module project |
-| 4 | Compile base library's Data.List |
-| 5-6 | Parse lens library type signatures |
-| 7 | Compiled programs run measurably faster; non-exhaustive pattern warnings emitted |
+| Phase | Test Target | Status |
+|-------|-------------|--------|
+| 1 | Parse `{-# LANGUAGE ... #-}` pragmas | ✅ 30+ extensions |
+| 2 | Parse xmonad's StackSet.hs without errors | Layout rule ✅, needs package system |
+| 3 | Resolve imports in a multi-module project | ✅ Working (E.6) |
+| 4 | Compile programs with classes, instances, GADTs | ✅ Working (E.38–E.64) |
+| 5 | Parse lens library type signatures | Blocked on type families |
+| 6 | Full type system coverage | Mostly done, type families remaining |
+| 7 | Compiled programs run measurably faster | Not started |
 
 ### Exit Criteria
 
-- [ ] `bhc check` succeeds on xmonad source files
-- [ ] `bhc check` succeeds on pandoc source files (excluding Template Haskell)
-- [ ] All Haskell 2010 Report features supported
-- [ ] Common GHC extensions parsed (even if semantics simplified)
+- [ ] `bhc check` succeeds on xmonad source files (needs package system)
+- [ ] `bhc check` succeeds on pandoc source files (needs package system, CPP)
+- [x] Common GHC extensions parsed and implemented (30+ extensions)
+- [ ] All Haskell 2010 Report features supported (layout rule ✅, foreign decls remaining)
 - [ ] Clear error messages for unsupported extensions
 - [ ] Core simplifier reduces code size by ≥20% on test programs
 - [ ] Non-exhaustive pattern matches produce compiler warnings

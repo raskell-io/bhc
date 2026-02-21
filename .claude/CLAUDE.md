@@ -387,9 +387,9 @@ cargo bench
 
 ## Implementation Roadmap
 
-### Current Status: Beta
+### Current Status: Beta (Active — Pandoc Compilation Target)
 
-The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell programs to native executables via LLVM. E2E tests verify hello world, arithmetic, fibonacci, and IO sequencing all work. The runtime system includes a generational GC with incremental marking support, work-stealing scheduler, and full STM support. WASM backend has substantial code but generated binaries fail wasmtime validation. GPU backend passes mock tests but requires CUDA hardware for real testing. REPL and tools compile but have stubbed evaluation.
+The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell programs to native executables via LLVM. **163 E2E tests** cover hello world through GADTs, monad transformers, records, user-defined typeclasses with dictionary passing, stock deriving (8 classes), and 30+ GHC extensions. 65 implementation milestones (E.1–E.65) completed. The runtime system includes a generational GC with incremental marking support, work-stealing scheduler, and full STM support. Current focus: compiling Pandoc as the north-star integration target (see `.claude/TODO-pandoc.md`). Key remaining gaps: package system, CPP preprocessing, Core IR optimizer, type families. WASM backend has substantial code but generated binaries fail wasmtime validation. GPU backend passes mock tests but requires CUDA hardware for real testing. REPL and tools compile but have stubbed evaluation.
 
 ### Phase 1: Core Compilation ✅ COMPLETE
 
@@ -516,6 +516,27 @@ The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell prog
 
 **Exit Criteria:** Developers can build, test, and deploy BHC projects.
 
+### Phase 9: Real-World Haskell Compatibility 🟡 70% COMPLETE
+
+**Goal:** Compile real-world Haskell projects (Pandoc as north-star target).
+
+| Task | Status | Description |
+|------|--------|-------------|
+| 9.1 GHC Extensions | 🟢 | 30+ extensions: OverloadedStrings, GADTs, FlexibleInstances, MultiParamTypeClasses, FunctionalDependencies, ScopedTypeVariables, TypeOperators, GeneralizedNewtypeDeriving, DeriveGeneric, DeriveFunctor/Foldable/Traversable, DeriveAnyClass, StandaloneDeriving, PatternSynonyms, ViewPatterns, RecordWildCards, etc. |
+| 9.2 Typeclass System | 🟢 | User-defined typeclasses with dictionary passing, higher-kinded, default methods, superclasses, DeriveAnyClass |
+| 9.3 Record Syntax | 🟢 | Named fields, accessors, construction, update, RecordWildCards, NamedFieldPuns |
+| 9.4 Stock Deriving | 🟢 | 8 classes: Eq, Show, Ord, Enum, Bounded, Functor, Foldable, Traversable + Generic stubs |
+| 9.5 Cross-Transformer Codegen | 🟢 | All combinations: StateT/ReaderT, ExceptT/StateT+ReaderT, WriterT/StateT+ReaderT |
+| 9.6 Layout Rule | 🟢 | Haskell 2010 indentation-based layout (where, let, do, case/of, guards, class/instance) |
+| 9.7 Core IR Optimizer | 🔴 | Simplifier, pattern match compilation, demand analysis, dictionary specialization |
+| 9.8 Package System | 🟡 | Basic import paths work; .cabal parsing, Hackage fetch, transitive deps needed |
+| 9.9 CPP Preprocessing | 🔴 | `#ifdef`/`#if`/`#else` for platform conditionals |
+| 9.10 Type Families | 🟡 | Parsed; reduction and associated types not yet implemented |
+
+**Exit Criteria:** `bhc check` succeeds on Pandoc source files (excluding Template Haskell).
+
+**Notes:** 163 E2E tests passing across 65 milestones. See `.claude/TODO-pandoc.md` for detailed Pandoc roadmap and `.claude/ROADMAP.md` for M11 tracking.
+
 ---
 
 ### Roadmap Legend
@@ -528,14 +549,15 @@ The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell prog
 
 ### Priority Order
 
-1. **Phase 1** — Without native codegen, nothing else matters
-2. **Phase 2** — Language features needed for real programs
-3. **Phase 3** — Numeric profile is our differentiator
-4. **Phase 4** — WASM opens new deployment targets
-5. **Phase 5** — Server profile for production services
-6. **Phase 6** — GPU for competitive numeric performance
-7. **Phase 7** — Advanced profiles for specialized use cases
-8. **Phase 8** — Polish and ecosystem
+1. **Phase 1** — Without native codegen, nothing else matters ✅
+2. **Phase 2** — Language features needed for real programs ✅
+3. **Phase 3** — Numeric profile is our differentiator ✅
+4. **Phase 9** — Real-world Haskell compatibility (current focus)
+5. **Phase 4** — WASM opens new deployment targets
+6. **Phase 5** — Server profile for production services ✅
+7. **Phase 6** — GPU for competitive numeric performance
+8. **Phase 7** — Advanced profiles for specialized use cases
+9. **Phase 8** — Polish and ecosystem
 
 ---
 
