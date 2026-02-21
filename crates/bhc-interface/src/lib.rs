@@ -29,6 +29,7 @@
 
 #![warn(missing_docs)]
 
+pub mod convert;
 pub mod generate;
 
 use camino::{Utf8Path, Utf8PathBuf};

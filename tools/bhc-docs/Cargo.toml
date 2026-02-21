@@ -8,6 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 description = "Documentation generator for BHC with type search and interactive examples"
+publish = false
 
 [dependencies]
 # Internal crates

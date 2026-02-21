@@ -1456,6 +1456,8 @@ impl Compiler {
     ///
     /// Pre-seeds the module cache with exports from already-compiled modules
     /// so that import resolution can find them without loading from disk.
+    /// Also searches for `.bhi` interface files in hidir and package-db
+    /// directories for modules not in the registry.
     fn lower_with_registry(
         &self,
         ast: &bhc_ast::Module,
@@ -1534,6 +1536,11 @@ impl Compiler {
             cache.insert(sym, remapped_exports);
         }
 
+        // Load interface files (.bhi) for imported modules not in the registry.
+        // This enables separate compilation: module B can import A via A.bhi
+        // without A's source code being part of the current compilation.
+        self.load_interfaces_for_imports(ast, registry, &mut cache, &mut ctx);
+
         let config = bhc_lower::LowerConfig {
             include_builtins: true,
             warn_unused: self.session.options.warn_all,
@@ -1548,6 +1555,164 @@ impl Compiler {
         }
 
         Ok((hir, ctx))
+    }
+
+    /// Search for `.bhi` interface files for imported modules not already in the
+    /// module cache. Converts loaded interfaces to `ModuleExports` and seeds
+    /// the cache so the lowering phase can resolve cross-module imports.
+    fn load_interfaces_for_imports(
+        &self,
+        ast: &bhc_ast::Module,
+        registry: &ModuleRegistry,
+        cache: &mut ModuleCache,
+        ctx: &mut LowerContext,
+    ) {
+        // Collect interface search directories: hidir + package_dbs
+        let mut iface_dirs: Vec<Utf8PathBuf> = Vec::new();
+        if let Some(ref hidir) = self.session.options.output_interface_dir {
+            iface_dirs.push(hidir.clone());
+        }
+        for db_path in &self.session.options.package_dbs {
+            iface_dirs.push(db_path.clone());
+        }
+
+        if iface_dirs.is_empty() {
+            return;
+        }
+
+        // Extract imported module names from the AST
+        for import in &ast.imports {
+            let module_name: String = import
+                .module
+                .parts
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(".");
+
+            // Skip if already in registry or cache
+            if registry.modules.contains_key(&module_name) {
+                continue;
+            }
+            let sym = Symbol::intern(&module_name);
+            if cache.get(sym).is_some() {
+                continue;
+            }
+
+            // Try to find a .bhi interface file
+            for dir in &iface_dirs {
+                let iface_path = bhc_interface::interface_path(dir, &module_name);
+                if iface_path.as_std_path().exists() {
+                    match bhc_interface::ModuleInterface::read_from_file(&iface_path) {
+                        Ok(iface) => {
+                            debug!(
+                                module = %module_name,
+                                interface = %iface_path,
+                                "loaded interface file for import"
+                            );
+                            let exports =
+                                Self::interface_to_module_exports(&iface, &module_name, ctx);
+                            cache.insert(sym, exports);
+                            break; // Found it, stop searching
+                        }
+                        Err(e) => {
+                            debug!(
+                                module = %module_name,
+                                error = %e,
+                                "failed to read interface file"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convert a loaded `ModuleInterface` into `ModuleExports` suitable for
+    /// the lowering context's module cache.
+    ///
+    /// Allocates fresh DefIds for all exported names to avoid collisions with
+    /// the current module's definitions.
+    fn interface_to_module_exports(
+        iface: &bhc_interface::ModuleInterface,
+        module_name: &str,
+        ctx: &mut LowerContext,
+    ) -> ModuleExports {
+        use bhc_interface::TypeDefinition;
+        use bhc_lower::ConstructorInfo;
+
+        let mut exports = ModuleExports::new(Symbol::intern(module_name));
+        let mut converter = bhc_interface::convert::TypeConverter::new(90000);
+
+        // Register exported values (functions, constants) with their type schemes
+        for value in &iface.values {
+            let name = Symbol::intern(&value.name);
+            let fresh_id = ctx.fresh_def_id();
+            let scheme = converter.convert_type_signature(&value.signature);
+            ctx.define_with_type(
+                fresh_id,
+                name,
+                bhc_lower::DefKind::Value,
+                bhc_span::Span::default(),
+                scheme,
+            );
+            exports.values.insert(name, fresh_id);
+        }
+
+        // Register exported types and their constructors
+        for exported_type in &iface.types {
+            let type_name = Symbol::intern(&exported_type.name);
+            let fresh_type_id = ctx.fresh_def_id();
+            ctx.define(
+                fresh_type_id,
+                type_name,
+                bhc_lower::DefKind::Type,
+                bhc_span::Span::default(),
+            );
+            exports.types.insert(type_name, fresh_type_id);
+
+            // Extract constructors from the type definition
+            if let Some(ref definition) = exported_type.definition {
+                let (constructors, is_newtype) = match definition {
+                    TypeDefinition::Data(cons) => (cons.as_slice(), false),
+                    TypeDefinition::Newtype(con) => (std::slice::from_ref(con), true),
+                    TypeDefinition::TypeSynonym(_) => continue, // No constructors
+                };
+
+                for (tag, con) in constructors.iter().enumerate() {
+                    let con_name = Symbol::intern(&con.name);
+                    let fresh_con_id = ctx.fresh_def_id();
+
+                    let field_names = con.field_names.as_ref().map(|names| {
+                        names.iter().map(|n| Symbol::intern(n)).collect::<Vec<_>>()
+                    });
+
+                    ctx.define_constructor_with_type(
+                        fresh_con_id,
+                        con_name,
+                        bhc_span::Span::default(),
+                        con.fields.len(),
+                        type_name,
+                        exported_type.params.len(),
+                        field_names.clone(),
+                    );
+
+                    #[allow(clippy::cast_possible_truncation)]
+                    let con_info = ConstructorInfo {
+                        def_id: fresh_con_id,
+                        arity: con.fields.len(),
+                        type_con_name: type_name,
+                        type_param_count: exported_type.params.len(),
+                        tag: tag as u32,
+                        field_names,
+                        is_newtype,
+                    };
+                    exports.constructors.insert(con_name, con_info);
+                }
+            }
+        }
+
+        exports
     }
 
     /// Generate code with multi-module support (module-qualified symbol names).
@@ -2940,5 +3105,169 @@ mod tests {
             "Output should contain 42, got: {}",
             stdout
         );
+    }
+
+    // =========================================================================
+    // Interface File Tests - Cross-Module Compilation
+    // =========================================================================
+
+    /// Test that interface_to_module_exports correctly creates DefInfos
+    /// with type schemes from a ModuleInterface.
+    #[test]
+    fn test_interface_to_module_exports_preserves_types() {
+        use bhc_interface::{
+            ExportedValue, ModuleInterface, TypeSignature,
+            Type as IfaceType,
+        };
+
+        // Create a mock interface for module "Lib" with:
+        //   add :: Int -> Int -> Int
+        //   identity :: a -> a
+        let mut iface = ModuleInterface::new("Lib");
+        iface.add_value(ExportedValue {
+            name: "add".to_string(),
+            signature: TypeSignature {
+                type_vars: vec![],
+                constraints: vec![],
+                ty: IfaceType::Fun(
+                    Box::new(IfaceType::Con("Int".to_string())),
+                    Box::new(IfaceType::Fun(
+                        Box::new(IfaceType::Con("Int".to_string())),
+                        Box::new(IfaceType::Con("Int".to_string())),
+                    )),
+                ),
+            },
+            inline: bhc_interface::InlineInfo::None,
+        });
+        iface.add_value(ExportedValue {
+            name: "identity".to_string(),
+            signature: TypeSignature {
+                type_vars: vec!["a".to_string()],
+                constraints: vec![],
+                ty: IfaceType::Fun(
+                    Box::new(IfaceType::Var("a".to_string())),
+                    Box::new(IfaceType::Var("a".to_string())),
+                ),
+            },
+            inline: bhc_interface::InlineInfo::None,
+        });
+
+        // Convert to module exports
+        let mut ctx = bhc_lower::LowerContext::new();
+        let exports = Compiler::interface_to_module_exports(&iface, "Lib", &mut ctx);
+
+        // Verify values were registered
+        assert!(exports.values.contains_key(&Symbol::intern("add")));
+        assert!(exports.values.contains_key(&Symbol::intern("identity")));
+
+        // Verify DefInfos have type schemes
+        let add_def_id = exports.values[&Symbol::intern("add")];
+        let add_info = ctx.lookup_def(add_def_id).expect("add should have DefInfo");
+        assert!(
+            add_info.type_scheme.is_some(),
+            "add should have a type scheme from the interface"
+        );
+        let add_scheme = add_info.type_scheme.as_ref().unwrap();
+        assert!(add_scheme.vars.is_empty(), "add is monomorphic");
+        // Check it's a function type (Int -> Int -> Int)
+        assert!(
+            format!("{:?}", add_scheme.ty).contains("Fun"),
+            "add should be a function type, got: {:?}",
+            add_scheme.ty
+        );
+
+        let id_def_id = exports.values[&Symbol::intern("identity")];
+        let id_info = ctx.lookup_def(id_def_id).expect("identity should have DefInfo");
+        assert!(
+            id_info.type_scheme.is_some(),
+            "identity should have a type scheme from the interface"
+        );
+        let id_scheme = id_info.type_scheme.as_ref().unwrap();
+        assert_eq!(id_scheme.vars.len(), 1, "identity is polymorphic with 1 var");
+        assert!(
+            format!("{:?}", id_scheme.ty).contains("Fun"),
+            "identity should be a function type, got: {:?}",
+            id_scheme.ty
+        );
+    }
+
+    /// Test that .bhi interface roundtrip preserves type information.
+    #[test]
+    fn test_interface_roundtrip_with_types() {
+        use bhc_interface::{
+            ExportedValue, ModuleInterface, TypeSignature,
+            Type as IfaceType, ExportedType, Kind as IfaceKind,
+            TypeDefinition, DataConstructor,
+        };
+        use tempfile::TempDir;
+
+        // Create module interface
+        let mut iface = ModuleInterface::new("MyLib");
+        iface.add_value(ExportedValue {
+            name: "double".to_string(),
+            signature: TypeSignature {
+                type_vars: vec![],
+                constraints: vec![],
+                ty: IfaceType::Fun(
+                    Box::new(IfaceType::Con("Int".to_string())),
+                    Box::new(IfaceType::Con("Int".to_string())),
+                ),
+            },
+            inline: bhc_interface::InlineInfo::None,
+        });
+        iface.add_type(ExportedType {
+            name: "Color".to_string(),
+            params: vec![],
+            kind: IfaceKind::Type,
+            definition: Some(TypeDefinition::Data(vec![
+                DataConstructor {
+                    name: "Red".to_string(),
+                    fields: vec![],
+                    field_names: None,
+                },
+                DataConstructor {
+                    name: "Green".to_string(),
+                    fields: vec![],
+                    field_names: None,
+                },
+                DataConstructor {
+                    name: "Blue".to_string(),
+                    fields: vec![],
+                    field_names: None,
+                },
+            ])),
+        });
+
+        // Write to temp file
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let hidir = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+        let iface_path = bhc_interface::interface_path(&hidir, "MyLib");
+        std::fs::create_dir_all(iface_path.parent().unwrap().as_std_path()).unwrap();
+        iface.write_to_file(&iface_path).expect("failed to write interface");
+
+        // Read it back
+        let loaded = ModuleInterface::read_from_file(&iface_path).expect("failed to read interface");
+
+        // Convert to module exports
+        let mut ctx = bhc_lower::LowerContext::new();
+        let exports = Compiler::interface_to_module_exports(&loaded, "MyLib", &mut ctx);
+
+        // Verify value exports
+        assert!(exports.values.contains_key(&Symbol::intern("double")));
+        let double_id = exports.values[&Symbol::intern("double")];
+        let double_info = ctx.lookup_def(double_id).unwrap();
+        assert!(double_info.type_scheme.is_some());
+
+        // Verify type and constructor exports
+        assert!(exports.types.contains_key(&Symbol::intern("Color")));
+        assert!(exports.constructors.contains_key(&Symbol::intern("Red")));
+        assert!(exports.constructors.contains_key(&Symbol::intern("Green")));
+        assert!(exports.constructors.contains_key(&Symbol::intern("Blue")));
+
+        // Verify constructor metadata
+        let red = &exports.constructors[&Symbol::intern("Red")];
+        assert_eq!(red.arity, 0);
+        assert_eq!(red.tag, 0);
+        assert_eq!(red.type_con_name, Symbol::intern("Color"));
     }
 }

@@ -12,6 +12,7 @@ use bhc_hir::{DefId, DefRef, HirId};
 use bhc_index::Idx;
 use bhc_intern::Symbol;
 use bhc_span::Span;
+use bhc_types::Scheme;
 use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 
@@ -82,6 +83,8 @@ pub struct DefInfo {
     pub type_param_count: Option<usize>,
     /// For record constructors, the ordered list of field names. None for positional constructors.
     pub field_names: Option<Vec<Symbol>>,
+    /// For imported values from interface files, the type scheme. None for source-defined values.
+    pub type_scheme: Option<Scheme>,
 }
 
 /// A scope containing name bindings.
@@ -1996,6 +1999,32 @@ impl LowerContext {
                 type_con_name: None,
                 type_param_count: None,
                 field_names: None,
+                type_scheme: None,
+            },
+        );
+    }
+
+    /// Records a value definition with its type scheme (from interface files).
+    pub fn define_with_type(
+        &mut self,
+        id: DefId,
+        name: Symbol,
+        kind: DefKind,
+        span: Span,
+        scheme: Scheme,
+    ) {
+        self.defs.insert(
+            id,
+            DefInfo {
+                id,
+                name,
+                kind,
+                span,
+                arity: None,
+                type_con_name: None,
+                type_param_count: None,
+                field_names: None,
+                type_scheme: Some(scheme),
             },
         );
     }
@@ -2013,6 +2042,7 @@ impl LowerContext {
                 type_con_name: None,
                 type_param_count: None,
                 field_names: None,
+                type_scheme: None,
             },
         );
     }
@@ -2039,6 +2069,7 @@ impl LowerContext {
                 type_con_name: Some(type_con_name),
                 type_param_count: Some(type_param_count),
                 field_names,
+                type_scheme: None,
             },
         );
     }
@@ -2059,6 +2090,12 @@ impl LowerContext {
     /// Gets the DefKind for a definition.
     pub fn def_kind(&self, def_id: DefId) -> Option<DefKind> {
         self.defs.get(&def_id).map(|info| info.kind)
+    }
+
+    /// Gets the full DefInfo for a definition.
+    #[must_use]
+    pub fn lookup_def(&self, def_id: DefId) -> Option<&DefInfo> {
+        self.defs.get(&def_id)
     }
 
     /// Gets the field names for a record constructor, if any.

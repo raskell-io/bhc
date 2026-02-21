@@ -3008,8 +3008,8 @@ impl TyCtxt {
         }
 
         // Second pass: register any remaining definitions (imported items not in builtins)
-        // with fresh type variables. We do this in a separate pass to avoid borrow conflicts
-        // with the closures above.
+        // with their interface type schemes (if available) or fresh type variables.
+        // We do this in a separate pass to avoid borrow conflicts with the closures above.
         for (_def_id, def_info) in defs.iter() {
             // Skip constructors (handled in first pass)
             if matches!(
@@ -3022,9 +3022,14 @@ impl TyCtxt {
             if self.env.lookup_global(def_info.id).is_some() {
                 continue;
             }
-            // Register with a fresh polymorphic type
-            let fresh = self.fresh_ty();
-            let scheme = Scheme::mono(fresh);
+            // Use the type scheme from the interface file if available,
+            // otherwise fall back to a fresh type variable
+            let scheme = if let Some(ref iface_scheme) = def_info.type_scheme {
+                iface_scheme.clone()
+            } else {
+                let fresh = self.fresh_ty();
+                Scheme::mono(fresh)
+            };
             self.env.insert_global(def_info.id, scheme);
         }
     }

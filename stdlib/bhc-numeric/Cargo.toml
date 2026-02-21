@@ -13,9 +13,9 @@ description = "Numeric computing for BHC: Tensor, Vector, Matrix, SIMD, BLAS"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-bhc-prelude = { path = "../bhc-prelude" }
-bhc-rts-arena = { path = "../../rts/bhc-rts-arena" }
-bhc-rts-alloc = { path = "../../rts/bhc-rts-alloc" }
+bhc-prelude = { version = "0.2.2", path = "../bhc-prelude" }
+bhc-rts-arena = { version = "0.2.2", path = "../../rts/bhc-rts-arena" }
+bhc-rts-alloc = { version = "0.2.2", path = "../../rts/bhc-rts-alloc" }
 
 [dev-dependencies]
 criterion.workspace = true
