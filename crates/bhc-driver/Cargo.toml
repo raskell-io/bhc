@@ -35,6 +35,7 @@ bhc-gpu = { workspace = true }
 
 # Internal crates - package management
 bhc-package = { workspace = true }
+bhc-interface = { workspace = true }
 
 # External dependencies
 thiserror = { workspace = true }

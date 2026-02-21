@@ -377,6 +377,106 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compile a single source file to an object file without linking.
+    ///
+    /// Runs parse → lower → typecheck → core-lower → codegen, writes `.o` to
+    /// `odir` (or current directory), and generates `.bhi` interface file to
+    /// `hidir` (if configured). Does NOT link.
+    ///
+    /// This is the mode used by `bhc -c` and by the hx package manager.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any compilation phase fails.
+    #[instrument(skip(self), fields(path = %path.as_ref()))]
+    pub fn compile_module_only(&self, path: impl AsRef<Utf8Path>) -> CompileResult<CompileOutput> {
+        let unit = CompilationUnit::from_path(path.as_ref().to_path_buf())?;
+        let file_id = FileId::new(0);
+
+        info!(module = %unit.module_name, "compiling module (compile-only)");
+
+        // Phase 1: Parse
+        self.callbacks
+            .on_phase_start(CompilePhase::Parse, &unit.module_name);
+        let ast = self.parse(&unit, file_id)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::Parse, &unit.module_name);
+
+        // Phase 2: Lower AST to HIR
+        self.callbacks
+            .on_phase_start(CompilePhase::TypeCheck, &unit.module_name);
+        let (hir, lower_ctx) = self.lower(&ast)?;
+
+        // Phase 2b: Type check HIR
+        let typed = self.type_check(&hir, file_id, &lower_ctx)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::TypeCheck, &unit.module_name);
+
+        // Phase 3: Lower to Core IR
+        self.callbacks
+            .on_phase_start(CompilePhase::CoreLower, &unit.module_name);
+        let core = self.core_lower(&hir, &lower_ctx, &typed)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::CoreLower, &unit.module_name);
+
+        // Phase 4: Code generation (to object file only)
+        self.callbacks
+            .on_phase_start(CompilePhase::Codegen, &unit.module_name);
+        let object_path = self.codegen(&unit.module_name, &core)?;
+        self.callbacks
+            .on_phase_complete(CompilePhase::Codegen, &unit.module_name);
+
+        // Move object to odir if configured
+        let final_object_path = if let Some(ref odir) = self.session.options.output_object_dir {
+            let dest = odir.join(format!("{}.o", unit.module_name));
+            std::fs::create_dir_all(odir.as_std_path()).map_err(|e| {
+                CompileError::CodegenError(format!("failed to create odir: {}", e))
+            })?;
+            std::fs::rename(&object_path, dest.as_std_path())
+                .or_else(|_| std::fs::copy(&object_path, dest.as_std_path()).map(|_| ()))
+                .map_err(|e| {
+                    CompileError::CodegenError(format!("failed to write object: {}", e))
+                })?;
+            dest
+        } else {
+            Utf8PathBuf::from(
+                object_path
+                    .to_str()
+                    .unwrap_or_default(),
+            )
+        };
+
+        // Generate interface file if hidir is configured
+        if let Some(ref hidir) = self.session.options.output_interface_dir {
+            let iface = bhc_interface::generate::generate_interface(
+                &unit.module_name,
+                &ast,
+                &typed,
+            );
+            let iface_path = bhc_interface::interface_path(hidir, &unit.module_name);
+            if let Some(parent) = iface_path.parent() {
+                std::fs::create_dir_all(parent.as_std_path()).map_err(|e| {
+                    CompileError::CodegenError(format!("failed to create hidir: {}", e))
+                })?;
+            }
+            iface.write_to_file(&iface_path).map_err(|e| {
+                CompileError::CodegenError(format!("failed to write interface: {}", e))
+            })?;
+            debug!(
+                module = %unit.module_name,
+                interface = %iface_path,
+                "generated interface file"
+            );
+        }
+
+        info!(module = %unit.module_name, object = %final_object_path, "module compilation complete");
+
+        Ok(CompileOutput {
+            path: final_object_path,
+            output_type: OutputType::Object,
+        })
+    }
+
     /// Compile a compilation unit through all phases.
     #[instrument(skip(self, unit), fields(module = %unit.module_name))]
     fn compile_unit(&self, unit: CompilationUnit) -> CompileResult<CompileOutput> {
@@ -2409,6 +2509,41 @@ impl CompilerBuilder {
     #[must_use]
     pub fn emit_kernel_report(mut self, enable: bool) -> Self {
         self.options.emit_kernel_report = enable;
+        self
+    }
+
+    /// Enable compile-only mode (produce .o files without linking).
+    #[must_use]
+    pub fn compile_only(mut self, enable: bool) -> Self {
+        self.options.compile_only = enable;
+        self
+    }
+
+    /// Set the output directory for object files.
+    #[must_use]
+    pub fn odir(mut self, path: impl Into<Utf8PathBuf>) -> Self {
+        self.options.output_object_dir = Some(path.into());
+        self
+    }
+
+    /// Set the output directory for interface files.
+    #[must_use]
+    pub fn hidir(mut self, path: impl Into<Utf8PathBuf>) -> Self {
+        self.options.output_interface_dir = Some(path.into());
+        self
+    }
+
+    /// Add a package database path.
+    #[must_use]
+    pub fn package_db(mut self, path: impl Into<Utf8PathBuf>) -> Self {
+        self.options.package_dbs.push(path.into());
+        self
+    }
+
+    /// Add an exposed package ID.
+    #[must_use]
+    pub fn package_id(mut self, id: impl Into<String>) -> Self {
+        self.options.package_ids.push(id.into());
         self
     }
 

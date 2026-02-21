@@ -74,6 +74,42 @@ struct Cli {
     /// Hackage packages to include (format: "name:version")
     #[arg(long = "package", value_name = "PKG:VER")]
     packages: Vec<String>,
+
+    /// Print bare compiler version number (for toolchain detection)
+    #[arg(long = "numeric-version", hide = true)]
+    numeric_version: bool,
+
+    /// Compile to object file only, do not link
+    #[arg(short = 'c', long = "compile-only")]
+    compile_only: bool,
+
+    /// Output directory for object files (used with -c)
+    #[arg(long = "odir", value_name = "DIR")]
+    odir: Option<PathBuf>,
+
+    /// Output directory for interface files (used with -c)
+    #[arg(long = "hidir", value_name = "DIR")]
+    hidir: Option<PathBuf>,
+
+    /// Package database paths
+    #[arg(long = "package-db", value_name = "PATH")]
+    package_dbs: Vec<PathBuf>,
+
+    /// Expose a dependency by package ID
+    #[arg(long = "package-id", value_name = "ID")]
+    package_ids: Vec<String>,
+
+    /// Enable language extensions (e.g., -XOverloadedStrings)
+    #[arg(short = 'X', value_name = "EXT", hide = true)]
+    extensions: Vec<String>,
+
+    /// Enable all warnings
+    #[arg(long = "Wall", hide = true)]
+    wall: bool,
+
+    /// Treat warnings as errors
+    #[arg(long = "Werror", hide = true)]
+    werror: bool,
 }
 
 /// Compilation profile
@@ -150,6 +186,12 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // --numeric-version: print bare version and exit (used by hx-bhc for toolchain detection)
+    if cli.numeric_version {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // Set up logging based on verbosity flags
     // Default: WARN (quiet operation), -v: INFO, -vv: DEBUG, -vvv: TRACE
     // --quiet: ERROR only
@@ -203,6 +245,8 @@ fn main() -> Result<()> {
                 println!("Usage: bhc [OPTIONS] [FILES]...");
                 println!();
                 println!("For more information, try '--help'");
+            } else if cli.compile_only {
+                compile_modules_only(&cli.files, &cli)?;
             } else {
                 compile_files(&cli.files, &cli)?;
             }
@@ -394,6 +438,95 @@ fn run_file(file: &PathBuf, _args: &[String], cli: &Cli) -> Result<()> {
             std::process::exit(1);
         }
     }
+}
+
+/// Compile source files to object files only (no linking), with optional interface generation.
+fn compile_modules_only(files: &[PathBuf], cli: &Cli) -> Result<()> {
+    use bhc_driver::CompilerBuilder;
+    use camino::Utf8PathBuf;
+
+    tracing::info!(
+        "Compiling {} file(s) to object files (compile-only mode)",
+        files.len()
+    );
+
+    let profile = match cli.profile {
+        Profile::Default => bhc_session::Profile::Default,
+        Profile::Server => bhc_session::Profile::Server,
+        Profile::Numeric => bhc_session::Profile::Numeric,
+        Profile::Edge => bhc_session::Profile::Edge,
+    };
+
+    let mut builder = CompilerBuilder::new()
+        .profile(profile)
+        .compile_only(true)
+        .output_type(bhc_session::OutputType::Object)
+        .emit_kernel_report(cli.kernel_report);
+
+    if let Some(ref target) = cli.target {
+        builder = builder.target(target.clone());
+    }
+
+    if let Some(ref odir) = cli.odir {
+        builder = builder.odir(
+            Utf8PathBuf::from_path_buf(odir.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in odir path"))?,
+        );
+    }
+
+    if let Some(ref hidir) = cli.hidir {
+        builder = builder.hidir(
+            Utf8PathBuf::from_path_buf(hidir.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in hidir path"))?,
+        );
+    }
+
+    for path in &cli.import_paths {
+        builder = builder.import_path(
+            Utf8PathBuf::from_path_buf(path.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in import path"))?,
+        );
+    }
+
+    for db in &cli.package_dbs {
+        builder = builder.package_db(
+            Utf8PathBuf::from_path_buf(db.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in package-db path"))?,
+        );
+    }
+
+    for id in &cli.package_ids {
+        builder = builder.package_id(id.clone());
+    }
+
+    let compiler = builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create compiler: {}", e))?;
+
+    let utf8_paths: Vec<Utf8PathBuf> = files
+        .iter()
+        .map(|p| {
+            Utf8PathBuf::from_path_buf(p.clone())
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in path: {}", p.display()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    for path in &utf8_paths {
+        match compiler.compile_module_only(path) {
+            Ok(output) => {
+                tracing::info!("Generated: {}", output.path);
+                if !cli.quiet {
+                    println!("{}", output.path);
+                }
+            }
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Start the interactive REPL

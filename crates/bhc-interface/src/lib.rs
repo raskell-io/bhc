@@ -29,6 +29,8 @@
 
 #![warn(missing_docs)]
 
+pub mod generate;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
