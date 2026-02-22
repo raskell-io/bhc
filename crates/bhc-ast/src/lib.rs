@@ -262,6 +262,8 @@ pub enum Extension {
     DefaultSignatures,
     /// Named defaults
     NamedDefaults,
+    /// C preprocessor
+    CPP,
 
     /// Unknown extension (preserved)
     Unknown(Symbol),
@@ -341,6 +343,7 @@ impl Extension {
             "InstanceSigs" => Self::InstanceSigs,
             "DefaultSignatures" => Self::DefaultSignatures,
             "NamedDefaults" => Self::NamedDefaults,
+            "CPP" => Self::CPP,
 
             _ => Self::Unknown(Symbol::intern(name)),
         }

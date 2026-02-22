@@ -180,6 +180,8 @@ pub struct Options {
     pub package_ids: Vec<String>,
     /// Enabled language extensions (e.g., "OverloadedStrings").
     pub extensions: Vec<String>,
+    /// CPP preprocessor defines (e.g., "FOO", "BAR=1").
+    pub cpp_defines: Vec<String>,
 }
 
 impl Default for Options {
@@ -206,6 +208,7 @@ impl Default for Options {
             package_dbs: Vec::new(),
             package_ids: Vec::new(),
             extensions: Vec::new(),
+            cpp_defines: Vec::new(),
         }
     }
 }

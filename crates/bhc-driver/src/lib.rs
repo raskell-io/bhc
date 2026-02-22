@@ -44,6 +44,7 @@
 
 #![warn(missing_docs)]
 
+mod cpp;
 mod report;
 
 pub use report::ComprehensiveKernelReport;
@@ -840,10 +841,35 @@ impl Compiler {
         })
     }
 
+    /// Check if source needs CPP preprocessing.
+    /// Scans first 50 lines for `{-# LANGUAGE CPP #-}` pragma,
+    /// or checks if CPP was enabled via CLI `-XCPP` flag.
+    fn needs_cpp(source: &str, options: &Options) -> bool {
+        if options.extensions.iter().any(|e| e == "CPP") {
+            return true;
+        }
+        source.lines().take(50).any(|line| {
+            line.contains("LANGUAGE") && line.contains("CPP")
+        })
+    }
+
     /// Parse a compilation unit into an AST.
     fn parse(&self, unit: &CompilationUnit, file_id: FileId) -> CompileResult<AstModule> {
         debug!(module = %unit.module_name, "parsing");
-        let (maybe_module, diagnostics) = bhc_parser::parse_module(&unit.source, file_id);
+
+        // Run CPP preprocessing if needed
+        let source = if Self::needs_cpp(&unit.source, &self.session.options) {
+            debug!(module = %unit.module_name, "running CPP preprocessor");
+            let config = cpp::default_cpp_config(&self.session.options);
+            let mut preprocessor = cpp::CppPreprocessor::new(config);
+            preprocessor
+                .preprocess(&unit.source)
+                .map_err(|e| CompileError::Other(e.to_string()))?
+        } else {
+            unit.source.clone()
+        };
+
+        let (maybe_module, diagnostics) = bhc_parser::parse_module(&source, file_id);
 
         // Report any diagnostics
         for diag in &diagnostics {
@@ -2709,6 +2735,13 @@ impl CompilerBuilder {
     #[must_use]
     pub fn package_id(mut self, id: impl Into<String>) -> Self {
         self.options.package_ids.push(id.into());
+        self
+    }
+
+    /// Add a CPP preprocessor define (e.g., "FOO" or "BAR=1").
+    #[must_use]
+    pub fn define(mut self, def: impl Into<String>) -> Self {
+        self.options.cpp_defines.push(def.into());
         self
     }
 

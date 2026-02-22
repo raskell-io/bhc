@@ -103,6 +103,10 @@ struct Cli {
     #[arg(short = 'X', value_name = "EXT", hide = true)]
     extensions: Vec<String>,
 
+    /// CPP preprocessor defines (e.g., -DFOO, -DBAR=1)
+    #[arg(short = 'D', value_name = "MACRO[=VALUE]")]
+    defines: Vec<String>,
+
     /// Enable all warnings
     #[arg(long = "Wall", hide = true)]
     wall: bool,
@@ -323,6 +327,11 @@ fn compile_files(files: &[PathBuf], cli: &Cli) -> Result<()> {
         builder = builder.hackage_package(pkg.clone());
     }
 
+    // Add CPP defines
+    for def in &cli.defines {
+        builder = builder.define(def);
+    }
+
     let compiler = builder
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to create compiler: {}", e))?;
@@ -497,6 +506,11 @@ fn compile_modules_only(files: &[PathBuf], cli: &Cli) -> Result<()> {
 
     for id in &cli.package_ids {
         builder = builder.package_id(id.clone());
+    }
+
+    // Add CPP defines
+    for def in &cli.defines {
+        builder = builder.define(def);
     }
 
     let compiler = builder

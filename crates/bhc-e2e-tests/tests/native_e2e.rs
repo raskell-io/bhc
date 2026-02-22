@@ -968,6 +968,30 @@ fn test_tier3_layout_rule_native() {
 }
 
 // =============================================================================
+// E.67: CPP Preprocessing
+// =============================================================================
+
+#[test]
+fn test_tier3_cpp_basic_native() {
+    run_native_test("tier3_io/cpp_basic", Profile::Default);
+}
+
+#[test]
+fn test_tier3_cpp_version_check_native() {
+    run_native_test("tier3_io/cpp_version_check", Profile::Default);
+}
+
+#[test]
+fn test_tier3_cpp_define_native() {
+    run_native_test("tier3_io/cpp_define", Profile::Default);
+}
+
+#[test]
+fn test_tier3_cpp_nested_native() {
+    run_native_test("tier3_io/cpp_nested", Profile::Default);
+}
+
+// =============================================================================
 // Numeric Profile Tests (when applicable)
 // =============================================================================
 

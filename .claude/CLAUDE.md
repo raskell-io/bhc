@@ -389,7 +389,7 @@ cargo bench
 
 ### Current Status: Beta (Active — Pandoc Compilation Target)
 
-The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell programs to native executables via LLVM. **162 E2E tests** cover hello world through GADTs, monad transformers, records, user-defined typeclasses with dictionary passing, stock deriving (8 classes), and 30+ GHC extensions. 66 implementation milestones (E.1–E.66) completed. Separate compilation pipeline complete: `-c` mode, `.bhi` interface generation/consumption, `--odir`/`--hidir`/`--package-db` flags for hx package manager integration. The hx build pipeline is wired: `hx-bhc` generates correct BHC CLI flags, uses filesystem-based package DB, and maps standard Haskell packages to BHC builtins. The runtime system includes a generational GC with incremental marking support, work-stealing scheduler, and full STM support. Current focus: compiling Pandoc as the north-star integration target (see `.claude/TODO-pandoc.md`). Key remaining gaps: CPP preprocessing, Core IR optimizer, type families, end-to-end Hackage package testing. WASM backend has substantial code but generated binaries fail wasmtime validation. GPU backend passes mock tests but requires CUDA hardware for real testing. REPL and tools compile but have stubbed evaluation.
+The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell programs to native executables via LLVM. **166 E2E tests** cover hello world through GADTs, monad transformers, records, user-defined typeclasses with dictionary passing, stock deriving (8 classes), and 30+ GHC extensions. 67 implementation milestones (E.1–E.67) completed. Separate compilation pipeline complete: `-c` mode, `.bhi` interface generation/consumption, `--odir`/`--hidir`/`--package-db` flags for hx package manager integration. The hx build pipeline is wired: `hx-bhc` generates correct BHC CLI flags, uses filesystem-based package DB, and maps standard Haskell packages to BHC builtins. The runtime system includes a generational GC with incremental marking support, work-stealing scheduler, and full STM support. Current focus: compiling Pandoc as the north-star integration target (see `.claude/TODO-pandoc.md`). Key remaining gaps: Core IR optimizer, type families, end-to-end Hackage package testing. WASM backend has substantial code but generated binaries fail wasmtime validation. GPU backend passes mock tests but requires CUDA hardware for real testing. REPL and tools compile but have stubbed evaluation.
 
 ### Phase 1: Core Compilation ✅ COMPLETE
 
@@ -530,12 +530,12 @@ The compiler builds cleanly (33 crates, 0 errors) and compiles real Haskell prog
 | 9.6 Layout Rule | 🟢 | Haskell 2010 indentation-based layout (where, let, do, case/of, guards, class/instance) |
 | 9.7 Core IR Optimizer | 🔴 | Simplifier, pattern match compilation, demand analysis, dictionary specialization |
 | 9.8 Package System | 🟡 | Separate compilation pipeline complete (-c, .bhi, --package-db); hx build pipeline wired (correct flags, filesystem DB, builtin mapping); end-to-end Hackage testing needed |
-| 9.9 CPP Preprocessing | 🔴 | `#ifdef`/`#if`/`#else` for platform conditionals |
+| 9.9 CPP Preprocessing | 🟢 | Built-in Rust preprocessor: `#ifdef`/`#if`/`#elif`/`#else`/`#endif`/`#define`/`#undef`, expression evaluator, macro expansion, predefined platform/version macros |
 | 9.10 Type Families | 🟡 | Parsed; reduction and associated types not yet implemented |
 
 **Exit Criteria:** `bhc check` succeeds on Pandoc source files (excluding Template Haskell).
 
-**Notes:** 162 E2E tests passing across 66 milestones. See `.claude/TODO-pandoc.md` for detailed Pandoc roadmap and `.claude/ROADMAP.md` for M11 tracking.
+**Notes:** 166 E2E tests passing across 67 milestones. See `.claude/TODO-pandoc.md` for detailed Pandoc roadmap and `.claude/ROADMAP.md` for M11 tracking.
 
 ---
 
