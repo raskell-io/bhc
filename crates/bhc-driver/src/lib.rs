@@ -169,6 +169,8 @@ pub enum CompilePhase {
     TypeCheck,
     /// Lowering to Core IR.
     CoreLower,
+    /// Core IR optimization (simplifier).
+    CoreOptimize,
     /// Lowering to Tensor IR (Numeric profile).
     TensorLower,
     /// Lowering to Loop IR.
@@ -189,6 +191,7 @@ impl CompilePhase {
             Self::Parse => "parse",
             Self::TypeCheck => "type_check",
             Self::CoreLower => "core_lower",
+            Self::CoreOptimize => "core_optimize",
             Self::TensorLower => "tensor_lower",
             Self::LoopLower => "loop_lower",
             Self::Codegen => "codegen",
@@ -1026,13 +1029,33 @@ impl Compiler {
             })
             .collect();
 
-        bhc_hir_to_core::lower_module_with_defs_and_constructors(
+        let mut core = bhc_hir_to_core::lower_module_with_defs_and_constructors(
             hir,
             Some(&def_map),
             Some(&typed.def_schemes),
             imported_constructors,
         )
-        .map_err(CompileError::from)
+        .map_err(CompileError::from)?;
+
+        // Core IR optimization (simplifier)
+        if self.session.options.opt_level != bhc_session::OptLevel::None {
+            let config = bhc_core::simplify::SimplifyConfig::from_opt_level(
+                self.session.options.opt_level,
+            );
+            let stats = bhc_core::simplify::simplify_module(&mut core, &config);
+            debug!(
+                iterations = stats.iterations,
+                beta = stats.beta_reductions,
+                case_known = stats.case_of_known,
+                case_case = stats.case_of_case,
+                dead = stats.dead_bindings,
+                folds = stats.constant_folds,
+                inlines = stats.inlines,
+                "Core simplifier complete"
+            );
+        }
+
+        Ok(core)
     }
 
     /// Check escape analysis for Embedded profile.

@@ -50,6 +50,11 @@ fn test_tier1_list_range_native() {
     run_native_test("tier1_simple/list_range", Profile::Default);
 }
 
+#[test]
+fn test_tier1_simplifier_basic_native() {
+    run_native_test("tier1_simple/simplifier_basic", Profile::Default);
+}
+
 // =============================================================================
 // Tier 2: Function Tests
 // =============================================================================
