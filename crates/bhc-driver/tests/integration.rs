@@ -1352,6 +1352,41 @@ fn test_prelude_show_available() {
 }
 
 // =========================================================================
+// Stub Module Import Tests (Pandoc ecosystem)
+// =========================================================================
+
+#[test]
+fn test_qualified_import_pandoc_stubs() {
+    // Verify that qualified imports of stub modules resolve without errors.
+    // This tests that builtin_module_set + register_standard_module_exports
+    // cover the Pandoc ecosystem dependencies.
+    use camino::Utf8PathBuf;
+
+    let dir = tempfile::tempdir().unwrap();
+    let main_path = dir.path().join("Main.hs");
+    std::fs::write(
+        &main_path,
+        r#"module Main where
+import qualified Text.DocLayout as D
+import qualified Text.Pandoc.Definition as PD
+import qualified Text.Parsec as P
+
+main = putStrLn "stubs resolve"
+"#,
+    )
+    .unwrap();
+
+    let compiler = Compiler::with_defaults().unwrap();
+    let utf8_path = Utf8PathBuf::from(main_path.to_str().unwrap());
+    let result = compiler.check_file(&utf8_path);
+    assert!(
+        result.is_ok(),
+        "check_file should succeed with stub imports: {:?}",
+        result.err()
+    );
+}
+
+// =========================================================================
 // Deriving Eq Tests
 // =========================================================================
 

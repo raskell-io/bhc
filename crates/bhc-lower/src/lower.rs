@@ -506,8 +506,11 @@ fn register_standard_module_exports(
             "writeFile",
             "appendFile",
             "interact",
+            // Read/lex
+            "lex", "read", "reads", "readParen",
         ],
         "Data.Map" | "Data.Map.Strict" | "Data.Map.Lazy" | "Data.Map.Strict.Internal" | "Data.Map.Internal" => &[
+            "Map",
             "empty",
             "singleton",
             "insert",
@@ -552,6 +555,7 @@ fn register_standard_module_exports(
             "!",
         ],
         "Data.Set" | "Data.Set.Internal" => &[
+            "Set",
             "empty",
             "singleton",
             "insert",
@@ -628,6 +632,7 @@ fn register_standard_module_exports(
             "fromList",
         ],
         "Data.Sequence" => &[
+            "Seq",
             "empty",
             "singleton",
             "null",
@@ -649,6 +654,23 @@ fn register_standard_module_exports(
             "viewl",
             "viewr",
             "filter",
+            "spanl",
+            "spanr",
+            "ViewL",
+            "ViewR",
+            "EmptyL",
+            "EmptyR",
+            ":<",
+            ":>",
+            "sort",
+            "sortBy",
+            "sortOn",
+            "zip",
+            "zipWith",
+            "unzip",
+            "foldlWithIndex",
+            "foldrWithIndex",
+            "mapWithIndex",
         ],
         "Data.List" => &[
             "sort",
@@ -922,6 +944,16 @@ fn register_standard_module_exports(
             "FilePath",
             "Handle",
             "IOMode",
+            "BufferMode",
+            "ReadMode",
+            "WriteMode",
+            "AppendMode",
+            "ReadWriteMode",
+            "NewlineMode",
+            "Newline",
+            "nativeNewline",
+            "noNewlineTranslation",
+            "universalNewlineMode",
             "stdin",
             "stdout",
             "stderr",
@@ -938,6 +970,9 @@ fn register_standard_module_exports(
             "hIsEOF",
             "hSetBuffering",
             "hGetBuffering",
+            "hSetNewlineMode",
+            "hSetEncoding",
+            "utf8",
             "hSeek",
             "hTell",
             "hFileSize",
@@ -950,6 +985,18 @@ fn register_standard_module_exports(
             "putStr",
             "putStrLn",
             "print",
+            "isEOF",
+            "hSetBinaryMode",
+            "withBinaryFile",
+            "openBinaryFile",
+            "SeekMode",
+            "AbsoluteSeek", "RelativeSeek", "SeekFromEnd",
+            "LineBuffering", "BlockBuffering", "NoBuffering",
+            "hIsOpen", "hIsClosed", "hIsReadable", "hIsWritable", "hIsSeekable",
+            "hReady",
+            "hWaitForInput",
+            "hLookAhead",
+            "CRLF", "LF",
         ],
         "Data.IORef" => &[
             "IORef",
@@ -1064,6 +1111,7 @@ fn register_standard_module_exports(
             "drop",
         ],
         "Data.ByteString.Lazy" => &[
+            "ByteString",
             "empty",
             "fromStrict",
             "toStrict",
@@ -1072,6 +1120,7 @@ fn register_standard_module_exports(
             "null",
             "length",
             "pack",
+            "unpack",
             "append",
             "head",
             "tail",
@@ -1086,12 +1135,14 @@ fn register_standard_module_exports(
             "hGetContents",
         ],
         "Data.ByteString.Lazy.Char8" => &[
+            "ByteString",
             "unpack",
             "lines",
             "unlines",
             "take",
             "dropWhile",
             "cons",
+            "isPrefixOf",
         ],
         "Data.ByteString.Builder" => &[
             "empty", "singleton", "word8",
@@ -1338,6 +1389,7 @@ fn register_standard_module_exports(
             "getContents",
         ],
         "Data.ByteString.Char8" => &[
+            "ByteString",
             "pack",
             "unpack",
             "lines",
@@ -1346,13 +1398,44 @@ fn register_standard_module_exports(
             "readFile",
             "writeFile",
             "hPutStrLn",
+            "hPutStr",
+            "hGetContents",
+            "hGet",
+            "hPut",
             "break",
             "span",
+            "drop",
+            "take",
+            "length",
+            "null",
+            "empty",
+            "singleton",
+            "append",
+            "concat",
+            "map",
+            "filter",
+            "elem",
+            "find",
+            "intercalate",
+            "intersperse",
             "dropWhile",
             "takeWhile",
             "strip",
             "cons",
             "snoc",
+            "head",
+            "tail",
+            "init",
+            "last",
+            "index",
+            "isPrefixOf",
+            "isSuffixOf",
+            "isInfixOf",
+            "any",
+            "all",
+            "foldr",
+            "foldl",
+            "foldl'",
         ],
         // === System modules ===
         "System.FilePath" | "System.FilePath.Posix" => &[
@@ -1376,6 +1459,7 @@ fn register_standard_module_exports(
             "makeRelative",
             "isRelative",
             "isAbsolute",
+            "isValid",
             "pathSeparator",
             "searchPathSeparator",
             "extSeparator",
@@ -1544,25 +1628,35 @@ fn register_standard_module_exports(
         // === Aeson ===
         "Data.Aeson" | "Data.Aeson.Types" => &[
             "encode",
-            "decode",
-            "eitherDecode",
+            "decode", "decode'",
+            "eitherDecode", "eitherDecode'",
+            "decodeStrict", "decodeStrict'",
+            "eitherDecodeStrict", "eitherDecodeStrict'",
             "object",
             ".=",
             ".:",".:?",".!=",
             "Value",
             "Object",
             "Array",
+            "String",
+            "Number",
+            "Bool",
+            "Null",
             "toJSON",
             "fromJSON",
             "parseJSON",
             "ToJSON",
             "FromJSON",
+            "Result", "Success", "Error",
+            "Parser",
+            "parse", "parseEither", "parseMaybe",
             "pairs",
             "withObject",
             "withArray",
             "withText",
             "withScientific",
             "withBool",
+            "typeMismatch", "prependFailure", "modifyFailure",
         ],
         // === Network ===
         "Network.URI" => &[
@@ -1636,6 +1730,7 @@ fn register_standard_module_exports(
             "Category",
             "id",
             "(.)",
+            "<<<", ">>>",
         ],
         "Control.Concurrent.STM" | "Control.Monad.STM" => &[
             "STM",
@@ -1967,6 +2062,945 @@ fn register_standard_module_exports(
             "decodeUtf8'",
             "decodeUtf8With",
         ],
+        // =====================================================================
+        // Pandoc ecosystem stubs
+        // =====================================================================
+        "Text.DocLayout" => &[
+            "Doc", "HasChars",
+            "empty", "blankline", "space", "cr", "text", "char",
+            "nest", "hang", "vcat", "hcat", "hsep", "vsep", "chomp", "render",
+            "literal", "height", "minOffset", "offset",
+            "realLength", "prefixed", "flush", "afterBreak", "beforeNonBlank",
+            "nowrap", "lblock", "cblock", "rblock", "isEmpty",
+            "braces", "brackets", "parens", "quotes", "doubleQuotes",
+            "$$", "$+$", "<+>",
+        ],
+        "Text.Pandoc.Definition" => &[
+            // Core types
+            "Pandoc", "Meta", "MetaValue", "Block", "Inline", "Alignment",
+            "ListAttributes", "ListNumberStyle", "ListNumberDelim",
+            "Format", "Attr", "Target", "TableHead", "TableBody", "TableFoot",
+            "Caption", "Cell", "Row", "ColSpec", "ColWidth", "RowSpan", "ColSpan",
+            "RowHeadColumns", "Citation", "CitationMode", "MathType", "QuoteType",
+            // Block constructors
+            "Plain", "Para", "LineBlock", "CodeBlock", "RawBlock", "BlockQuote",
+            "OrderedList", "BulletList", "DefinitionList", "Header",
+            "HorizontalRule", "Table", "Figure", "Div", "Null",
+            // Inline constructors
+            "Str", "Emph", "Underline", "Strong", "Strikeout", "Superscript",
+            "Subscript", "SmallCaps", "Quoted", "Cite", "Code", "Space",
+            "SoftBreak", "LineBreak", "Math", "RawInline", "Link", "Image",
+            "Note", "Span",
+            // MetaValue constructors
+            "MetaMap", "MetaList", "MetaString", "MetaBool", "MetaInlines",
+            "MetaBlocks",
+            // Enum constructors
+            "SingleQuote", "DoubleQuote", "DisplayMath", "InlineMath",
+            "AuthorInText", "SuppressAuthor", "NormalCitation",
+            "AlignLeft", "AlignRight", "AlignCenter", "AlignDefault",
+            "DefaultStyle", "Example", "Decimal", "LowerRoman", "UpperRoman",
+            "LowerAlpha", "UpperAlpha",
+            "DefaultDelim", "Period", "OneParen", "TwoParens",
+            "ColWidthDefault",
+            // Functions
+            "nullAttr", "nullMeta", "pandocTypesVersion",
+            "lookupMeta", "docTitle", "docAuthors", "docDate",
+        ],
+        "Text.Pandoc.Builder" => &[
+            "doc", "setTitle", "setAuthors", "setDate", "setMeta",
+            "text", "str", "emph", "underline", "strong", "strikeout",
+            "superscript", "subscript", "smallcaps", "singleQuoted",
+            "doubleQuoted", "cite", "codeWith", "code", "space",
+            "softbreak", "linebreak", "math", "displayMath",
+            "rawInline", "link", "linkWith", "image", "imageWith",
+            "note", "spanWith", "trimInlines",
+            "para", "plain", "lineBlock", "codeBlockWith", "codeBlock",
+            "rawBlock", "blockQuote", "orderedList", "bulletList",
+            "definitionList", "header", "headerWith", "horizontalRule",
+            "table", "simpleTable", "figure", "figureWith", "divWith",
+            "Blocks", "Inlines", "Many", "toList", "fromList",
+            "singleton", "isNull", "<>",
+            "unMany",
+            // Re-exports from Text.Pandoc.Definition
+            "Pandoc", "Meta", "MetaValue", "Block", "Inline", "Alignment",
+            "ListAttributes", "ListNumberStyle", "ListNumberDelim",
+            "Format", "Attr", "Target", "TableHead", "TableBody", "TableFoot",
+            "Caption", "Cell", "Row", "ColSpec", "ColWidth", "RowSpan", "ColSpan",
+            "RowHeadColumns", "Citation", "CitationMode", "MathType", "QuoteType",
+            "Plain", "Para", "LineBlock", "CodeBlock", "RawBlock", "BlockQuote",
+            "OrderedList", "BulletList", "DefinitionList", "Header",
+            "HorizontalRule", "Table", "Figure", "Div", "Null",
+            "Str", "Emph", "Underline", "Strong", "Strikeout", "Superscript",
+            "Subscript", "SmallCaps", "Quoted", "Cite", "Code", "Space",
+            "SoftBreak", "LineBreak", "Math", "RawInline", "Link", "Image",
+            "Note", "Span",
+            "MetaMap", "MetaList", "MetaString", "MetaBool", "MetaInlines",
+            "MetaBlocks",
+            "SingleQuote", "DoubleQuote", "DisplayMath", "InlineMath",
+            "AuthorInText", "SuppressAuthor", "NormalCitation",
+            "AlignLeft", "AlignRight", "AlignCenter", "AlignDefault",
+            "DefaultStyle", "Example", "Decimal", "LowerRoman", "UpperRoman",
+            "LowerAlpha", "UpperAlpha",
+            "DefaultDelim", "Period", "OneParen", "TwoParens",
+            "ColWidthDefault",
+            "nullAttr", "nullMeta",
+            "lookupMeta", "docTitle", "docAuthors", "docDate",
+        ],
+        "Text.Pandoc.Walk" => &[
+            "Walkable", "walk", "walkM", "query", "queryM",
+        ],
+        "Text.Pandoc.MediaBag" => &[
+            "MediaBag", "emptyMediaBag", "insertMedia", "lookupMedia",
+            "mediaDirectory", "mediaItems",
+        ],
+        "Text.Pandoc.Translations" => &[
+            "Term", "Translations", "lookupTerm", "readTranslations",
+        ],
+        // =====================================================================
+        // Parsec stubs
+        // =====================================================================
+        "Text.Parsec" => &[
+            // Re-exports from sub-modules
+            "Parsec", "ParsecT", "Stream",
+            "parse", "runParser", "runParserT",
+            "try", "char", "string", "anyChar", "letter", "digit",
+            "space", "spaces", "newline", "satisfy", "oneOf", "noneOf",
+            "many1", "manyTill", "lookAhead", "notFollowedBy",
+            "skipMany", "skipMany1", "option", "optionMaybe", "optional",
+            "choice", "count", "between", "sepBy", "sepBy1",
+            "endBy", "endBy1", "eof",
+            "getState", "putState", "updateState", "modifyState",
+            "getPosition", "setPosition", "getInput", "setInput",
+            "SourcePos", "sourceLine", "sourceColumn", "sourceName",
+            "<?>", "label", "unexpected",
+            "many", "skipMany",
+            "ParseError",
+            "updatePosChar",
+            "tokenPrim",
+        ],
+        "Text.Parsec.Char" => &[
+            "char", "string", "anyChar", "letter", "digit", "space", "spaces",
+            "newline", "satisfy", "oneOf", "noneOf", "upper", "lower", "alphaNum",
+            "hexDigit", "octDigit", "tab", "crlf", "endOfLine",
+        ],
+        "Text.Parsec.Combinator" => &[
+            "many1", "manyTill", "lookAhead", "notFollowedBy", "skipMany",
+            "skipMany1", "option", "optionMaybe", "optional", "try", "choice",
+            "count", "between", "sepBy", "sepBy1", "endBy", "endBy1",
+            "chainl1", "chainr1", "eof", "anyToken", "sepEndBy", "sepEndBy1",
+        ],
+        "Text.Parsec.Prim" => &[
+            "Parsec", "ParsecT", "Stream", "runParser", "runParserT", "parse",
+            "getState", "putState", "updateState", "modifyState",
+            "getPosition", "setPosition", "getInput", "setInput",
+            "try", "unexpected", "label", "<?>", "token", "tokens",
+            "tokenPrim", "many", "skipMany", "parserFail",
+        ],
+        "Text.Parsec.Pos" => &[
+            "SourcePos", "sourceLine", "sourceColumn", "sourceName",
+            "newPos", "initialPos", "incSourceLine", "incSourceColumn",
+            "setSourceLine", "setSourceColumn", "setSourceName", "SourceName",
+            "updatePosChar", "updatePosString",
+        ],
+        "Text.Parsec.Error" => &[
+            "ParseError", "Message", "errorPos", "errorMessages",
+            "showErrorMessages", "messageString", "newErrorMessage",
+            "newErrorUnknown",
+        ],
+        "Text.Parsec.String" | "Text.Parsec.Text" => &[
+            "Parser", "GenParser",
+        ],
+        // =====================================================================
+        // HTML TagSoup stubs
+        // =====================================================================
+        "Text.HTML.TagSoup" => &[
+            "Tag", "TagOpen", "TagClose", "TagText", "TagComment", "TagWarning",
+            "TagPosition", "parseTags", "parseTagsOptions", "renderTags",
+            "renderTagsOptions", "isTagOpen", "isTagClose", "isTagText",
+            "isTagComment", "isTagWarning", "isTagPosition", "fromAttrib",
+            "fromTagText", "innerText", "sections", "partitions",
+            "~==", "~/=",
+        ],
+        "Text.HTML.TagSoup.Tree" => &[
+            "TagTree", "tagTree", "flattenTree", "universeTree",
+            "TagBranch", "TagLeaf",
+        ],
+        // =====================================================================
+        // TagSoup Entity stubs
+        // =====================================================================
+        "Text.HTML.TagSoup.Entity" => &[
+            "lookupEntity", "lookupNamedEntity", "lookupNumericEntity",
+            "escapeXML", "xmlEntities", "htmlEntities",
+        ],
+        // =====================================================================
+        // Commonmark stubs
+        // =====================================================================
+        "Commonmark" | "Commonmark.Entity" | "Commonmark.Extensions" => &[
+            "lookupEntity", "pEntity", "unEntity",
+            "commonmark", "defaultSyntaxSpec", "SyntaxSpec",
+            "gfmExtensions",
+        ],
+        // =====================================================================
+        // Pandoc XML.Light stubs
+        // =====================================================================
+        "Text.Pandoc.XML.Light" | "Text.Pandoc.XML.Light.Types"
+        | "Text.Pandoc.XML.Light.Proc" | "Text.Pandoc.XML.Light.Output" => &[
+            "Element", "Content", "CData", "CDataKind", "QName", "Attr",
+            "Line", "Node",
+            "elName", "elAttribs", "elContent", "elChildren", "elLine",
+            "qName", "qURI", "qPrefix",
+            "cdVerbatim", "cdData", "cdLine",
+            "attrKey", "attrVal",
+            "unqual", "blank_element", "blank_cdata", "add_attr", "add_attrs",
+            "findAttr", "lookupAttr", "lookupAttrBy",
+            "findElement", "findChild", "findChildren", "filterChildren", "filterChildrenName",
+            "strContent", "showElement", "showContent", "ppElement", "ppTopElement", "ppContent",
+            "showTopElement", "showQName",
+            "parseXML", "onlyElems", "elsByTag",
+            "Elem", "Text", "CRef",
+            "CDataText", "CDataVerbatim", "CDataRaw",
+        ],
+        // =====================================================================
+        // Data.Bifunctor, Data.Tree, Data.Containers.ListUtils
+        // =====================================================================
+        "Data.Bifunctor" => &[
+            "Bifunctor", "bimap", "first", "second",
+        ],
+        "Data.Tree" => &[
+            "Tree", "Node", "Forest",
+            "rootLabel", "subForest",
+            "foldTree", "flatten", "levels", "unfoldTree", "unfoldForest",
+            "drawTree", "drawForest",
+        ],
+        "Data.Containers.ListUtils" => &[
+            "nubOrd", "nubOrdOn", "nubInt", "nubIntOn",
+        ],
+        // =====================================================================
+        // Safe / Safe.Foldable stubs
+        // =====================================================================
+        "Safe" => &[
+            "headMay", "headDef", "headNote",
+            "tailMay", "tailDef", "tailNote", "tailSafe",
+            "initMay", "initDef", "initNote", "initSafe",
+            "lastMay", "lastDef", "lastNote",
+            "minimumMay", "maximumMay",
+            "readMay", "readDef", "readNote",
+            "atMay", "atDef", "atNote",
+            "fromJustDef", "fromJustNote",
+            "toEnumMay", "succMay", "predMay",
+            "lookupJustDef", "lookupJustNote",
+            "findJustDef", "findJustNote",
+            "abort",
+        ],
+        "Safe.Foldable" => &[
+            "foldl1May", "foldr1May",
+            "minimumMay", "maximumMay",
+            "minimumByMay", "maximumByMay",
+            "findJust", "findJustDef", "findJustNote",
+        ],
+        // =====================================================================
+        // DocTemplates stubs
+        // =====================================================================
+        "Text.DocTemplates" => &[
+            "Template", "Context", "Val",
+            "compileTemplate", "renderTemplate", "applyTemplate",
+            "compileTemplateFile",
+            "toVal", "toContext",
+            "WithDefaultPartials", "WithPartials",
+            "runWithDefaultPartials", "runWithPartials",
+            "TemplateMonad",
+        ],
+        // =====================================================================
+        // Skylighting stubs
+        // =====================================================================
+        "Skylighting" | "Skylighting.Types" => &[
+            "Syntax", "SyntaxMap", "Token", "TokenType", "SourceLine",
+            "TokenStyle", "Style", "Color",
+            "defaultSyntaxMap", "lookupSyntax",
+            "defaultStyle", "pygments", "kate", "espresso", "tango",
+            "haddock", "monochrome", "breezeDark", "zenburn",
+            "formatHtmlBlock", "formatHtmlInline", "formatLaTeXBlock",
+            "tokenize", "TokenizerConfig", "defaultTokenizerConfig",
+            "syntaxesByExtension", "syntaxesByFilename",
+        ],
+        "Skylighting.Parser" => &[
+            "addSyntaxDefinition", "parseSyntaxDefinition",
+            "parseSyntaxDefinitionFromString",
+        ],
+        // =====================================================================
+        // Data.Time stubs
+        // =====================================================================
+        "Data.Time" | "Data.Time.Clock" => &[
+            "UTCTime", "NominalDiffTime", "DiffTime",
+            "getCurrentTime", "addUTCTime", "diffUTCTime",
+            "secondsToNominalDiffTime", "nominalDiffTimeToSeconds",
+        ],
+        "Data.Time.Clock.POSIX" => &[
+            "POSIXTime", "posixSecondsToUTCTime", "utcTimeToPOSIXSeconds",
+            "getPOSIXTime",
+        ],
+        "Data.Time.Format" => &[
+            "formatTime", "parseTimeM", "defaultTimeLocale",
+            "iso8601DateFormat", "rfc822DateFormat",
+            "FormatTime", "ParseTime", "TimeLocale",
+        ],
+        "Data.Time.Calendar" => &[
+            "Day", "fromGregorian", "toGregorian",
+            "addDays", "diffDays",
+        ],
+        "Data.Time.LocalTime" => &[
+            "LocalTime", "ZonedTime", "TimeZone", "TimeOfDay",
+            "utcToLocalTime", "localTimeToUTC",
+            "getCurrentTimeZone", "utc",
+            "zonedTimeToUTC", "utcToZonedTime",
+        ],
+        // =====================================================================
+        // Codec.Archive.Zip stubs
+        // =====================================================================
+        "Codec.Archive.Zip" => &[
+            "Archive", "Entry", "CompressionMethod",
+            "toArchive", "fromArchive",
+            "toEntry", "fromEntry",
+            "findEntryByPath", "filesInArchive",
+            "addEntryToArchive", "deleteEntryFromArchive",
+            "emptyArchive",
+            "eRelativePath", "eCompressedData", "eUncompressedSize",
+            "Deflate", "NoCompression",
+        ],
+        // =====================================================================
+        // Text.TeXMath stubs
+        // =====================================================================
+        "Text.TeXMath" | "Text.TeXMath.Types" => &[
+            "Exp", "TextType", "Alignment", "DisplayType",
+            "readTeX", "writeMathML", "writeTeX", "writeLaTeX",
+            "writeOMML", "readMathML", "readOMML",
+            "Grouped", "ESymbol", "ENumber", "EIdentifier",
+            "EMathOperator", "EText", "EDelimited",
+            "EStyled", "ESub", "ESuper", "ESubsup",
+            "EOver", "EUnder", "EUnderover",
+            "EPhantom", "EBoxed", "EFraction", "ERoot", "ESqrt",
+            "EScaled", "EArray", "ESpace",
+            "TextNormal", "TextBold", "TextItalic", "TextMonospace",
+            "TextSansSerif", "TextDoubleStruck", "TextScript", "TextFraktur",
+            "TextBoldItalic", "TextSansSerifBold", "TextSansSerifBoldItalic",
+            "TextBoldScript", "TextBoldFraktur", "TextSansSerifItalic",
+        ],
+        // =====================================================================
+        // Text.Collate stubs
+        // =====================================================================
+        "Text.Collate" | "Text.Collate.Lang" => &[
+            "Lang", "parseLang", "renderLang",
+            "Collator", "collate", "sortBy",
+            "rootCollator", "collatorFor",
+        ],
+        // =====================================================================
+        // Data.Generics (SYB) stubs
+        // =====================================================================
+        "Data.Generics" => &[
+            "Data", "Typeable", "Generic",
+            "everywhere", "everything", "mkT", "mkQ", "mkM",
+            "extQ", "extT", "gmapQ", "gmapT", "gmapM",
+            "toConstr", "gunfold", "dataTypeOf",
+            "listify", "everywhereM",
+        ],
+        // =====================================================================
+        // Commonmark.Pandoc stubs
+        // =====================================================================
+        "Commonmark.Pandoc" => &[
+            "commonmarkToNode", "nodeToBlocks", "nodeToInlines",
+            "Cm", "unCm",
+        ],
+        // =====================================================================
+        // Text.Pandoc.Generic stubs (internal module)
+        // =====================================================================
+        "Text.Pandoc.Generic" => &[
+            "bottomUp", "topDown", "queryWith",
+        ],
+        // =====================================================================
+        // System extras stubs
+        // =====================================================================
+        "System.Random" => &[
+            "StdGen", "Random", "RandomGen",
+            "randomRIO", "randomIO", "randomR", "random",
+            "mkStdGen", "newStdGen", "getStdGen", "setStdGen",
+            "randoms", "randomRs",
+        ],
+        "System.Console.GetOpt" => &[
+            "OptDescr", "ArgDescr", "ArgOrder",
+            "Option", "NoArg", "ReqArg", "OptArg",
+            "Permute", "RequireOrder", "ReturnInOrder",
+            "getOpt", "getOpt'", "usageInfo",
+        ],
+        "System.CPUTime" => &[
+            "getCPUTime", "cpuTimePrecision",
+        ],
+        "System.FilePath.Windows" => &[
+            "takeExtension", "takeBaseName", "takeDirectory", "takeFileName",
+            "replaceExtension", "dropExtension", "addExtension",
+            "hasExtension", "splitExtension", "splitFileName",
+            "splitPath", "joinPath", "combine",
+            "</>", "<.>",
+            "splitDirectories", "normalise", "makeRelative",
+            "isRelative", "isAbsolute",
+            "pathSeparator", "searchPathSeparator", "extSeparator",
+        ],
+        "System.Posix.IO" => &[
+            "openFd", "closeFd", "fdRead", "fdWrite",
+            "dupTo", "dup", "setFdOption", "queryFdOption",
+            "stdInput", "stdOutput", "stdError",
+        ],
+        "System.Posix.Terminal" => &[
+            "queryTerminal", "getTerminalName",
+            "TerminalAttributes", "getTerminalAttributes", "setTerminalAttributes",
+        ],
+        // =====================================================================
+        // Data extras stubs
+        // =====================================================================
+        "Data.Vector" => &[
+            "Vector",
+            "empty", "singleton", "null", "length",
+            "head", "last", "tail", "init",
+            "fromList", "toList",
+            "map", "filter", "foldl", "foldl'", "foldr",
+            "zip", "zipWith", "unzip",
+            "concat", "cons", "snoc",
+            "take", "drop", "splitAt",
+            "replicate", "generate",
+            "(!)", "(!?)",
+            "freeze", "thaw",
+            "imapM_", "forM_", "mapM_",
+        ],
+        "Data.List.Split" => &[
+            "splitOn", "splitWhen", "splitOneOf",
+            "chunksOf", "splitPlaces",
+            "endBy", "wordsBy", "linesBy",
+            "split", "Splitter",
+            "onSublist", "whenElt", "keepDelimsL", "keepDelimsR",
+            "condense", "dropInitBlank", "dropFinalBlank",
+            "dropInnerBlanks", "dropBlanks",
+        ],
+        "Data.Aeson.Encode.Pretty" => &[
+            "encodePretty", "encodePrettyToTextBuilder",
+            "Config", "defConfig", "confIndent", "confCompare",
+            "keyOrder", "Indent", "Spaces", "Tab",
+        ],
+        "Data.Aeson.TH" => &[
+            "deriveJSON", "deriveToJSON", "deriveFromJSON",
+            "defaultOptions", "fieldLabelModifier", "constructorTagModifier",
+            "omitNothingFields", "allNullaryToStringTag",
+            "Options", "SumEncoding", "TaggedObject",
+            "UntaggedValue", "ObjectWithSingleField", "TwoElemArray",
+        ],
+        "Data.Yaml" => &[
+            "encode", "decode", "decodeEither", "decodeFileEither",
+            "decodeThrow", "decodeFileThrow",
+            "ParseException", "prettyPrintParseException",
+            "ToJSON", "FromJSON",
+        ],
+        "Data.Ipynb" => &[
+            "Notebook", "Cell", "CellType", "Output", "Source",
+            "decodeNotebook", "encodeNotebook",
+            "CodeCell", "MarkdownCell", "RawCell",
+        ],
+        "Data.ByteString.Base64" => &[
+            "encode", "decode", "decodeLenient",
+        ],
+        "Data.ByteString.Base64.Lazy" => &[
+            "encode", "decode", "decodeLenient",
+        ],
+        "Data.Text.Normalize" => &[
+            "normalize", "NormalizationMode",
+            "NFC", "NFD", "NFKC", "NFKD",
+        ],
+        "Data.Attoparsec.Text" => &[
+            "Parser", "parse", "parseOnly", "feed",
+            "string", "char", "anyChar", "satisfy",
+            "takeWhile", "takeWhile1", "takeTill", "takeText",
+            "decimal", "double", "number", "signed",
+            "endOfInput", "atEnd",
+            "many1", "manyTill", "option", "choice",
+            "skipWhile", "skipSpace",
+            "IResult", "Done", "Fail", "Partial",
+        ],
+        "Data.FileEmbed" => &[
+            "embedFile", "embedDir", "embedStringFile",
+            "makeRelativeToProject",
+        ],
+        // =====================================================================
+        // Control extras stubs
+        // =====================================================================
+        "Control.Monad.Catch" => &[
+            "MonadThrow", "MonadCatch", "MonadMask",
+            "throwM", "catch", "catchAll",
+            "try", "tryJust", "handle", "handleAll",
+            "bracket", "bracket_", "finally", "onException",
+            "mask", "uninterruptibleMask",
+            "SomeException", "Exception",
+        ],
+        "Control.Monad.RWS" => &[
+            "RWS", "RWST",
+            "runRWS", "evalRWS", "execRWS",
+            "runRWST", "evalRWST", "execRWST",
+            "ask", "asks", "tell", "get", "put", "modify",
+            "reader", "writer", "state",
+        ],
+        // =====================================================================
+        // Crypto.Hash stubs
+        // =====================================================================
+        "Crypto.Hash" => &[
+            "Digest", "SHA1", "SHA256", "MD5",
+            "hash", "hashlazy", "hashWith",
+            "digestToHexByteString",
+            "HashAlgorithm", "Context",
+            "hashInit", "hashUpdate", "hashFinalize",
+        ],
+        // =====================================================================
+        // Citeproc stubs
+        // =====================================================================
+        "Citeproc" => &[
+            "citeproc", "evalStyle", "processStyle",
+            "Citation", "CitationItem", "Reference",
+            "Style", "Locale",
+            "Result", "resultBibliography", "resultCitations",
+        ],
+        "Citeproc.Types" => &[
+            "Reference", "Val", "ItemId", "CiteprocOutput",
+            "Name", "Date", "DateParts",
+            "Lang", "Locale", "Style",
+            "Citation", "CitationItem",
+            "NormalCitation", "AuthorOnly", "SuppressAuthor",
+            "Formatted", "unFormatted",
+        ],
+        "Citeproc.Pandoc" => &[
+            "citeproc", "getReferences", "getStyle",
+            "CiteprocOutput",
+        ],
+        "Citeproc.Locale" => &[
+            "Locale", "getLocale", "mergeLocales",
+            "lookupTerm",
+        ],
+        "Citeproc.CslJson" => &[
+            "readCslJson", "writeCslJson",
+            "parseCslJson", "renderCslJson",
+            "CslJson",
+            "CslText", "CslEmpty", "CslConcat", "CslQuoted",
+            "CslItalic", "CslNormal", "CslBold", "CslUnderline",
+            "CslNoDecoration", "CslSmallCaps", "CslBaseline",
+            "CslSub", "CslSup", "CslNoCase", "CslDiv", "CslLink",
+        ],
+        // =====================================================================
+        // XML / Emoji stubs
+        // =====================================================================
+        "Text.XML.Light" => &[
+            "Element", "Content", "CData", "CDataKind", "QName", "Attr",
+            "elName", "elAttribs", "elContent", "elChildren",
+            "qName", "qURI", "qPrefix",
+            "cdVerbatim", "cdData",
+            "attrKey", "attrVal",
+            "unqual", "blank_element", "blank_cdata",
+            "add_attr", "add_attrs",
+            "findAttr", "lookupAttr",
+            "findChild", "findChildren", "filterChildren",
+            "strContent", "showElement", "showContent",
+            "ppElement", "ppTopElement",
+            "parseXML", "onlyElems",
+            "Elem", "Text", "CRef",
+            "CDataText", "CDataVerbatim", "CDataRaw",
+        ],
+        "Text.Emoji" => &[
+            "emojis", "emojiFromAlias", "aliasesFromEmoji",
+        ],
+        // =====================================================================
+        // Data.Array stubs
+        // =====================================================================
+        "Data.Array" | "Data.Array.IArray" => &[
+            "Array", "Ix", "IArray",
+            "array", "listArray", "accumArray",
+            "(!)", "bounds", "indices", "elems", "assocs",
+            "accum", "ixmap", "amap",
+            "range", "index", "inRange", "rangeSize",
+        ],
+        "Data.Array.MArray" => &[
+            "MArray", "IOArray",
+            "newArray", "newArray_", "newListArray",
+            "readArray", "writeArray",
+            "getBounds", "getElems", "getAssocs",
+            "freeze", "thaw",
+            "mapArray", "mapIndices",
+        ],
+        "Data.Array.ST" => &[
+            "STArray", "runSTArray",
+            "newSTArray", "readSTArray", "writeSTArray",
+            "freezeSTArray", "thawSTArray",
+        ],
+        "Data.Array.IO" => &[
+            "IOArray", "IOUArray",
+            "newArray", "newArray_", "readArray", "writeArray",
+            "hGetArray", "hPutArray",
+        ],
+        // =====================================================================
+        // Control.Monad.RWS.Strict
+        // =====================================================================
+        "Control.Monad.RWS.Strict" => &[
+            "RWS", "RWST",
+            "rws", "runRWS", "evalRWS", "execRWS",
+            "runRWST", "evalRWST", "execRWST",
+            "ask", "local", "asks",
+            "tell", "listen", "pass", "censor",
+            "get", "put", "modify", "gets",
+        ],
+        // =====================================================================
+        // Network stubs
+        // =====================================================================
+        "Network.HTTP.Client" | "Network.HTTP.Client.Internal" => &[
+            "Manager", "newManager", "defaultManagerSettings",
+            "Request", "Response", "HttpException",
+            "httpLbs", "httpNoBody", "httpBS",
+            "parseRequest", "parseRequest_", "parseUrlThrow",
+            "responseBody", "responseStatus", "responseHeaders",
+            "method", "requestBody", "requestHeaders",
+            "setRequestBodyLBS", "setRequestBodyBS",
+            "responseTimeoutNone", "responseTimeoutMicro",
+            "managerResponseTimeout", "managerConnCount",
+        ],
+        "Network.HTTP.Client.TLS" => &[
+            "tlsManagerSettings", "newTlsManager", "newTlsManagerWith",
+            "mkManagerSettings",
+        ],
+        "Network.HTTP.Types" | "Network.HTTP.Types.Header" | "Network.HTTP.Types.Status" => &[
+            "Status", "status200", "status301", "status302", "status404", "status500",
+            "statusCode", "statusMessage",
+            "Header", "HeaderName", "RequestHeaders", "ResponseHeaders",
+            "hContentType", "hAccept", "hAuthorization",
+            "methodGet", "methodPost", "methodPut", "methodDelete",
+            "renderQuery", "parseQuery",
+        ],
+        "Network.Mime" => &[
+            "defaultMimeLookup", "defaultMimeMap", "defaultMimeType",
+            "MimeType", "MimeMap", "FileName",
+        ],
+        "Network.Socket" => &[
+            "Socket", "SockAddr", "SocketType", "Family",
+            "socket", "connect", "bind", "listen", "accept", "close",
+        ],
+        "Network.Connection" => &[
+            "TLSSettings", "initConnectionContext", "ConnectionParams",
+        ],
+        "Network.TLS" | "Network.TLS.Extra" => &[
+            "ClientParams", "Supported", "Shared",
+            "defaultParamsClient", "supportedCiphers", "ciphersuite_default",
+        ],
+        // =====================================================================
+        // Text.Blaze stubs
+        // =====================================================================
+        "Text.Blaze" | "Text.Blaze.Internal" => &[
+            "Markup", "MarkupM", "Tag", "Attribute", "AttributeValue",
+            "toMarkup", "toValue", "preEscapedToMarkup",
+            "string", "text", "lazyText",
+            "textTag", "textValue",
+            "customAttribute", "customParent", "customLeaf",
+            "(!)", "(!?)",
+            "contents",
+            "ToMarkup", "ToValue",
+        ],
+        "Text.Blaze.Html" => &[
+            "Html", "toHtml",
+            "preEscapedToHtml", "preEscapedString", "preEscapedText",
+        ],
+        "Text.Blaze.Html.Renderer.Text" => &[
+            "renderHtml",
+        ],
+        "Text.Blaze.XHtml5" | "Text.Blaze.XHtml1.Transitional" => &[
+            "docType", "docTypeHtml", "html", "head", "title", "body",
+            "div", "span", "p", "a", "img", "br", "hr",
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            "ul", "ol", "li", "dl", "dt", "dd",
+            "table", "thead", "tbody", "tr", "th", "td",
+            "form", "input", "button", "select", "option", "textarea",
+            "pre", "code", "blockquote", "em", "strong", "i", "b",
+            "link", "meta", "script", "style", "noscript",
+            "sup", "sub", "small", "abbr", "cite", "q",
+            "section", "article", "nav", "aside", "header", "footer",
+            "figure", "figcaption", "video", "audio", "source",
+        ],
+        "Text.Blaze.XHtml5.Attributes" | "Text.Blaze.XHtml1.Transitional.Attributes" => &[
+            "class_", "id", "href", "src", "alt", "title", "style",
+            "type_", "name", "value", "action", "method",
+            "width", "height", "colspan", "rowspan",
+            "rel", "target", "placeholder", "role",
+            "lang", "dir", "tabindex", "accesskey",
+        ],
+        // =====================================================================
+        // Djot stubs
+        // =====================================================================
+        "Djot" => &[
+            "parseDjot", "renderDjot", "renderHtml",
+            "ParseOptions", "RenderOptions",
+            "defaultParseOptions", "defaultRenderOptions",
+        ],
+        "Djot.AST" => &[
+            "Doc", "Block", "Inline", "Attr",
+            "Para", "Heading", "CodeBlock", "BlockQuote",
+            "BulletList", "OrderedList", "DefinitionList",
+            "Table", "Div", "ThematicBreak", "RawBlock",
+            "Str", "Emph", "Strong", "Link", "Image",
+            "Code", "RawInline", "SoftBreak", "HardBreak",
+            "Span", "Superscript", "Subscript", "Strikeout",
+        ],
+        // =====================================================================
+        // Data.Scientific
+        // =====================================================================
+        "Data.Scientific" => &[
+            "Scientific",
+            "scientific", "coefficient", "base10Exponent",
+            "toRealFloat", "fromRealFloat",
+            "toDecimalDigits", "normalize",
+            "toBoundedInteger", "toBoundedRealFloat",
+            "fromFloatDigits",
+            "isFloating", "isInteger",
+        ],
+        // =====================================================================
+        // Text.HTML.TagSoup.Match
+        // =====================================================================
+        "Text.HTML.TagSoup.Match" => &[
+            "tagOpen", "tagClose", "tagText", "tagComment",
+            "tagOpenLit", "tagCloseLit",
+            "tagOpenAttr", "tagOpenAttrLit",
+            "tagOpenAttrNameLit",
+            "(~==)", "(/~==)",
+        ],
+        // =====================================================================
+        // Data.Text.Lazy.Builder
+        // =====================================================================
+        "Data.Text.Lazy.Builder" => &[
+            "Builder",
+            "toLazyText", "fromText", "fromLazyText",
+            "fromString", "singleton",
+            "flush",
+        ],
+        // =====================================================================
+        // Codec.Compression stubs
+        // =====================================================================
+        "Codec.Compression.GZip" | "Codec.Compression.Zlib" => &[
+            "compress", "decompress",
+            "compressWith", "decompressWith",
+            "defaultCompressParams", "defaultDecompressParams",
+            "CompressParams", "DecompressParams",
+            "compressLevel", "bestCompression", "bestSpeed", "noCompression",
+        ],
+        // =====================================================================
+        // Codec.Picture stubs
+        // =====================================================================
+        "Codec.Picture" | "Codec.Picture.Metadata" => &[
+            "DynamicImage", "Image", "PixelRGBA8", "PixelRGB8",
+            "decodePng", "decodeJpeg", "decodeGif",
+            "decodeImage", "readImage",
+            "encodePng", "encodeJpeg",
+            "dynamicMap", "imageWidth", "imageHeight",
+            "Metadatas", "Keys", "lookup", "Width", "Height", "DpiX", "DpiY",
+        ],
+        // =====================================================================
+        // Data.Binary.Get
+        // =====================================================================
+        "Data.Binary.Get" => &[
+            "Get", "runGet", "runGetOrFail",
+            "getWord8", "getWord16be", "getWord16le",
+            "getWord32be", "getWord32le",
+            "getWord64be", "getWord64le",
+            "getByteString", "getLazyByteString",
+            "getRemainingLazyByteString",
+            "skip", "isEmpty", "bytesRead", "lookAhead",
+        ],
+        // =====================================================================
+        // Data.Attoparsec stubs
+        // =====================================================================
+        "Data.Attoparsec.ByteString" | "Data.Attoparsec.ByteString.Char8" => &[
+            "Parser", "Result", "IResult",
+            "parse", "parseOnly", "feed",
+            "Done", "Fail", "Partial",
+            "string", "char", "anyChar", "notChar",
+            "satisfy", "digit", "letter_ascii",
+            "takeWhile", "takeWhile1", "takeTill",
+            "take", "takeByteString", "takeLazyByteString",
+            "skipWhile", "skipSpace",
+            "choice", "count", "option",
+            "many1", "manyTill", "sepBy", "sepBy1",
+            "endOfInput", "atEnd",
+            "decimal", "hexadecimal", "signed", "double", "rational",
+            "isDigit", "isAlpha_ascii", "isSpace",
+            "endOfLine", "inClass", "notInClass",
+        ],
+        // =====================================================================
+        // Data.CaseInsensitive
+        // =====================================================================
+        "Data.CaseInsensitive" => &[
+            "CI", "mk", "original", "foldedCase",
+            "map", "FoldCase", "foldCase",
+        ],
+        // =====================================================================
+        // System extras
+        // =====================================================================
+        "System.IO.Temp" => &[
+            "withSystemTempFile", "withSystemTempDirectory",
+            "withTempFile", "withTempDirectory",
+            "openTempFile", "openBinaryTempFile",
+            "createTempDirectory",
+            "getCanonicalTemporaryDirectory",
+        ],
+        "System.X509" => &[
+            "getSystemCertificateStore",
+            "CertificateStore",
+        ],
+        "System.FilePath.Glob" => &[
+            "glob", "globDir", "globDir1",
+            "compile", "match", "Pattern",
+        ],
+        "GHC.IO.Exception" => &[
+            "IOException", "IOErrorType",
+            "ioe_handle", "ioe_type", "ioe_location",
+            "ioe_description", "ioe_errno", "ioe_filename",
+        ],
+        // =====================================================================
+        // Text extras
+        // =====================================================================
+        "Text.Pandoc.JSON" => &[
+            "toJSONFilter", "toJSONFilter'",
+            "Block", "Inline", "Pandoc", "Format",
+        ],
+        "Text.TeXMath.Readers.OMML" => &[
+            "readOMML",
+        ],
+        "Text.TeXMath.Readers.MathML.EntityMap" => &[
+            "getEntity", "entityMap",
+        ],
+        "Text.TeXMath.Unicode.ToTeX" => &[
+            "toTeX", "toUnicode",
+            "getTeXMath", "lookupChar",
+        ],
+        "Text.TeXMath.Shared" => &[
+            "getSpaceChars", "getLaTeXTextCommand",
+        ],
+        "Text.DocTemplates.Internal" => &[
+            "Context", "Val", "ToContext", "FromContext",
+            "renderTemplate", "compileTemplate",
+        ],
+        "Text.XML.Light.Output" => &[
+            "showElement", "showContent", "ppElement", "ppContent",
+            "showTopElement", "ppTopElement",
+        ],
+        "Text.Show.Pretty" => &[
+            "ppShow", "ppDoc", "ppValue",
+            "Value", "parseValue",
+        ],
+        "Text.PrettyPrint" => &[
+            "Doc", "text", "char", "int", "integer",
+            "nest", "hang", "punctuate",
+            "(<>)", "(<+>)", "($$)", "($+$)",
+            "hcat", "hsep", "vcat", "sep", "cat", "fsep", "fcat",
+            "parens", "brackets", "braces", "quotes", "doubleQuotes",
+            "empty", "render", "renderStyle", "Style",
+        ],
+        "Text.GridTable" => &[
+            "gridTable", "parseGridTable",
+            "GridTable", "Cell", "Row",
+        ],
+        // =====================================================================
+        // Typst stubs
+        // =====================================================================
+        "Typst" => &[
+            "parseTypst", "evaluateTypst",
+        ],
+        "Typst.Types" => &[
+            "Val", "Content", "Selector", "Function",
+            "VString", "VInteger", "VFloat", "VBool",
+            "VContent", "VArray", "VDict", "VNone", "VAuto",
+            "Identifier", "fromVal", "toVal",
+        ],
+        "Typst.Methods" => &[
+            "applyPureFunction", "lookupMethod",
+        ],
+        // =====================================================================
+        // Jira stubs
+        // =====================================================================
+        "Text.Jira.Parser" => &[
+            "parse", "doc",
+        ],
+        "Text.Jira.Printer" => &[
+            "prettyBlocks", "prettyBlock", "prettyInlines", "prettyInline",
+        ],
+        "Text.Jira.Markup" => &[
+            "Doc", "Block", "Inline",
+            "Para", "Header", "List", "Table", "Code", "Panel",
+            "Str", "Emph", "Strong", "Monospaced", "Link", "Image",
+            "Linebreak", "Anchor", "Citation",
+        ],
+        // =====================================================================
+        // Haddock stubs
+        // =====================================================================
+        "Documentation.Haddock.Parser" => &[
+            "parseParas", "parseString",
+        ],
+        "Documentation.Haddock.Types" => &[
+            "DocH", "Doc",
+            "DocEmpty", "DocAppend", "DocString", "DocParagraph",
+            "DocIdentifier", "DocModule", "DocWarning",
+            "DocEmphasis", "DocMonospaced", "DocBold",
+            "DocHeader", "DocUnorderedList", "DocOrderedList",
+            "DocDefList", "DocCodeBlock", "DocHyperlink",
+            "DocAName", "DocProperty",
+            "Hyperlink", "hyperlinkUrl", "hyperlinkLabel",
+            "Header", "headerLevel", "headerTitle",
+        ],
+        // =====================================================================
+        // Yaml stubs
+        // =====================================================================
+        "Data.Yaml.Internal" => &[
+            "rawParser", "parseRawDoc",
+        ],
+        "Text.Libyaml" => &[
+            "Event", "Style", "Tag",
+            "EventStreamStart", "EventStreamEnd",
+            "EventDocumentStart", "EventDocumentEnd",
+            "EventMappingStart", "EventMappingEnd",
+            "EventSequenceStart", "EventSequenceEnd",
+            "EventScalar", "EventAlias",
+        ],
+        // =====================================================================
+        // Paths_pandoc (auto-generated by Cabal)
+        // =====================================================================
+        "Paths_pandoc" => &[
+            "version", "getDataDir", "getDataFileName",
+        ],
+        // =====================================================================
+        // Unicode
+        // =====================================================================
+        "Unicode.Char" => &[
+            "isLetter", "isNumber", "isSpace", "isPunctuation",
+            "isSymbol", "isSeparator", "isMark",
+            "generalCategory", "GeneralCategory",
+        ],
+        // =====================================================================
+        // Data.Text.Conversions
+        // =====================================================================
+        "Data.Text.Conversions" => &[
+            "ToText", "FromText",
+            "toText", "fromText",
+            "convertText", "decodeConvertText",
+            "UTF8", "Base16", "Base64",
+        ],
+        // =====================================================================
+        // AsciiDoc
+        // =====================================================================
+        "AsciiDoc" => &[
+            "parseAsciiDoc", "defaultOptions",
+            "AsciiDoc", "Block", "Inline",
+        ],
+        // =====================================================================
+        // Powerpoint output
+        // =====================================================================
+        "Text.Pandoc.Writers.Powerpoint.Output" => &[
+            "presentationToArchive",
+        ],
         _ => &[],
     };
 
@@ -1989,6 +3023,12 @@ fn register_standard_module_exports(
     for &export in exports {
         let unqualified = Symbol::intern(export);
 
+        // Detect if this export is a constructor (starts with uppercase or ':')
+        let is_constructor = export
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_uppercase() || c == ':');
+
         // Register qualified name under the alias: e.g. T.pack -> pack
         let aliased_qualified = Symbol::intern(&format!("{}.{}", qualifier, export));
         if ctx.lookup_value(aliased_qualified).is_none() {
@@ -2009,8 +3049,32 @@ fn register_standard_module_exports(
         // only access it via the qualifier.
         if ctx.lookup_value(unqualified).is_none() {
             let def_id = ctx.fresh_def_id();
-            ctx.define(def_id, unqualified, DefKind::Value, Span::default());
+            if is_constructor {
+                ctx.define(def_id, unqualified, DefKind::Constructor, Span::default());
+            } else {
+                ctx.define(def_id, unqualified, DefKind::Value, Span::default());
+            }
             ctx.bind_value(unqualified, def_id);
+        }
+
+        // Also register in constructor namespace for pattern matching
+        if is_constructor && ctx.lookup_constructor(unqualified).is_none() {
+            // Re-use the same def_id from the value namespace
+            if let Some(def_id) = ctx.lookup_value(unqualified) {
+                ctx.bind_constructor(unqualified, def_id);
+
+                // Also register qualified constructor names
+                let aliased_qual_sym = Symbol::intern(&format!("{}.{}", qualifier, export));
+                if ctx.lookup_constructor(aliased_qual_sym).is_none() {
+                    ctx.bind_constructor(aliased_qual_sym, def_id);
+                }
+                if qualifier != module_name {
+                    let full_qual_sym = Symbol::intern(&format!("{}.{}", module_name, export));
+                    if ctx.lookup_constructor(full_qual_sym).is_none() {
+                        ctx.bind_constructor(full_qual_sym, def_id);
+                    }
+                }
+            }
         }
     }
 }
@@ -2907,8 +3971,24 @@ fn lower_expr(ctx: &mut LowerContext, expr: &ast::Expr) -> hir::Expr {
                 } else {
                     hir::Expr::Error(*span)
                 }
+            } else if let Some(dot_pos) = op_name_str.rfind('.') {
+                // Qualified variable/operator in backtick position, e.g. `B.isPrefixOf`
+                let qualifier = Symbol::intern(&op_name_str[..dot_pos]);
+                let base_name = Symbol::intern(&op_name_str[dot_pos + 1..]);
+                if let Some(def_id) = ctx.resolve_qualified_var(qualifier, base_name) {
+                    ctx.warn_if_stub(def_id, op_name_str, *span);
+                    hir::Expr::Var(ctx.def_ref(def_id, *span))
+                } else {
+                    ctx.error(crate::LowerError::UnboundVar {
+                        name: op_name_str.to_string(),
+                        span: *span,
+                    });
+                    let def_id = ctx.fresh_def_id();
+                    ctx.define(def_id, op.name, DefKind::Value, *span);
+                    hir::Expr::Var(ctx.def_ref(def_id, *span))
+                }
             } else {
-                // Variable/operator
+                // Unqualified variable/operator
                 if let Some(def_id) = resolve_var(ctx, op.name, *span) {
                     hir::Expr::Var(ctx.def_ref(def_id, *span))
                 } else {

@@ -599,7 +599,8 @@ impl TyCtxt {
                     // Fractional instances
                     ("Fractional", "Float") | ("Fractional", "Double") |
                     // IsString instances
-                    ("IsString", "String") | ("IsString", "[Char]") |
+                    ("IsString", "String") | ("IsString", "[Char]") | ("IsString", "Text") |
+                    ("IsString", "Doc") |
                     // IsList instances (OverloadedLists)
                     ("IsList", "[]") |
                     // Enum/Bounded instances for Word types and Integer
@@ -642,6 +643,8 @@ impl TyCtxt {
                         }
                         // IO a has Show (for debugging)
                         ("Show", "IO") => true,
+                        // Doc a is an IsString instance
+                        ("IsString", "Doc") => true,
                         _ => false,
                     }
                 } else if let Ty::App(inner_con, inner_arg) = con.as_ref() {

@@ -2904,6 +2904,195 @@ impl Compiler {
             "Control.Monad.STM",
             // Network.*
             "Network.URI",
+            // Pandoc ecosystem (pandoc-types, doclayout)
+            "Text.DocLayout",
+            "Text.Pandoc.Definition",
+            "Text.Pandoc.Builder",
+            "Text.Pandoc.Walk",
+            "Text.Pandoc.MediaBag",
+            "Text.Pandoc.Translations",
+            // Parsec
+            "Text.Parsec",
+            "Text.Parsec.Char",
+            "Text.Parsec.Combinator",
+            "Text.Parsec.Prim",
+            "Text.Parsec.Pos",
+            "Text.Parsec.Error",
+            "Text.Parsec.String",
+            "Text.Parsec.Text",
+            // HTML
+            "Text.HTML.TagSoup",
+            "Text.HTML.TagSoup.Tree",
+            "Text.HTML.TagSoup.Entity",
+            // Commonmark
+            "Commonmark",
+            "Commonmark.Entity",
+            "Commonmark.Extensions",
+            // Pandoc XML.Light
+            "Text.Pandoc.XML.Light",
+            "Text.Pandoc.XML.Light.Types",
+            "Text.Pandoc.XML.Light.Proc",
+            "Text.Pandoc.XML.Light.Output",
+            // Data extras
+            "Data.Bifunctor",
+            "Data.Tree",
+            "Data.Containers.ListUtils",
+            // Safe
+            "Safe",
+            "Safe.Foldable",
+            // DocTemplates
+            "Text.DocTemplates",
+            // Skylighting
+            "Skylighting",
+            "Skylighting.Types",
+            "Skylighting.Parser",
+            // Data.Time
+            "Data.Time",
+            "Data.Time.Clock",
+            "Data.Time.Clock.POSIX",
+            "Data.Time.Format",
+            "Data.Time.Calendar",
+            "Data.Time.LocalTime",
+            // Codec.Archive.Zip
+            "Codec.Archive.Zip",
+            // Text.TeXMath
+            "Text.TeXMath",
+            "Text.TeXMath.Types",
+            // Text.Collate
+            "Text.Collate",
+            "Text.Collate.Lang",
+            // Data.Generics / SYB
+            "Data.Generics",
+            // Commonmark.Pandoc
+            "Commonmark.Pandoc",
+            // Text.Pandoc.Generic (internal)
+            "Text.Pandoc.Generic",
+            // System extras
+            "System.Random",
+            "System.Console.GetOpt",
+            "System.CPUTime",
+            "System.FilePath.Windows",
+            "System.Posix.IO",
+            "System.Posix.Terminal",
+            // Data extras
+            "Data.Vector",
+            "Data.List.Split",
+            "Data.Aeson.Encode.Pretty",
+            "Data.Aeson.TH",
+            "Data.Yaml",
+            "Data.Ipynb",
+            "Data.ByteString.Base64",
+            "Data.ByteString.Base64.Lazy",
+            "Data.Text.Normalize",
+            "Data.Attoparsec.Text",
+            "Data.FileEmbed",
+            // Control extras
+            "Control.Monad.Catch",
+            "Control.Monad.RWS",
+            // Crypto
+            "Crypto.Hash",
+            // Citeproc
+            "Citeproc",
+            "Citeproc.Types",
+            "Citeproc.Pandoc",
+            "Citeproc.Locale",
+            "Citeproc.CslJson",
+            // XML
+            "Text.XML.Light",
+            // Emoji
+            "Text.Emoji",
+            // Data.Array
+            "Data.Array",
+            "Data.Array.IArray",
+            "Data.Array.MArray",
+            "Data.Array.ST",
+            "Data.Array.IO",
+            // Control.Monad.RWS.Strict
+            "Control.Monad.RWS.Strict",
+            // Network
+            "Network.HTTP.Client",
+            "Network.HTTP.Client.Internal",
+            "Network.HTTP.Client.TLS",
+            "Network.HTTP.Types",
+            "Network.HTTP.Types.Header",
+            "Network.HTTP.Types.Status",
+            "Network.Mime",
+            "Network.Socket",
+            "Network.Connection",
+            "Network.TLS",
+            "Network.TLS.Extra",
+            // Text.Blaze
+            "Text.Blaze",
+            "Text.Blaze.Internal",
+            "Text.Blaze.Html",
+            "Text.Blaze.Html.Renderer.Text",
+            "Text.Blaze.XHtml5",
+            "Text.Blaze.XHtml5.Attributes",
+            "Text.Blaze.XHtml1.Transitional",
+            "Text.Blaze.XHtml1.Transitional.Attributes",
+            // Djot
+            "Djot",
+            "Djot.AST",
+            // Data.Scientific
+            "Data.Scientific",
+            // Text.HTML.TagSoup.Match
+            "Text.HTML.TagSoup.Match",
+            // Data.Text.Lazy.Builder
+            "Data.Text.Lazy.Builder",
+            // Codec.Compression
+            "Codec.Compression.GZip",
+            "Codec.Compression.Zlib",
+            // Codec.Picture
+            "Codec.Picture",
+            "Codec.Picture.Metadata",
+            // Data.Binary
+            "Data.Binary.Get",
+            // Data.Attoparsec
+            "Data.Attoparsec.ByteString",
+            "Data.Attoparsec.ByteString.Char8",
+            // Data.CaseInsensitive
+            "Data.CaseInsensitive",
+            // System extras
+            "System.IO.Temp",
+            "System.X509",
+            "System.FilePath.Glob",
+            "GHC.IO.Exception",
+            // Text extras
+            "Text.Pandoc.JSON",
+            "Text.TeXMath.Readers.OMML",
+            "Text.TeXMath.Readers.MathML.EntityMap",
+            "Text.TeXMath.Unicode.ToTeX",
+            "Text.TeXMath.Shared",
+            "Text.DocTemplates.Internal",
+            "Text.XML.Light.Output",
+            "Text.Show.Pretty",
+            "Text.PrettyPrint",
+            "Text.GridTable",
+            "Text.HTML.TagSoup.Match",
+            // Typst
+            "Typst",
+            "Typst.Types",
+            "Typst.Methods",
+            // Jira
+            "Text.Jira.Parser",
+            "Text.Jira.Printer",
+            "Text.Jira.Markup",
+            // Haddock
+            "Documentation.Haddock.Parser",
+            "Documentation.Haddock.Types",
+            // Yaml
+            "Data.Yaml.Internal",
+            "Text.Libyaml",
+            // Paths_pandoc (auto-generated)
+            "Paths_pandoc",
+            // Unicode
+            "Unicode.Char",
+            // Data.Text.Conversions
+            "Data.Text.Conversions",
+            // AsciiDoc
+            "AsciiDoc",
+            // Powerpoint
+            "Text.Pandoc.Writers.Powerpoint.Output",
         ]
         .into_iter()
         .collect()

@@ -808,33 +808,29 @@ impl Builtins {
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                 Scheme::poly(vec![a.clone()], list_a)
             }),
-            // Semigroup/Monoid operators (list-specialized)
+            // Semigroup/Monoid operators (polymorphic)
             ("<>", {
-                // (<>) :: [a] -> [a] -> [a] (same as ++ for lists)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                // (<>) :: Semigroup a => a -> a -> a
                 Scheme::poly(
                     vec![a.clone()],
-                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), list_a)),
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
                 )
             }),
             ("mempty", {
-                // mempty :: [a] (empty list for Monoid)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                Scheme::poly(vec![a.clone()], list_a)
+                // mempty :: Monoid a => a
+                Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))
             }),
             ("mappend", {
-                // mappend :: [a] -> [a] -> [a] (same as ++ for lists)
-                let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
+                // mappend :: Monoid a => a -> a -> a
                 Scheme::poly(
                     vec![a.clone()],
-                    Ty::fun(list_a.clone(), Ty::fun(list_a.clone(), list_a)),
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()))),
                 )
             }),
             ("mconcat", {
-                // mconcat :: [[a]] -> [a] (same as concat for lists)
+                // mconcat :: Monoid a => [a] -> a
                 let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                let list_list_a = Ty::List(Box::new(list_a.clone()));
-                Scheme::poly(vec![a.clone()], Ty::fun(list_list_a, list_a))
+                Scheme::poly(vec![a.clone()], Ty::fun(list_a, Ty::Var(a.clone())))
             }),
             // Monadic operations
             // return and pure are polymorphic - work with any monad/applicative
@@ -3653,16 +3649,37 @@ impl Builtins {
             ("Data.Map.keys", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Map.elems", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Map.assocs", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
-            ("Data.Map.toList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+            ("Data.Map.toList", {
+                // toList :: Map k v -> [(k, v)]
+                let k = a.clone();
+                let v = b.clone();
+                let map_con = TyCon::new(Symbol::intern("Map"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)))));
+                let map_kv = Ty::App(Box::new(Ty::App(Box::new(Ty::Con(map_con)), Box::new(Ty::Var(k.clone())))), Box::new(Ty::Var(v.clone())));
+                let pair = Ty::Tuple(vec![Ty::Var(k.clone()), Ty::Var(v.clone())]);
+                Scheme::poly(vec![k, v], Ty::fun(map_kv, Ty::List(Box::new(pair))))
+            }),
             ("Data.Map.toAscList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Map.toDescList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
-            ("Data.Map.fromList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+            ("Data.Map.fromList", {
+                // fromList :: [(k, v)] -> Map k v
+                let k = a.clone();
+                let v = b.clone();
+                let map_con = TyCon::new(Symbol::intern("Map"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)))));
+                let map_kv = Ty::App(Box::new(Ty::App(Box::new(Ty::Con(map_con)), Box::new(Ty::Var(k.clone())))), Box::new(Ty::Var(v.clone())));
+                let pair = Ty::Tuple(vec![Ty::Var(k.clone()), Ty::Var(v.clone())]);
+                Scheme::poly(vec![k, v], Ty::fun(Ty::List(Box::new(pair)), map_kv))
+            }),
             ("Data.Map.fromListWith", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone())), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))))),
             ("Data.Map.keysSet", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Map.isSubmapOf", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(a.clone()), self.bool_ty.clone())))),
             // Container PrimOps: Data.Set
             ("Data.Set.empty", Scheme::poly(vec![a.clone()], Ty::Var(a.clone()))),
-            ("Data.Set.singleton", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+            ("Data.Set.singleton", {
+                // singleton :: a -> Set a
+                let set_con = TyCon::new(Symbol::intern("Set"), Kind::star_to_star());
+                let set_a = Ty::App(Box::new(Ty::Con(set_con)), Box::new(Ty::Var(a.clone())));
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), set_a))
+            }),
             ("Data.Set.null", Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), self.bool_ty.clone()))),
             ("Data.Set.size", Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), self.int_ty.clone()))),
             ("Data.Set.member", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), self.bool_ty.clone())))),
@@ -3680,10 +3697,20 @@ impl Builtins {
             ("Data.Set.partition", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::fun(Ty::Var(a.clone()), self.bool_ty.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))))),
             ("Data.Set.foldr", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))))),
             ("Data.Set.foldl", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))), Ty::fun(Ty::Var(b.clone()), Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))))),
-            ("Data.Set.toList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+            ("Data.Set.toList", {
+                // toList :: Set a -> [a]
+                let set_con = TyCon::new(Symbol::intern("Set"), Kind::star_to_star());
+                let set_a = Ty::App(Box::new(Ty::Con(set_con)), Box::new(Ty::Var(a.clone())));
+                Scheme::poly(vec![a.clone()], Ty::fun(set_a, Ty::List(Box::new(Ty::Var(a.clone())))))
+            }),
             ("Data.Set.toAscList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Set.toDescList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
-            ("Data.Set.fromList", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
+            ("Data.Set.fromList", {
+                // fromList :: [a] -> Set a
+                let set_con = TyCon::new(Symbol::intern("Set"), Kind::star_to_star());
+                let set_a = Ty::App(Box::new(Ty::Con(set_con)), Box::new(Ty::Var(a.clone())));
+                Scheme::poly(vec![a.clone()], Ty::fun(Ty::List(Box::new(Ty::Var(a.clone()))), set_a))
+            }),
             ("Data.Set.elems", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Set.findMin", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
             ("Data.Set.findMax", Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))),
