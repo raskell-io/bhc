@@ -349,9 +349,11 @@ impl Extension {
             // Existential quantification in data constructors
             Self::ExistentialQuantification => ExtensionStatus::Supported,
 
+            // Rank-N polymorphism (forall in function argument positions)
+            Self::RankNTypes => ExtensionStatus::Supported,
+
             // Recognized but not yet implemented
-            Self::RankNTypes
-            | Self::ConstraintKinds
+            Self::ConstraintKinds
             | Self::HexFloatLiterals
             | Self::DeriveLift
             | Self::CApiFFI

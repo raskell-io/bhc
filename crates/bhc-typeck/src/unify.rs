@@ -38,7 +38,7 @@
 
 use bhc_intern::Symbol;
 use bhc_span::Span;
-use bhc_types::{Ty, TyCon, TyList, TyNat, TyVar};
+use bhc_types::{Scheme, Ty, TyCon, TyList, TyNat, TyVar};
 
 use crate::context::TyCtxt;
 use crate::diagnostics;
@@ -492,15 +492,18 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
             unify_inner(ctx, elem1, elem2, span);
         }
 
-        // Forall types: handle carefully (should be instantiated first)
-        (Ty::Forall(_, body1), t2) => {
-            // This shouldn't normally happen in Algorithm W
-            // For now, try to unify the body
-            unify_inner(ctx, body1, t2, span);
+        // Forall types: instantiate with fresh variables before unifying.
+        // This ensures each use of a polymorphic type gets independent type vars.
+        (Ty::Forall(vars, body), t2) => {
+            let scheme = Scheme::poly(vars.clone(), body.as_ref().clone());
+            let instantiated = crate::instantiate::instantiate(ctx, &scheme);
+            unify_inner(ctx, &instantiated, t2, span);
         }
 
-        (t1, Ty::Forall(_, body2)) => {
-            unify_inner(ctx, t1, body2, span);
+        (t1, Ty::Forall(vars, body)) => {
+            let scheme = Scheme::poly(vars.clone(), body.as_ref().clone());
+            let instantiated = crate::instantiate::instantiate(ctx, &scheme);
+            unify_inner(ctx, t1, &instantiated, span);
         }
 
         // === M9 Dependent Types: Type-level naturals ===

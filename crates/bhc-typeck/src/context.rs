@@ -195,6 +195,7 @@ impl TyCtxt {
         self.subst.apply(ty)
     }
 
+
     /// Push scoped type variables from a signature's forall-bound vars.
     ///
     /// When ScopedTypeVariables is enabled, forall-bound type variables from
@@ -5930,6 +5931,18 @@ impl TyCtxt {
     }
 
     /// Check a value definition.
+    /// Extract parameter types from a function type.
+    /// `a -> b -> c` → `[a, b]` (not including the final result type).
+    fn extract_param_types_inner(ty: &Ty) -> Vec<Ty> {
+        let mut params = Vec::new();
+        let mut current = ty;
+        while let Ty::Fun(arg, ret) = current {
+            params.push(arg.as_ref().clone());
+            current = ret.as_ref();
+        }
+        params
+    }
+
     fn check_value_def(&mut self, value_def: &ValueDef) {
         // Save constraint count for per-binding scoping
         let constraint_start = self.constraints.len();
@@ -5958,6 +5971,30 @@ impl TyCtxt {
             scoped_var_ids = Vec::new();
             value_def.sig.as_ref().map(|s| s.ty.clone())
         };
+
+        // For rank-2 types: if the declared type has Forall in parameter positions,
+        // pre-bind the equation parameters with those Forall types so that each use
+        // in the body gets fresh instantiation.
+        if let Some(declared) = &declared_ty {
+            let param_types = Self::extract_param_types_inner(declared);
+            let has_rank2_params = param_types.iter().any(|t| matches!(t, Ty::Forall(..)));
+            if has_rank2_params {
+                // Pre-register parameter types as schemes for each equation
+                for eq in &value_def.equations {
+                    for (pat, param_ty) in eq.pats.iter().zip(param_types.iter()) {
+                        if let Ty::Forall(vars, body) = param_ty {
+                            // Bind pattern variables with the Forall as a scheme
+                            // so each use in the body instantiates freshly
+                            if let bhc_hir::Pat::Var(_name, def_id, _) = pat {
+                                let scheme =
+                                    Scheme::poly(vars.clone(), body.as_ref().clone());
+                                self.env.insert_global(*def_id, scheme);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Infer the type from equations
         let inferred_ty = self.infer_equations(&value_def.equations, value_def.span);
@@ -6167,6 +6204,37 @@ impl TyCtxt {
     /// Unify two types (implemented in unify.rs).
     pub fn unify(&mut self, t1: &Ty, t2: &Ty, span: Span) {
         crate::unify::unify(self, t1, t2, span);
+    }
+
+    /// Subsumption check for higher-rank types.
+    ///
+    /// Checks that `actual` is at least as polymorphic as `expected`.
+    /// - If `actual` has Forall: instantiate it with fresh vars, then recurse
+    /// - If `expected` has Forall: skolemize it (treat bound vars as rigid), then recurse
+    /// - Otherwise: unify normally
+    pub fn subsume(&mut self, actual: &Ty, expected: &Ty, span: Span) {
+        let actual_resolved = self.subst.apply(actual);
+        let expected_resolved = self.subst.apply(expected);
+
+        match (&actual_resolved, &expected_resolved) {
+            // Actual has extra forall: instantiate it (it's more polymorphic than needed)
+            (Ty::Forall(vars, body), _) => {
+                let scheme = Scheme::poly(vars.clone(), body.as_ref().clone());
+                let instantiated = self.instantiate(&scheme);
+                self.subsume(&instantiated, &expected_resolved, span);
+            }
+            // Expected has forall: the actual must work for all instantiations
+            // For a simple rank-2 check, instantiate with fresh vars and unify
+            (_, Ty::Forall(vars, body)) => {
+                let scheme = Scheme::poly(vars.clone(), body.as_ref().clone());
+                let instantiated = self.instantiate(&scheme);
+                self.subsume(&actual_resolved, &instantiated, span);
+            }
+            // Both monomorphic: plain unification
+            _ => {
+                self.unify(&actual_resolved, &expected_resolved, span);
+            }
+        }
     }
 
     /// Instantiate a type scheme (implemented in instantiate.rs).

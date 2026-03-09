@@ -747,6 +747,33 @@ fn lower_app(
             if let Some(class_name) = ctx.is_class_method(method_name) {
                 let is_user = ctx.is_user_class(class_name);
                 let is_monad_family = ctx.is_monad_family_class(class_name);
+
+                // Dict in scope (from existential pattern): select method from dict,
+                // then apply all collected args + final arg
+                if is_user {
+                    if let Some(dict_var) = ctx.lookup_dict(class_name).cloned() {
+                        if let Some(method_expr) =
+                            ctx.select_method_from_dict(&dict_var, class_name, method_name, span)
+                        {
+                            let mut result = method_expr;
+                            for arg in &collected_args {
+                                let arg_core = lower_expr(ctx, arg)?;
+                                result = core::Expr::App(
+                                    Box::new(result),
+                                    Box::new(arg_core),
+                                    span,
+                                );
+                            }
+                            let x_core = lower_expr(ctx, x)?;
+                            return Ok(core::Expr::App(
+                                Box::new(result),
+                                Box::new(x_core),
+                                span,
+                            ));
+                        }
+                    }
+                }
+
                 if (is_user || is_monad_family)
                     && ctx.lookup_dict(class_name).is_none()
                 {
@@ -824,13 +851,16 @@ fn lower_app(
                             }
                         }
                     } else {
-                        // Single-param class: original logic
-                        let inferred_x = try_infer_arg_type(ctx, x);
+                        // Single-param class: resolve at the class parameter type.
+                        // For multi-arg methods like `runEval :: e -> String -> String`,
+                        // the first collected arg carries the instance type, not the
+                        // final argument. Prefer collected args over the final arg.
                         let inferred_args = collected_args
                             .iter()
                             .find_map(|arg| try_infer_arg_type(ctx, arg));
-                        let inferred = inferred_x
-                            .or(inferred_args)
+                        let inferred_x = try_infer_arg_type(ctx, x);
+                        let inferred = inferred_args
+                            .or(inferred_x)
                             .or_else(|| {
                                 // Fallback: use monad context stack for nested >>=/>>/return
                                 if is_monad_family {
@@ -1318,14 +1348,18 @@ fn lower_case(
             let existential_classes = get_existential_classes(ctx, &alt.pat);
             if !existential_classes.is_empty() {
                 ctx.push_dict_scope();
+                let mut dict_binders = Vec::new();
                 for class_name in &existential_classes {
                     let dict_var = ctx.fresh_var(
                         &format!("$dict_{}", class_name.as_str()),
                         Ty::Error,
                         span,
                     );
-                    ctx.register_dict(*class_name, dict_var);
+                    ctx.register_dict(*class_name, dict_var.clone());
+                    dict_binders.push(dict_var);
                 }
+                // Store for pattern lowering to reuse as alt binders
+                ctx.existential_dict_binders = dict_binders;
             }
 
             let rhs = if alt.guards.is_empty() {
@@ -1362,14 +1396,17 @@ fn lower_case(
         let existential_classes = get_existential_classes(ctx, &alt.pat);
         if !existential_classes.is_empty() {
             ctx.push_dict_scope();
+            let mut dict_binders = Vec::new();
             for class_name in &existential_classes {
                 let dict_var = ctx.fresh_var(
                     &format!("$dict_{}", class_name.as_str()),
                     Ty::Error,
                     span,
                 );
-                ctx.register_dict(*class_name, dict_var);
+                ctx.register_dict(*class_name, dict_var.clone());
+                dict_binders.push(dict_var);
             }
+            ctx.existential_dict_binders = dict_binders;
         }
 
         let rhs = if alt.guards.is_empty() {

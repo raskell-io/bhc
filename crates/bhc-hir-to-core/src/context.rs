@@ -113,6 +113,11 @@ pub struct LowerContext {
     /// Stack of monad types for resolving return/pure in do-notation lambdas.
     /// Pushed when lowering >>=/>>'s lambda argument for non-builtin monads.
     monad_type_stack: Vec<Ty>,
+
+    /// Pre-created existential dict binder variables.
+    /// Set before lowering a case alternative RHS so that pattern lowering
+    /// can reuse the same vars (instead of creating different fresh ones).
+    pub(crate) existential_dict_binders: Vec<Var>,
 }
 
 impl LowerContext {
@@ -133,6 +138,7 @@ impl LowerContext {
             generalized_newtype_deriving: false,
             foreign_imports: Vec::new(),
             monad_type_stack: Vec::new(),
+            existential_dict_binders: Vec::new(),
         };
         ctx.register_builtins();
         ctx.register_builtin_constructors();

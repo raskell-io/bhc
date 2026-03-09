@@ -3152,6 +3152,22 @@ impl Compiler {
             "AsciiDoc",
             // Powerpoint
             "Text.Pandoc.Writers.Powerpoint.Output",
+            // hashable
+            "Data.Hashable",
+            "Data.Hashable.Class",
+            // unordered-containers
+            "Data.HashMap.Strict",
+            "Data.HashMap.Lazy",
+            "Data.HashMap.Internal",
+            "Data.HashSet",
+            "Data.HashSet.Internal",
+            // optparse-applicative
+            "Options.Applicative",
+            "Options.Applicative.Builder",
+            "Options.Applicative.Common",
+            "Options.Applicative.Extra",
+            "Options.Applicative.Help",
+            "Options.Applicative.Types",
         ]
         .into_iter()
         .collect()

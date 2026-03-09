@@ -29,6 +29,16 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
         }
 
         Pat::Var(name, def_id, _span) => {
+            // Check if there's an existing Forall binding (from rank-2 pre-binding).
+            // If so, preserve it and return a fresh type that will be unified later.
+            if let Some(existing) = ctx.env.lookup_def_id(*def_id) {
+                if !existing.vars.is_empty() {
+                    // Rank-2 pre-binding: preserve the polymorphic scheme
+                    let ty = ctx.fresh_ty();
+                    ctx.env.insert_local(*name, Scheme::mono(ty.clone()));
+                    return ty;
+                }
+            }
             // Variable pattern: create fresh type and bind
             let ty = ctx.fresh_ty();
             let scheme = Scheme::mono(ty.clone());

@@ -36,7 +36,16 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
             let scheme = ctx.env.lookup_def_id(def_ref.def_id).cloned();
             if let Some(s) = scheme {
                 let result = ctx.instantiate(&s);
-                result
+                // For rank-2: if the result resolves to a Forall type (e.g., a lambda
+                // parameter with type `forall a. a -> a`), instantiate it so each use
+                // gets independent type variables.
+                let resolved = ctx.subst.apply(&result);
+                if let Ty::Forall(vars, body) = resolved {
+                    let inner = Scheme::poly(vars, *body);
+                    ctx.instantiate(&inner)
+                } else {
+                    result
+                }
             } else {
                 diagnostics::emit_unbound_var(ctx, def_ref.def_id, def_ref.span);
                 Ty::Error
@@ -59,10 +68,23 @@ pub fn infer_expr(ctx: &mut TyCtxt, expr: &Expr) -> Ty {
 
         Expr::App(func, arg, span) => {
             let func_ty = infer_expr(ctx, func);
+
+            // Check if the function type expects a higher-rank (forall) argument.
+            // Resolve through substitution to see the actual structure.
+            let resolved_func = ctx.subst.apply(&func_ty);
+            if let Ty::Fun(ref expected_arg, ref expected_ret) = resolved_func {
+                if matches!(expected_arg.as_ref(), Ty::Forall(..)) {
+                    // Higher-rank argument: use subsumption instead of plain unification.
+                    // The argument must be at least as polymorphic as expected.
+                    let arg_ty = infer_expr(ctx, arg);
+                    ctx.subsume(&arg_ty, expected_arg, *span);
+                    return expected_ret.as_ref().clone();
+                }
+            }
+
+            // Standard case: infer argument type and unify
             let arg_ty = infer_expr(ctx, arg);
             let result_ty = ctx.fresh_ty();
-
-            // func : arg_ty -> result_ty
             let expected_func_ty = Ty::fun(arg_ty, result_ty.clone());
             ctx.unify(&func_ty, &expected_func_ty, *span);
 

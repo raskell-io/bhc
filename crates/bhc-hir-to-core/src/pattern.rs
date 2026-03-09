@@ -168,21 +168,19 @@ pub fn lower_pat_to_alt_with_fallthrough(
                 };
 
             // For existential constructors, prepend binders for dictionary fields.
-            // These dictionaries are stored as the first N fields of the constructor
-            // and are extracted by the pattern match.
+            // Use pre-created dict binders if available (shared with dict scope),
+            // otherwise create fresh ones.
             if existential_dict_count > 0 {
-                let mut dict_binders = Vec::with_capacity(existential_dict_count as usize);
-                for i in 0..existential_dict_count {
-                    let dict_var = ctx.fresh_var(
-                        &format!("$edict_{}", i),
-                        Ty::Error,
-                        span,
-                    );
-                    dict_binders.push(dict_var);
-                }
-                // Prepend dict binders before user-visible binders
-                dict_binders.append(&mut binders);
-                binders = dict_binders;
+                let dict_binders = if !ctx.existential_dict_binders.is_empty() {
+                    std::mem::take(&mut ctx.existential_dict_binders)
+                } else {
+                    (0..existential_dict_count)
+                        .map(|i| ctx.fresh_var(&format!("$edict_{}", i), Ty::Error, span))
+                        .collect()
+                };
+                let mut combined = dict_binders;
+                combined.append(&mut binders);
+                binders = combined;
             }
 
             let total_arity = sub_pats.len() as u32 + existential_dict_count;

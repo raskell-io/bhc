@@ -3373,6 +3373,70 @@ fn register_standard_module_exports(
         "Text.Pandoc.Writers.Powerpoint.Output" => &[
             "presentationToArchive",
         ],
+        // =====================================================================
+        // hashable
+        // =====================================================================
+        "Data.Hashable" | "Data.Hashable.Class" => &[
+            "Hashable", "hashWithSalt", "hash", "hashUsing",
+        ],
+
+        // =====================================================================
+        // unordered-containers
+        // =====================================================================
+        "Data.HashMap.Strict" | "Data.HashMap.Lazy" | "Data.HashMap.Internal" => &[
+            "HashMap",
+            "empty", "singleton", "null", "size",
+            "member", "lookup", "lookupDefault", "findWithDefault",
+            "insert", "insertWith", "delete", "adjust", "alter",
+            "union", "unionWith", "unionWithKey",
+            "intersection", "intersectionWith",
+            "difference", "differenceWith",
+            "map", "mapWithKey", "mapKeys",
+            "filter", "filterWithKey",
+            "foldlWithKey'", "foldrWithKey",
+            "keys", "elems", "toList", "fromList", "fromListWith",
+        ],
+        "Data.HashSet" | "Data.HashSet.Internal" => &[
+            "HashSet",
+            "empty", "singleton", "null", "size",
+            "member", "insert", "delete",
+            "union", "intersection", "difference",
+            "map", "filter", "foldl'", "foldr",
+            "toList", "fromList", "toMap", "fromMap",
+        ],
+
+        // =====================================================================
+        // optparse-applicative
+        // =====================================================================
+        "Options.Applicative" | "Options.Applicative.Extra" => &[
+            "Parser", "ParserInfo", "ParserPrefs",
+            "execParser", "customExecParser",
+            "info", "infoOption", "helper", "fullDesc", "progDesc", "header", "footer",
+            "strOption", "option", "strArgument", "argument", "switch", "flag", "flag'",
+            "long", "short", "metavar", "value", "showDefault", "help",
+            "many", "some", "optional",
+            "command", "subparser", "hsubparser",
+            "auto", "str", "eitherReader", "maybeReader",
+            "(<>)", "(<**>)", "(<|>)",
+        ],
+        "Options.Applicative.Builder" => &[
+            "strOption", "option", "strArgument", "argument", "switch", "flag", "flag'",
+            "long", "short", "metavar", "value", "showDefault", "help",
+            "command", "subparser", "hsubparser",
+            "auto", "str", "eitherReader", "maybeReader",
+            "info", "fullDesc", "progDesc", "header", "footer",
+        ],
+        "Options.Applicative.Common" => &[
+            "runParser", "evalParser",
+        ],
+        "Options.Applicative.Help" => &[
+            "renderHelp",
+        ],
+        "Options.Applicative.Types" => &[
+            "Parser", "ParserInfo", "ParserPrefs", "ParserResult",
+            "ReadM", "readerAsk", "readerAbort", "readerError",
+        ],
+
         _ => &[],
     };
 
