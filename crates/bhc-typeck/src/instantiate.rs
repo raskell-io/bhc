@@ -68,6 +68,41 @@ pub fn instantiate(ctx: &mut TyCtxt, scheme: &Scheme) -> Ty {
     substitute(&scheme.ty, &subst)
 }
 
+/// Instantiate a type scheme for an existential pattern match.
+///
+/// Like [`instantiate`], but treats the scheme's constraints as "given"
+/// evidence rather than "wanted" constraints. When pattern matching on
+/// an existential constructor like `forall a. C a => MkT a`, the
+/// constraint `C a` is evidence provided by the value being matched,
+/// not a requirement to be solved.
+pub fn instantiate_as_given(ctx: &mut TyCtxt, scheme: &Scheme) -> Ty {
+    if scheme.is_mono() && scheme.constraints.is_empty() {
+        return scheme.ty.clone();
+    }
+
+    // Create fresh type variables for each bound variable
+    let mut subst: FxHashMap<u32, Ty> = FxHashMap::default();
+    for var in &scheme.vars {
+        let fresh = ctx.fresh_ty_var_with_kind(var.kind.clone());
+        subst.insert(var.id, Ty::Var(fresh));
+    }
+
+    // Add constraints as GIVEN evidence (not wanted).
+    // Both user-defined and builtin constraints are recorded, since the
+    // body may need them to resolve method calls.
+    for constraint in &scheme.constraints {
+        let substituted_args: Vec<Ty> = constraint
+            .args
+            .iter()
+            .map(|t| substitute(t, &subst))
+            .collect();
+        ctx.push_given_constraint(constraint.class, substituted_args, constraint.span);
+    }
+
+    // Apply substitution to the type
+    substitute(&scheme.ty, &subst)
+}
+
 /// Instantiate a type scheme with fresh type variables, returning the substitution map.
 ///
 /// Like `instantiate`, but also returns the mapping from scheme-bound variable IDs

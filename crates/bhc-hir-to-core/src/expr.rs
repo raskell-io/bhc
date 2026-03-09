@@ -247,18 +247,25 @@ fn lower_var(ctx: &mut LowerContext, def_ref: &DefRef) -> LowerResult<core::Expr
         if !user_constraints.is_empty() {
             // Check if ALL user-class constraints have type variables
             // (meaning they can't be resolved yet — defer to App-level)
+            // EXCEPTION: if a dictionary is in scope (from existential pattern match),
+            // we can resolve even with type variables.
             let all_deferred = user_constraints
                 .iter()
                 .all(|c| c.args.iter().any(has_type_variables));
-            if all_deferred {
+            let any_in_scope = user_constraints
+                .iter()
+                .any(|c| ctx.lookup_dict(c.class).is_some());
+            if all_deferred && !any_in_scope {
                 return Ok(base_expr);
             }
 
             // Apply dictionaries for each user-defined class constraint
             let mut result = base_expr;
             for constraint in &user_constraints {
-                // Skip constraints with type variables (deferred to App)
-                if constraint.args.iter().any(has_type_variables) {
+                // Skip constraints with type variables UNLESS a dict is in scope
+                if constraint.args.iter().any(has_type_variables)
+                    && ctx.lookup_dict(constraint.class).is_none()
+                {
                     continue;
                 }
 
@@ -515,14 +522,29 @@ fn lower_app(
         if let Some(var) = ctx.lookup_var(def_ref.def_id).cloned() {
             let method_name = var.name;
 
-            // Case 1: Class method with no dict in scope
-            // Apply dictionary resolution for:
-            // - User-defined classes (always)
-            // - Monad-family classes (Functor/Applicative/Monad) when the concrete
-            //   type is NOT a builtin monad (IO, StateT, etc.)
+            // Case 1: Class method resolution
             if let Some(class_name) = ctx.is_class_method(method_name) {
                 let is_user = ctx.is_user_class(class_name);
                 let is_monad_family = ctx.is_monad_family_class(class_name);
+
+                // Case 1a: Dictionary in scope (from existential pattern match).
+                // Select the method from the dictionary and apply the argument.
+                if is_user {
+                    if let Some(dict_var) = ctx.lookup_dict(class_name).cloned() {
+                        if let Some(method_expr) =
+                            ctx.select_method_from_dict(&dict_var, class_name, method_name, span)
+                        {
+                            let x_core = lower_expr(ctx, x)?;
+                            return Ok(core::Expr::App(
+                                Box::new(method_expr),
+                                Box::new(x_core),
+                                span,
+                            ));
+                        }
+                    }
+                }
+
+                // Case 1b: No dict in scope — resolve via instance lookup
                 if (is_user || is_monad_family)
                     && ctx.lookup_dict(class_name).is_none()
                 {
@@ -968,6 +990,34 @@ fn lower_app(
         }
     }
 
+    // For existential constructors, insert dictionary arguments.
+    // When a constructor like `MkDesc Foo` has existential constraints
+    // (e.g., `Describable d`), we need: `MkDesc dict_Describable_Foo Foo`
+    if let Expr::Con(def_ref) = f {
+        if let Some(info) = ctx.lookup_constructor(def_ref.def_id).cloned() {
+            if info.existential_dict_count > 0 {
+                let mut result = lower_expr(ctx, f)?;
+                // Infer the argument type to construct existential constraints
+                if let Some(arg_ty) = try_infer_arg_type(ctx, x) {
+                    for class_name in &info.existential_classes {
+                        let constraint = Constraint::new(*class_name, arg_ty.clone(), span);
+                        if let Some(dict_expr) =
+                            ctx.resolve_dictionary(&constraint, def_ref.span)
+                        {
+                            result = core::Expr::App(
+                                Box::new(result),
+                                Box::new(dict_expr),
+                                span,
+                            );
+                        }
+                    }
+                }
+                let x_core = lower_expr(ctx, x)?;
+                return Ok(core::Expr::App(Box::new(result), Box::new(x_core), span));
+            }
+        }
+    }
+
     // Default: lower f and x normally
     let f_core = lower_expr(ctx, f)?;
     let x_core = lower_expr(ctx, x)?;
@@ -1262,11 +1312,32 @@ fn lower_case(
         let mut core_alts = Vec::with_capacity(alts.len());
         for alt in alts {
             bind_pattern_vars(ctx, &alt.pat, None);
+
+            // For existential constructors, push a dict scope and register
+            // dictionary variables so method calls in the RHS can resolve them.
+            let existential_classes = get_existential_classes(ctx, &alt.pat);
+            if !existential_classes.is_empty() {
+                ctx.push_dict_scope();
+                for class_name in &existential_classes {
+                    let dict_var = ctx.fresh_var(
+                        &format!("$dict_{}", class_name.as_str()),
+                        Ty::Error,
+                        span,
+                    );
+                    ctx.register_dict(*class_name, dict_var);
+                }
+            }
+
             let rhs = if alt.guards.is_empty() {
                 lower_expr(ctx, &alt.rhs)?
             } else {
                 lower_guarded_rhs(ctx, &alt.guards, &alt.rhs, span)?
             };
+
+            if !existential_classes.is_empty() {
+                ctx.pop_dict_scope();
+            }
+
             let core_alt = lower_pat_to_alt(ctx, &alt.pat, rhs, span)?;
             core_alts.push(core_alt);
         }
@@ -1287,11 +1358,29 @@ fn lower_case(
     let mut lowered_alts: Vec<(hir::Pat, core::Expr)> = Vec::with_capacity(alts.len());
     for alt in alts {
         bind_pattern_vars(ctx, &alt.pat, None);
+
+        let existential_classes = get_existential_classes(ctx, &alt.pat);
+        if !existential_classes.is_empty() {
+            ctx.push_dict_scope();
+            for class_name in &existential_classes {
+                let dict_var = ctx.fresh_var(
+                    &format!("$dict_{}", class_name.as_str()),
+                    Ty::Error,
+                    span,
+                );
+                ctx.register_dict(*class_name, dict_var);
+            }
+        }
+
         let rhs = if alt.guards.is_empty() {
             lower_expr(ctx, &alt.rhs)?
         } else {
             lower_guarded_rhs(ctx, &alt.guards, &alt.rhs, span)?
         };
+        if !existential_classes.is_empty() {
+            ctx.pop_dict_scope();
+        }
+
         lowered_alts.push((alt.pat.clone(), rhs));
     }
 
@@ -1338,6 +1427,22 @@ fn lower_case(
         Box::new(case_expr),
         span,
     ))
+}
+
+/// Get the existential class names for a constructor pattern.
+/// Returns empty vec for non-existential constructors.
+fn get_existential_classes(ctx: &LowerContext, pat: &hir::Pat) -> Vec<Symbol> {
+    match pat {
+        hir::Pat::Con(def_ref, _, _) | hir::Pat::RecordCon(def_ref, _, _) => {
+            if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
+                if info.existential_dict_count > 0 {
+                    return info.existential_classes.clone();
+                }
+            }
+            vec![]
+        }
+        _ => vec![],
+    }
 }
 
 /// Check if a pattern has complex (non-variable, non-wildcard) sub-patterns

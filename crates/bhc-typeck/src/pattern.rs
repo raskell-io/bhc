@@ -51,8 +51,15 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
                 .lookup_data_con_by_id(def_ref.def_id)
                 .map(|i| i.scheme.clone());
             if let Some(s) = scheme {
-                // Instantiate the constructor's type scheme
-                let con_ty = ctx.instantiate(&s);
+                // For existential constructors (scheme has constraints),
+                // use instantiate_as_given so constraints become available
+                // as evidence in the case alternative body, rather than
+                // being emitted as wanted constraints.
+                let con_ty = if s.constraints.is_empty() {
+                    ctx.instantiate(&s)
+                } else {
+                    ctx.instantiate_as_given(&s)
+                };
 
                 // The constructor type should be: arg1 -> arg2 -> ... -> result
                 // We need to unify sub-pattern types with arguments
@@ -71,8 +78,12 @@ pub fn infer_pattern(ctx: &mut TyCtxt, pat: &Pat) -> Ty {
                 .lookup_data_con_by_id(def_ref.def_id)
                 .map(|i| i.scheme.clone());
             if let Some(s) = scheme {
-                // Instantiate the constructor's type scheme
-                let con_ty = ctx.instantiate(&s);
+                // Instantiate: use given-mode for existential constructors
+                let con_ty = if s.constraints.is_empty() {
+                    ctx.instantiate(&s)
+                } else {
+                    ctx.instantiate_as_given(&s)
+                };
 
                 // Extract the result type from the constructor type
                 // Con type is: T1 -> T2 -> ... -> Tn -> Result

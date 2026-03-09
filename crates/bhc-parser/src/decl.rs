@@ -1509,55 +1509,57 @@ impl<'src> Parser<'src> {
     }
 
     /// Parse a single constructor.
-    /// Supports existential quantification: `forall l. (C l) => Con (l a)`
+    /// Supports existential quantification: `forall a. C a => Con a`
     fn parse_constructor(&mut self) -> ParseResult<ConDecl> {
         let start = self.current_span();
 
-        // Check for existential quantification: forall a b. (Context) =>
+        // Parse existential quantification: forall a b. ...
+        let mut existential_vars = Vec::new();
         if self.eat(&TokenKind::Forall) {
-            // Parse type variables
-            while self.check_ident() || self.check(&TokenKind::LParen) {
-                if self.check(&TokenKind::LParen) {
-                    // Skip kind annotation like (a :: Type)
-                    self.advance();
-                    let mut depth = 1;
-                    while depth > 0 && !self.at_eof() {
-                        if self.check(&TokenKind::LParen) {
-                            depth += 1;
-                        } else if self.check(&TokenKind::RParen) {
-                            depth -= 1;
-                        }
+            while let Some(tok) = self.current() {
+                match &tok.node.kind {
+                    TokenKind::Ident(sym) => {
+                        let name = Ident::new(*sym);
+                        let span = tok.span;
                         self.advance();
+                        existential_vars.push(TyVar { name, span });
                     }
-                } else {
-                    self.advance(); // Skip type variable
+                    TokenKind::LParen => {
+                        // Kind annotation like (a :: Type) — parse the var name, skip the rest
+                        self.advance(); // consume (
+                        if let Some(TokenKind::Ident(sym)) = self.current_kind() {
+                            let name = Ident::new(*sym);
+                            let span = self.current_span();
+                            existential_vars.push(TyVar { name, span });
+                        }
+                        // Skip until matching )
+                        let mut depth = 1;
+                        while depth > 0 && !self.at_eof() {
+                            if self.check(&TokenKind::LParen) {
+                                depth += 1;
+                            } else if self.check(&TokenKind::RParen) {
+                                depth -= 1;
+                            }
+                            self.advance();
+                        }
+                    }
+                    TokenKind::Dot => {
+                        self.advance();
+                        break;
+                    }
+                    _ => break,
                 }
             }
-            self.expect(&TokenKind::Dot)?;
+        }
 
-            // Check for context: (Constraint a, Constraint b) =>
-            if self.check(&TokenKind::LParen) {
-                // Parse and skip constraints
-                self.advance();
-                let mut depth = 1;
-                while depth > 0 && !self.at_eof() {
-                    if self.check(&TokenKind::LParen) {
-                        depth += 1;
-                    } else if self.check(&TokenKind::RParen) {
-                        depth -= 1;
-                    }
-                    self.advance();
-                }
-                self.expect(&TokenKind::FatArrow)?;
-            } else if self.check_ident() || matches!(self.current_kind(), Some(TokenKind::ConId(_)))
-            {
-                // Single constraint without parens: C a =>
-                while !self.check(&TokenKind::FatArrow) && !self.at_eof() {
-                    self.advance();
-                }
-                if self.check(&TokenKind::FatArrow) {
-                    self.advance();
-                }
+        // Parse existential context: (C a, D b) => or C a =>
+        let mut existential_context = Vec::new();
+        if !existential_vars.is_empty() {
+            let saved_pos = self.pos;
+            if let Some(constraints) = self.try_parse_context()? {
+                existential_context = constraints;
+            } else {
+                self.pos = saved_pos;
             }
         }
 
@@ -1575,6 +1577,8 @@ impl<'src> Parser<'src> {
             doc: None,
             name,
             fields,
+            existential_vars,
+            existential_context,
             span,
         })
     }

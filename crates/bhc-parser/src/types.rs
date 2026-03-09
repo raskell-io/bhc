@@ -30,7 +30,7 @@ impl<'src> Parser<'src> {
 
     /// Try to parse a context (type class constraints).
     /// Returns None if this doesn't look like a context.
-    fn try_parse_context(&mut self) -> ParseResult<Option<Vec<Constraint>>> {
+    pub(crate) fn try_parse_context(&mut self) -> ParseResult<Option<Vec<Constraint>>> {
         // Save position for backtracking
         let saved_pos = self.pos;
 

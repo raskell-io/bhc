@@ -1661,6 +1661,8 @@ impl Compiler {
                                 .cloned()
                                 .unwrap_or_default(),
                             is_newtype: con_info.is_newtype,
+                            existential_dict_count: 0,
+                            existential_classes: vec![],
                         },
                     );
                 }

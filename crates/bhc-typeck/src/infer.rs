@@ -558,6 +558,9 @@ fn infer_case_alt(ctx: &mut TyCtxt, alt: &CaseAlt, scrut_ty: &Ty) -> Ty {
     // Enter scope for pattern bindings
     ctx.env.push_scope();
 
+    // Save given constraints state (existential patterns may add given constraints)
+    let given_save = ctx.given_constraints_len();
+
     // Check pattern against scrutinee type
     ctx.check_pattern(&alt.pat, scrut_ty);
 
@@ -569,6 +572,9 @@ fn infer_case_alt(ctx: &mut TyCtxt, alt: &CaseAlt, scrut_ty: &Ty) -> Ty {
 
     // Infer RHS type
     let rhs_ty = infer_expr(ctx, &alt.rhs);
+
+    // Restore given constraints (existential evidence is scoped to this alternative)
+    ctx.restore_given_constraints(given_save);
 
     // Exit scope
     ctx.env.pop_scope();

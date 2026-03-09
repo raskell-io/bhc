@@ -5883,11 +5883,30 @@ fn lower_con_def(ctx: &mut LowerContext, con: &ast::ConDecl) -> hir::ConDef {
         }
     };
 
+    // Lower existential type variables
+    let existential_vars: Vec<bhc_types::TyVar> = con
+        .existential_vars
+        .iter()
+        .map(|tv| bhc_types::TyVar::new_star(tv.name.name.as_u32()))
+        .collect();
+
+    // Lower existential context constraints
+    let existential_context: Vec<bhc_types::Constraint> = con
+        .existential_context
+        .iter()
+        .map(|c| {
+            let args: Vec<bhc_types::Ty> = c.args.iter().map(|t| lower_type(ctx, t)).collect();
+            bhc_types::Constraint::new_multi(c.class.name, args, c.span)
+        })
+        .collect();
+
     hir::ConDef {
         id: con_def_id,
         name: con.name.name,
         fields,
         gadt_return_ty: None,
+        existential_vars,
+        existential_context,
         span: con.span,
     }
 }
@@ -5924,6 +5943,8 @@ fn lower_gadt_con_def(ctx: &mut LowerContext, con: &ast::GadtConDecl) -> hir::Co
         name: con.name.name,
         fields: hir::ConFields::Positional(arg_types),
         gadt_return_ty: Some(return_ty),
+        existential_vars: Vec::new(),
+        existential_context: Vec::new(),
         span: con.span,
     }
 }

@@ -987,6 +987,11 @@ fn test_tier3_strict_data_native() {
 }
 
 #[test]
+fn test_tier3_existential_types_native() {
+    run_native_test("tier3_io/existential_types", Profile::Default);
+}
+
+#[test]
 fn test_tier3_pattern_guards_native() {
     run_native_test("tier3_io/pattern_guards", Profile::Default);
 }

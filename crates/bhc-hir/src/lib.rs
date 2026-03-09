@@ -491,6 +491,10 @@ pub struct ConDef {
     pub fields: ConFields,
     /// For GADT constructors: the explicit return type (e.g., `Expr Int`).
     pub gadt_return_ty: Option<Ty>,
+    /// Existentially quantified type variables (from `forall a.` in data constructor).
+    pub existential_vars: Vec<bhc_types::TyVar>,
+    /// Existential context constraints (from `C a =>` in data constructor).
+    pub existential_context: Vec<bhc_types::Constraint>,
     /// Source span.
     pub span: Span,
 }

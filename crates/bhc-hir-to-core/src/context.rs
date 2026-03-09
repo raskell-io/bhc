@@ -36,6 +36,12 @@ pub struct ConstructorInfo {
     pub field_names: Vec<Symbol>,
     /// Whether this constructor is a newtype constructor (identity at runtime).
     pub is_newtype: bool,
+    /// Number of existential dictionary fields prepended to the constructor.
+    /// These are implicit fields that carry typeclass dictionaries for
+    /// existential type variables (e.g., `forall a. C a => MkT a` has 1 dict field).
+    pub existential_dict_count: u32,
+    /// Class names for existential dictionary fields (in order).
+    pub existential_classes: Vec<Symbol>,
 }
 
 /// Metadata about a record field selector function.
@@ -173,6 +179,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -184,6 +192,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -198,6 +208,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -209,6 +221,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -223,6 +237,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -234,6 +250,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -248,6 +266,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -259,6 +279,8 @@ impl LowerContext {
                 arity: 2,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -273,6 +295,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -287,6 +311,8 @@ impl LowerContext {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -298,6 +324,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -309,6 +337,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -320,6 +350,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -331,6 +363,8 @@ impl LowerContext {
                 arity: 1,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         self.constructor_map.insert(
@@ -342,6 +376,8 @@ impl LowerContext {
                 arity: 2,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
     }
@@ -1137,6 +1173,11 @@ impl LowerContext {
         self.constructor_map.get(&def_id)
     }
 
+    /// Look up constructor info by name (for decision tree lowering where DefId isn't available).
+    pub fn lookup_constructor_by_name(&self, name: Symbol) -> Option<&ConstructorInfo> {
+        self.constructor_map.values().find(|info| info.name == name)
+    }
+
     /// Register a field selector function.
     pub fn register_field_selector(&mut self, field_name: Symbol, info: FieldSelectorInfo) {
         self.field_selector_map.insert(field_name, info);
@@ -1823,15 +1864,29 @@ impl LowerContext {
                         };
 
                         // Register constructor metadata
+                        // Only count user-defined class constraints for dict fields.
+                        // Builtin classes (Show, Eq, etc.) use codegen dispatch, not dicts.
+                        let user_existential: Vec<Symbol> = con
+                            .existential_context
+                            .iter()
+                            .filter(|c| self.is_user_class(c.class))
+                            .map(|c| c.class)
+                            .collect();
+                        let existential_dict_count = user_existential.len() as u32;
+                        let existential_classes = user_existential;
+                        // Arity includes dict fields for existential constructors
+                        let total_arity = arity + existential_dict_count;
                         self.register_constructor(
                             con.id,
                             ConstructorInfo {
                                 name: con.name,
                                 type_name: data_def.name,
                                 tag: tag as u32,
-                                arity,
+                                arity: total_arity,
                                 field_names,
                                 is_newtype: false,
+                                existential_dict_count,
+                                existential_classes,
                             },
                         );
                     }
@@ -1900,6 +1955,8 @@ impl LowerContext {
                             arity,
                             field_names,
                             is_newtype: true,
+                            existential_dict_count: 0,
+                            existential_classes: vec![],
                         },
                     );
 

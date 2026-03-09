@@ -149,13 +149,13 @@ pub fn lower_pat_to_alt_with_fallthrough(
 
             // Create the data constructor
             // Look up the constructor metadata from the context
-            let (con_name, type_name, tag) =
+            let (con_name, type_name, tag, existential_dict_count) =
                 if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
-                    (info.name, info.type_name, info.tag)
+                    (info.name, info.type_name, info.tag, info.existential_dict_count)
                 } else if let Some(var) = ctx.lookup_var(def_ref.def_id) {
                     // Fallback for constructors not in the map - use name-based lookup
                     let tag = get_constructor_tag(var.name.as_str(), def_ref.def_id.index() as u32);
-                    (var.name, Symbol::intern("DataType"), tag)
+                    (var.name, Symbol::intern("DataType"), tag, 0)
                 } else {
                     // Last resort fallback
                     let name = Symbol::intern("Con");
@@ -163,15 +163,35 @@ pub fn lower_pat_to_alt_with_fallthrough(
                         name,
                         Symbol::intern("DataType"),
                         def_ref.def_id.index() as u32,
+                        0,
                     )
                 };
 
+            // For existential constructors, prepend binders for dictionary fields.
+            // These dictionaries are stored as the first N fields of the constructor
+            // and are extracted by the pattern match.
+            if existential_dict_count > 0 {
+                let mut dict_binders = Vec::with_capacity(existential_dict_count as usize);
+                for i in 0..existential_dict_count {
+                    let dict_var = ctx.fresh_var(
+                        &format!("$edict_{}", i),
+                        Ty::Error,
+                        span,
+                    );
+                    dict_binders.push(dict_var);
+                }
+                // Prepend dict binders before user-visible binders
+                dict_binders.append(&mut binders);
+                binders = dict_binders;
+            }
+
+            let total_arity = sub_pats.len() as u32 + existential_dict_count;
             let tycon = TyCon::new(type_name, Kind::Star);
             let con = DataCon {
                 name: con_name,
                 ty_con: tycon,
                 tag,
-                arity: sub_pats.len() as u32,
+                arity: total_arity,
             };
 
             Ok(Alt {
@@ -1073,8 +1093,40 @@ fn tree_to_core(ctx: &mut LowerContext, tree: DecisionTree) -> LowerResult<core:
             let mut alts: Vec<Alt> = Vec::new();
 
             for (con, vars, sub_tree) in branches {
-                // Register the field variables in context before lowering the sub-tree
+                // For existential constructors, push dict scope so the
+                // sub-tree's RHS can resolve class method calls via dictionary.
+                let existential_classes = if let AltCon::DataCon(ref dc) = con {
+                    if let Some(info) = ctx.lookup_constructor_by_name(dc.name) {
+                        if info.existential_dict_count > 0 {
+                            info.existential_classes.clone()
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                };
+
+                // For existential constructors, the first N vars (where N =
+                // existential_dict_count) are dictionary fields. Register them
+                // as dicts so method calls in the sub-tree can resolve them.
+                if !existential_classes.is_empty() {
+                    ctx.push_dict_scope();
+                    for (i, class_name) in existential_classes.iter().enumerate() {
+                        if let Some(dict_var) = vars.get(i) {
+                            ctx.register_dict(*class_name, dict_var.clone());
+                        }
+                    }
+                }
+
                 let sub_rhs = tree_to_core(ctx, sub_tree)?;
+
+                if !existential_classes.is_empty() {
+                    ctx.pop_dict_scope();
+                }
+
                 alts.push(Alt {
                     con,
                     binders: vars,
@@ -1304,11 +1356,34 @@ fn compile_equations_linear(
             bind_pattern_vars(ctx, pat, arg_var.as_ref());
         }
 
+        // For existential constructors in patterns, push dict scope
+        // so the RHS can resolve class method calls via the dictionary.
+        let existential_classes: Vec<Symbol> = eq
+            .pats
+            .iter()
+            .flat_map(|pat| get_existential_classes_from_pat(ctx, pat))
+            .collect();
+        if !existential_classes.is_empty() {
+            ctx.push_dict_scope();
+            for class_name in &existential_classes {
+                let dict_var = ctx.fresh_var(
+                    &format!("$dict_{}", class_name.as_str()),
+                    Ty::Error,
+                    span,
+                );
+                ctx.register_dict(*class_name, dict_var);
+            }
+        }
+
         let rhs = if eq.guards.is_empty() {
             lower_expr(ctx, &eq.rhs)?
         } else {
             compile_guarded_rhs(ctx, &eq.guards, &eq.rhs, eq.span)?
         };
+
+        if !existential_classes.is_empty() {
+            ctx.pop_dict_scope();
+        }
 
         if eq.pats.is_empty() {
             alts.push(Alt {
@@ -1766,6 +1841,21 @@ pub fn lower_pat_with_or_to_alts(
     Ok(alts)
 }
 
+/// Get existential class names from a pattern (for dictionary scope setup).
+fn get_existential_classes_from_pat(ctx: &LowerContext, pat: &hir::Pat) -> Vec<Symbol> {
+    match pat {
+        hir::Pat::Con(def_ref, _, _) | hir::Pat::RecordCon(def_ref, _, _) => {
+            if let Some(info) = ctx.lookup_constructor(def_ref.def_id) {
+                if info.existential_dict_count > 0 {
+                    return info.existential_classes.clone();
+                }
+            }
+            vec![]
+        }
+        _ => vec![],
+    }
+}
+
 /// Create a pattern match error expression.
 pub fn make_pattern_error(span: Span) -> core::Expr {
     let error_var = Var {
@@ -1977,6 +2067,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         ctx.register_constructor(
@@ -1988,6 +2080,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -2040,6 +2134,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         ctx.register_constructor(
@@ -2051,6 +2147,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -2100,6 +2198,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
         ctx.register_constructor(
@@ -2111,6 +2211,8 @@ mod tests {
                 arity: 0,
                 field_names: vec![],
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 
@@ -2255,6 +2357,8 @@ mod tests {
                 arity: 2,
                 field_names: vec![name_sym, age_sym], // canonical order: name, age
                 is_newtype: false,
+                existential_dict_count: 0,
+                existential_classes: vec![],
             },
         );
 

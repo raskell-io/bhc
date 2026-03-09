@@ -346,9 +346,11 @@ impl Extension {
             // relaxed (BHC doesn't enforce the restriction they lift)
             Self::UndecidableInstances | Self::OverlappingInstances => ExtensionStatus::Supported,
 
+            // Existential quantification in data constructors
+            Self::ExistentialQuantification => ExtensionStatus::Supported,
+
             // Recognized but not yet implemented
             Self::RankNTypes
-            | Self::ExistentialQuantification
             | Self::ConstraintKinds
             | Self::HexFloatLiterals
             | Self::DeriveLift
@@ -840,6 +842,10 @@ pub struct ConDecl {
     pub name: Ident,
     /// Constructor fields.
     pub fields: ConFields,
+    /// Existentially quantified type variables (from `forall a.` syntax).
+    pub existential_vars: Vec<TyVar>,
+    /// Existential context constraints (from `C a =>` syntax).
+    pub existential_context: Vec<Constraint>,
     /// The span.
     pub span: Span,
 }

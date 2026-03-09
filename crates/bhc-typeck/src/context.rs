@@ -100,6 +100,12 @@ pub struct TyCtxt {
     /// These are solved after inference completes or defaulted if ambiguous.
     pub(crate) constraints: Vec<Constraint>,
 
+    /// Given constraints from existential pattern matches.
+    /// When pattern matching on an existential constructor, the existential
+    /// constraints become available as evidence in the alternative body.
+    /// These suppress matching "wanted" constraints from being emitted.
+    pub(crate) given_constraints: Vec<Constraint>,
+
     /// Whether {-# LANGUAGE OverloadedStrings #-} is enabled.
     pub(crate) overloaded_strings: bool,
 
@@ -155,6 +161,7 @@ impl TyCtxt {
             explicit_sig_defs: std::collections::HashSet::new(),
             con_field_defs: FxHashMap::default(),
             constraints: Vec::new(),
+            given_constraints: Vec::new(),
             overloaded_strings: false,
             overloaded_lists: false,
             scoped_type_variables: false,
@@ -238,8 +245,43 @@ impl TyCtxt {
         args: Vec<Ty>,
         span: bhc_span::Span,
     ) {
+        // Check if this constraint is satisfied by a given constraint
+        // from an existential pattern match. If so, don't emit it as wanted.
+        if self.is_satisfied_by_given(class, &args) {
+            return;
+        }
         self.constraints
             .push(Constraint::new_multi(class, args, span));
+    }
+
+    /// Check if a constraint is satisfied by a given constraint from an
+    /// existential pattern match.
+    fn is_satisfied_by_given(&self, class: Symbol, args: &[Ty]) -> bool {
+        let resolved_args: Vec<Ty> = args.iter().map(|t| self.subst.apply(t)).collect();
+        self.given_constraints.iter().any(|gc| {
+            gc.class == class
+                && gc.args.len() == resolved_args.len()
+                && gc.args.iter().zip(resolved_args.iter()).all(|(a, b)| {
+                    let ga = self.subst.apply(a);
+                    ga == *b
+                })
+        })
+    }
+
+    /// Add a given constraint from an existential pattern match.
+    pub fn push_given_constraint(&mut self, class: Symbol, args: Vec<Ty>, span: bhc_span::Span) {
+        self.given_constraints
+            .push(Constraint::new_multi(class, args, span));
+    }
+
+    /// Get the current number of given constraints (for scoped save/restore).
+    pub fn given_constraints_len(&self) -> usize {
+        self.given_constraints.len()
+    }
+
+    /// Restore given constraints to a previous length (scoped pop).
+    pub fn restore_given_constraints(&mut self, len: usize) {
+        self.given_constraints.truncate(len);
     }
 
     /// Check if a class was defined by user code (not a builtin).
@@ -5711,10 +5753,18 @@ impl TyCtxt {
                 ConFields::Named(fields) => fields.iter().map(|f| f.ty.clone()).collect(),
             };
 
+            // Combine data params with existential vars for kind-fixing
+            let all_params: Vec<TyVar> = data
+                .params
+                .iter()
+                .chain(con.existential_vars.iter())
+                .cloned()
+                .collect();
+
             // Fix the kinds of type variables in field types to match params.
             let fixed_field_types: Vec<Ty> = field_types
                 .into_iter()
-                .map(|ty| Self::fix_type_var_kinds(&ty, &data.params))
+                .map(|ty| Self::fix_type_var_kinds(&ty, &all_params))
                 .collect();
 
             let con_ty = fixed_field_types
@@ -5722,7 +5772,21 @@ impl TyCtxt {
                 .rev()
                 .fold(result_ty, |acc, field_ty| Ty::fun(field_ty, acc));
 
-            Scheme::poly(data.params.clone(), con_ty)
+            // For existential constructors, the scheme includes both data params
+            // and existential vars, plus existential constraints.
+            // E.g., `data T = forall a. C a => MkT a` gets scheme:
+            //   forall a. C a => a -> T
+            if con.existential_vars.is_empty() {
+                Scheme::poly(data.params.clone(), con_ty)
+            } else {
+                let mut vars = data.params.clone();
+                vars.extend(con.existential_vars.iter().cloned());
+                Scheme {
+                    vars,
+                    constraints: con.existential_context.clone(),
+                    ty: con_ty,
+                }
+            }
         }
     }
 
@@ -6108,6 +6172,12 @@ impl TyCtxt {
     /// Instantiate a type scheme (implemented in instantiate.rs).
     pub fn instantiate(&mut self, scheme: &Scheme) -> Ty {
         crate::instantiate::instantiate(self, scheme)
+    }
+
+    /// Instantiate a type scheme for an existential pattern match.
+    /// Treats constraints as "given" evidence rather than "wanted".
+    pub fn instantiate_as_given(&mut self, scheme: &Scheme) -> Ty {
+        crate::instantiate::instantiate_as_given(self, scheme)
     }
 
     /// Generalize a type (implemented in generalize.rs).
