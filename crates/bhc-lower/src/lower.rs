@@ -3598,7 +3598,7 @@ fn register_standard_module_exports(
                 if is_constructor {
                     ctx.define(qual_def_id, qual_def_name, DefKind::StubConstructor, Span::default());
                 } else {
-                    ctx.define(qual_def_id, qual_def_name, DefKind::Value, Span::default());
+                    ctx.define(qual_def_id, qual_def_name, DefKind::StubValue, Span::default());
                 }
                 ctx.bind_value(aliased_qualified, qual_def_id);
             }
@@ -3647,7 +3647,7 @@ fn register_standard_module_exports(
             if is_constructor {
                 ctx.define(def_id, def_name, DefKind::StubConstructor, Span::default());
             } else {
-                ctx.define(def_id, def_name, DefKind::Value, Span::default());
+                ctx.define(def_id, def_name, DefKind::StubValue, Span::default());
             }
             ctx.bind_value(unqualified, def_id);
         }
@@ -5515,13 +5515,19 @@ fn lower_type_to_scheme(ctx: &mut LowerContext, ty: &ast::Type) -> bhc_types::Sc
             }
         }
         _ => {
-            // No constraints — produce a monomorphic scheme
-            bhc_types::Scheme::mono(lower_type(ctx, ty))
+            // No constraints — quantify over free type variables
+            let raw_ty = lower_type(ctx, ty);
+            let free_vars = raw_ty.free_vars();
+            if free_vars.is_empty() {
+                bhc_types::Scheme::mono(raw_ty)
+            } else {
+                bhc_types::Scheme::poly(free_vars, raw_ty)
+            }
         }
     }
 }
 
-fn lower_type(ctx: &mut LowerContext, ty: &ast::Type) -> bhc_types::Ty {
+pub(crate) fn lower_type(ctx: &mut LowerContext, ty: &ast::Type) -> bhc_types::Ty {
     match ty {
         ast::Type::Var(tyvar, _) => {
             bhc_types::Ty::Var(bhc_types::TyVar::new_star(tyvar.name.name.as_u32()))
@@ -6570,7 +6576,23 @@ fn lower_foreign_decl(
         _ => hir::ForeignConvention::CCall, // Default
     };
 
-    let ty = bhc_types::Scheme::mono(lower_type(ctx, &foreign.ty));
+    // Lower the type and quantify free type variables so the scheme
+    // is properly polymorphic (e.g. `a -> IO (TVar a)` becomes
+    // `forall a. a -> IO (TVar a)`). Without this, multiple uses of
+    // the same foreign import would share type variables.
+    let raw_ty = lower_type(ctx, &foreign.ty);
+    let free_vars = raw_ty.free_vars();
+    let ty = if free_vars.is_empty() {
+        bhc_types::Scheme::mono(raw_ty)
+    } else {
+        bhc_types::Scheme::poly(free_vars, raw_ty)
+    };
+
+    // Update the DefInfo so the type checker can find the proper type scheme
+    // for this foreign import (needed for imported stub modules).
+    if let Some(def_info) = ctx.defs.get_mut(&def_id) {
+        def_info.type_scheme = Some(ty.clone());
+    }
 
     // Map safety annotation from AST to HIR
     let safety = match foreign.safety {

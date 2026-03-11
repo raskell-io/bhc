@@ -729,63 +729,119 @@ impl Builtins {
                     Ty::fun(Ty::fun(Ty::Var(a.clone()), mb.clone()), Ty::fun(ma, mb)),
                 )
             }),
-            // Applicative/Functor operators (polymorphic for parser/monad support)
+            // Applicative/Functor operators — use proper HKT-style types
+            // f has kind * -> *, represented as Ty::App(Ty::Var(f), Ty::Var(a))
+            // This allows the unifier to decompose e.g. IO Int into f=IO, a=Int
             // NOTE: Order MUST match bhc_lower::context::define_builtins
             ("<*>", {
-                // (<*>) :: Applicative f => f (a -> b) -> f a -> f b (polymorphic: c -> d -> e)
-                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
-                let e = TyVar::new_star(BUILTIN_TYVAR_B + 3);
+                // (<*>) :: Applicative f => f (a -> b) -> f a -> f b
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_ab = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                );
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![c.clone(), d.clone(), e.clone()],
-                    Ty::fun(Ty::Var(c), Ty::fun(Ty::Var(d), Ty::Var(e))),
+                    vec![f.clone(), a.clone(), b.clone()],
+                    Ty::fun(f_ab, Ty::fun(f_a, f_b)),
                 )
             }),
             ("<$>", {
-                // (<$>) :: (a -> b) -> f a -> f b (same as fmap)
-                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
+                // (<$>) :: Functor f => (a -> b) -> f a -> f b
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![a.clone(), b.clone(), c.clone(), d.clone()],
+                    vec![f.clone(), a.clone(), b.clone()],
                     Ty::fun(
                         Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                        Ty::fun(Ty::Var(c), Ty::Var(d)),
+                        Ty::fun(f_a, f_b),
                     ),
                 )
             }),
             ("<$", {
-                // (<$) :: Functor f => a -> f b -> f a (polymorphic: a -> b -> c)
-                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
+                // (<$) :: Functor f => a -> f b -> f a
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![a.clone(), b.clone(), c.clone()],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c))),
+                    vec![f.clone(), a.clone(), b.clone()],
+                    Ty::fun(Ty::Var(a.clone()), Ty::fun(f_b, f_a)),
                 )
             }),
             ("*>", {
-                // (*>) :: Applicative f => f a -> f b -> f b (polymorphic: a -> b -> b)
+                // (*>) :: Applicative f => f a -> f b -> f b
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))),
+                    vec![f.clone(), a.clone(), b.clone()],
+                    Ty::fun(f_a, Ty::fun(f_b.clone(), f_b)),
                 )
             }),
             ("<*", {
-                // (<*) :: Applicative f => f a -> f b -> f a (polymorphic: a -> b -> a)
+                // (<*) :: Applicative f => f a -> f b -> f a
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![a.clone(), b.clone()],
-                    Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(a.clone()))),
+                    vec![f.clone(), a.clone(), b.clone()],
+                    Ty::fun(f_a.clone(), Ty::fun(f_b, f_a)),
                 )
             }),
             ("fmap", {
-                // fmap :: (a -> b) -> f a -> f b
-                // Use fully polymorphic signature since BHC doesn't have HKT variables.
-                // Codegen dispatches by expression structure (List, Maybe, user ADT, IO).
-                let c = TyVar::new_star(BUILTIN_TYVAR_B + 1);
-                let d = TyVar::new_star(BUILTIN_TYVAR_B + 2);
+                // fmap :: Functor f => (a -> b) -> f a -> f b
+                let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                let f_a = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(a.clone())),
+                );
+                let f_b = Ty::App(
+                    Box::new(Ty::Var(f.clone())),
+                    Box::new(Ty::Var(b.clone())),
+                );
                 Scheme::poly(
-                    vec![a.clone(), b.clone(), c.clone(), d.clone()],
+                    vec![f.clone(), a.clone(), b.clone()],
                     Ty::fun(
                         Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
-                        Ty::fun(Ty::Var(c), Ty::Var(d)),
+                        Ty::fun(f_a, f_b),
                     ),
                 )
             }),
@@ -1297,23 +1353,25 @@ impl Builtins {
                 );
                 Scheme::poly(vec![a.clone()], Ty::fun(io_a.clone(), io_a))
             }),
-            // Exception handling (simplified with String as exception type)
+            // Exception handling — polymorphic exception type
             ("catch", {
-                // catch :: IO a -> (String -> IO a) -> IO a (simplified)
+                // catch :: IO a -> (e -> IO a) -> IO a
+                let e = TyVar::new_star(998);
                 let io_a = Ty::App(
                     Box::new(Ty::Con(self.io_con.clone())),
                     Box::new(Ty::Var(a.clone())),
                 );
                 Scheme::poly(
-                    vec![a.clone()],
+                    vec![a.clone(), e.clone()],
                     Ty::fun(
                         io_a.clone(),
-                        Ty::fun(Ty::fun(self.string_ty.clone(), io_a.clone()), io_a),
+                        Ty::fun(Ty::fun(Ty::Var(e), io_a.clone()), io_a),
                     ),
                 )
             }),
             ("try", {
-                // try :: IO a -> IO (Either String a) (simplified)
+                // try :: IO a -> IO (Either e a)
+                let e = TyVar::new_star(998);
                 let io_a = Ty::App(
                     Box::new(Ty::Con(self.io_con.clone())),
                     Box::new(Ty::Var(a.clone())),
@@ -1321,7 +1379,7 @@ impl Builtins {
                 let either_result = Ty::App(
                     Box::new(Ty::App(
                         Box::new(Ty::Con(self.either_con.clone())),
-                        Box::new(self.string_ty.clone()),
+                        Box::new(Ty::Var(e.clone())),
                     )),
                     Box::new(Ty::Var(a.clone())),
                 );
@@ -1329,22 +1387,24 @@ impl Builtins {
                     Box::new(Ty::Con(self.io_con.clone())),
                     Box::new(either_result),
                 );
-                Scheme::poly(vec![a.clone()], Ty::fun(io_a, io_either))
+                Scheme::poly(vec![a.clone(), e], Ty::fun(io_a, io_either))
             }),
             ("throw", {
-                // throw :: String -> a (simplified with String exception)
+                // throw :: e -> a
+                let e = TyVar::new_star(998);
                 Scheme::poly(
-                    vec![a.clone()],
-                    Ty::fun(self.string_ty.clone(), Ty::Var(a.clone())),
+                    vec![a.clone(), e.clone()],
+                    Ty::fun(Ty::Var(e), Ty::Var(a.clone())),
                 )
             }),
             ("throwIO", {
-                // throwIO :: String -> IO a (simplified)
+                // throwIO :: e -> IO a
+                let e = TyVar::new_star(998);
                 let io_a = Ty::App(
                     Box::new(Ty::Con(self.io_con.clone())),
                     Box::new(Ty::Var(a.clone())),
                 );
-                Scheme::poly(vec![a.clone()], Ty::fun(self.string_ty.clone(), io_a))
+                Scheme::poly(vec![a.clone(), e], Ty::fun(Ty::Var(TyVar::new_star(998)), io_a))
             }),
             ("bracket", {
                 // bracket :: IO a -> (a -> IO b) -> (a -> IO c) -> IO c

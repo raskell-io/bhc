@@ -1253,6 +1253,21 @@ impl<'src> Lexer<'src> {
                         Span::from_raw(self.pos as u32, self.pos as u32),
                     ));
                 } else if column == ctx_col {
+                    // `where` at the same indentation as a non-module layout
+                    // context (e.g. case-of, do) should close that context.
+                    // `where` can only appear in function equations and
+                    // class/instance declarations, never as an item inside
+                    // `case of` or `do` blocks.
+                    if token.kind == TokenKind::Where && self.layout_stack.len() > 1 {
+                        self.layout_stack.pop();
+                        self.pending.push(Spanned::new(
+                            Token::new(TokenKind::VirtualRBrace),
+                            Span::from_raw(self.pos as u32, self.pos as u32),
+                        ));
+                        // Continue the loop to check if more contexts need closing
+                        continue;
+                    }
+
                     // Same indentation: new item in the block
                     // BUT don't insert VirtualSemi for:
                     // - continuation tokens (in middle of multi-line construct)

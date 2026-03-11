@@ -506,7 +506,16 @@ fn collect_decl_exports(
             let name = foreign.name.name;
             if export_all || explicit_exports.contains(&name) {
                 let def_id = ctx.fresh_def_id();
-                ctx.define(def_id, name, DefKind::Value, foreign.span);
+                // Lower the foreign import's type and quantify free vars
+                // so the type checker sees a proper polymorphic scheme.
+                let raw_ty = crate::lower::lower_type(ctx, &foreign.ty);
+                let free_vars = raw_ty.free_vars();
+                let scheme = if free_vars.is_empty() {
+                    bhc_types::Scheme::mono(raw_ty)
+                } else {
+                    bhc_types::Scheme::poly(free_vars, raw_ty)
+                };
+                ctx.define_with_type(def_id, name, DefKind::Value, foreign.span, scheme);
                 exports.values.insert(name, def_id);
             }
         }
@@ -745,8 +754,13 @@ pub fn register_imported_names(
         // Register qualified name: Module.name -> name
         let qualified = Symbol::intern(&format!("{}.{}", qualifier, name.as_str()));
         ctx.register_qualified_name(qualified, name);
+        // Also bind the qualified name directly so that resolve_qualified_var
+        // finds it via lookup_value(aliased_name) without going through the
+        // qualified_names indirection (which maps to the unqualified name and
+        // might find a different DefId — e.g., a Prelude builtin).
+        ctx.bind_value(qualified, def_id);
 
-        // Bind the value in the context (if not already bound)
+        // Bind the value in the context (if not already bound by a builtin)
         if ctx.lookup_value(name).is_none() {
             ctx.bind_value(name, def_id);
         }
@@ -761,6 +775,7 @@ pub fn register_imported_names(
     for (&name, &def_id) in &exports.types {
         let qualified = Symbol::intern(&format!("{}.{}", qualifier, name.as_str()));
         ctx.register_qualified_name(qualified, name);
+        ctx.bind_type(qualified, def_id);
 
         if ctx.lookup_type(name).is_none() {
             ctx.bind_type(name, def_id);
@@ -771,6 +786,7 @@ pub fn register_imported_names(
     for (&name, info) in &exports.constructors {
         let qualified = Symbol::intern(&format!("{}.{}", qualifier, name.as_str()));
         ctx.register_qualified_name(qualified, name);
+        ctx.bind_constructor(qualified, info.def_id);
 
         if ctx.lookup_constructor(name).is_none() {
             ctx.bind_constructor(name, info.def_id);

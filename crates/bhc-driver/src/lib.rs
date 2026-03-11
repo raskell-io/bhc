@@ -293,6 +293,9 @@ pub struct CompiledModuleInfo {
     pub exports: ModuleExports,
     /// Type aliases defined in this module, for cross-module alias expansion.
     pub type_aliases: Vec<(bhc_intern::Symbol, Vec<bhc_types::TyVar>, bhc_types::Ty)>,
+    /// Inferred type schemes for exported values, keyed by symbol name.
+    /// Propagated from type checking so downstream modules get correct types.
+    pub value_schemes: FxHashMap<bhc_intern::Symbol, bhc_types::Scheme>,
 }
 
 /// Accumulates compilation artifacts across modules during multi-module compilation.
@@ -1405,6 +1408,7 @@ impl Compiler {
             symbols: compiled_symbols,
             exports,
             type_aliases: Vec::new(),
+            value_schemes: FxHashMap::default(),
         };
 
         Ok((object_path, compiled_info))
@@ -1711,8 +1715,12 @@ impl Compiler {
         }
 
         // Phase 4: Type check HIR with imported type aliases
+        let mut typed_module: Option<TypedModule> = None;
         let type_errors = match bhc_typeck::type_check_module_full(&hir, file_id, Some(&lower_ctx.defs), &imported_aliases) {
-            Ok(_typed) => None,
+            Ok(typed) => {
+                typed_module = Some(typed);
+                None
+            }
             Err(diagnostics) => {
                 eprintln!("Type errors:");
                 for (i, diag) in diagnostics.iter().enumerate() {
@@ -1727,6 +1735,17 @@ impl Compiler {
         // the HIR (which parsed and lowered successfully). This allows downstream
         // modules to still be checked rather than being skipped entirely.
         let exports = Self::build_module_exports_from_hir(module_name, &hir, &lower_ctx);
+
+        // Extract inferred type schemes for exported values so downstream
+        // modules can type-check against correct signatures.
+        let mut value_schemes = FxHashMap::default();
+        if let Some(ref typed) = typed_module {
+            for (&val_name, &def_id) in &exports.values {
+                if let Some(scheme) = typed.def_schemes.get(&def_id) {
+                    value_schemes.insert(val_name, scheme.clone());
+                }
+            }
+        }
 
         // Extract type aliases for cross-module propagation
         let mut type_aliases = Vec::new();
@@ -1746,6 +1765,7 @@ impl Compiler {
                     symbols: Vec::new(),
                     exports,
                     type_aliases,
+                    value_schemes: FxHashMap::default(),
                 },
             });
         }
@@ -1755,6 +1775,7 @@ impl Compiler {
             symbols: Vec::new(),
             exports,
             type_aliases,
+            value_schemes,
         })
     }
 
@@ -1857,7 +1878,7 @@ impl Compiler {
                 ctx.define(
                     fresh_id,
                     val_name,
-                    bhc_lower::DefKind::Value,
+                    bhc_lower::DefKind::ImportedValue,
                     bhc_span::Span::default(),
                 );
                 new_values.insert(val_name, fresh_id);
@@ -3459,6 +3480,7 @@ impl Compiler {
                                     symbols: Vec::new(),
                                     exports,
                                     type_aliases: Vec::new(),
+                                    value_schemes: FxHashMap::default(),
                                 },
                             );
                         }

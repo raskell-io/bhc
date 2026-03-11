@@ -52,6 +52,11 @@ pub enum DefKind {
     StubType,
     /// A stub constructor (external package constructor not yet implemented).
     StubConstructor,
+    /// An imported value from another module in the same compilation unit.
+    /// Distinguished from Value to prevent the type checker from assigning
+    /// hardcoded Prelude types to cross-module values with common names
+    /// (e.g., `Cache.lookup` should not get Prelude's `lookup` type).
+    ImportedValue,
 }
 
 impl DefKind {
@@ -2490,8 +2495,17 @@ impl LowerContext {
             }
         }
 
-        // Try looking up the unqualified name directly (for builtins)
-        self.lookup_value(name)
+        // Try looking up the unqualified name directly (for builtins),
+        // but only if the qualifier doesn't match a known import alias or module.
+        // If the user wrote `Cache.lookup`, they want the Cache module's lookup,
+        // not Prelude's lookup. Falling back would give the wrong builtin type.
+        if self.import_aliases.contains_key(&qualifier) {
+            // Qualifier is a known import alias — the name simply wasn't exported
+            // from that module. Don't fall back to builtins.
+            None
+        } else {
+            self.lookup_value(name)
+        }
     }
 
     /// Resolves a qualified constructor reference like `M.Just`.
@@ -2526,8 +2540,13 @@ impl LowerContext {
             }
         }
 
-        // Try looking up the unqualified name directly (for builtins)
-        self.lookup_constructor(name)
+        // Try looking up the unqualified name directly (for builtins),
+        // but only if the qualifier doesn't match a known import alias.
+        if self.import_aliases.contains_key(&qualifier) {
+            None
+        } else {
+            self.lookup_constructor(name)
+        }
     }
 
     /// Registers a type signature for a function.

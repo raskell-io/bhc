@@ -378,7 +378,20 @@ impl TyCtxt {
         self.apply_subst_to_constraints();
 
         // Take constraints to avoid borrow conflicts
-        let constraints = std::mem::take(&mut self.constraints);
+        let mut constraints = std::mem::take(&mut self.constraints);
+
+        // Sort constraints so more-specific numeric classes (Fractional, Floating)
+        // are solved before less-specific ones (Num, Integral). This ensures that
+        // a variable with both `Num a` and `Fractional a` constraints defaults to
+        // Double (from Fractional) rather than Int (from Num).
+        constraints.sort_by_key(|c| {
+            match c.class.as_str() {
+                "Fractional" | "Floating" | "RealFrac" | "RealFloat" => 0,
+                "Real" | "Integral" | "Enum" | "Bounded" => 1,
+                "Num" | "Ord" | "Eq" | "Show" | "Read" => 2,
+                _ => 3,
+            }
+        });
 
         // Collect results: (constraint, needs_error)
         let mut results: Vec<(Constraint, bool)> = Vec::new();
@@ -440,7 +453,18 @@ impl TyCtxt {
         }
 
         // Extract only the new constraints (leave earlier ones in place)
-        let new_constraints: Vec<Constraint> = self.constraints.drain(start_idx..).collect();
+        let mut new_constraints: Vec<Constraint> = self.constraints.drain(start_idx..).collect();
+
+        // Sort so more-specific numeric classes (Fractional) are solved before
+        // less-specific ones (Num), preventing premature defaulting to Int.
+        new_constraints.sort_by_key(|c| {
+            match c.class.as_str() {
+                "Fractional" | "Floating" | "RealFrac" | "RealFloat" => 0,
+                "Real" | "Integral" | "Enum" | "Bounded" => 1,
+                "Num" | "Ord" | "Eq" | "Show" | "Read" => 2,
+                _ => 3,
+            }
+        });
 
         let mut unsolved = Vec::new();
 
@@ -1677,6 +1701,14 @@ impl TyCtxt {
 
         // For each def in the lowering pass's def map, register it with a type
         for (_def_id, def_info) in defs.iter() {
+            // Skip pattern variables (function parameters, let-bound vars) —
+            // they should never be registered as global builtins.
+            // Also skip imported values from other modules in the same compilation
+            // unit — they should get fresh polymorphic types in the second pass,
+            // not hardcoded Prelude types (e.g., Cache.lookup != Prelude.lookup).
+            if matches!(def_info.kind, DefKind::PatVar | DefKind::ImportedValue) {
+                continue;
+            }
             let raw_name = def_info.name.as_str();
             // Normalize ByteString variant module names so they share type signatures,
             // EXCEPT for Char8-specific functions that need Char instead of Word8/Int.
@@ -1824,6 +1856,35 @@ impl TyCtxt {
                     let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
                     let fa = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(a.clone())));
                     Scheme::poly(vec![f, a.clone()], Ty::fun(Ty::Var(a.clone()), fa))
+                }
+                // fmap / <$> :: (a -> b) -> f a -> f b
+                "fmap" | "<$>" => {
+                    let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                    let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                    let fa = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(a.clone())));
+                    let fb = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(b.clone())));
+                    Scheme::poly(
+                        vec![f, a.clone(), b.clone()],
+                        Ty::fun(
+                            Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())),
+                            Ty::fun(fa, fb),
+                        ),
+                    )
+                }
+                // <*> :: f (a -> b) -> f a -> f b
+                "<*>" => {
+                    let f_kind = Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star));
+                    let f = TyVar::new(BUILTIN_TYVAR_F, f_kind);
+                    let fab = Ty::App(
+                        Box::new(Ty::Var(f.clone())),
+                        Box::new(Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone()))),
+                    );
+                    let fa = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(a.clone())));
+                    let fb = Ty::App(Box::new(Ty::Var(f.clone())), Box::new(Ty::Var(b.clone())));
+                    Scheme::poly(
+                        vec![f, a.clone(), b.clone()],
+                        Ty::fun(fab, Ty::fun(fa, fb)),
+                    )
                 }
                 // map :: (a -> b) -> [a] -> [b]
                 "map" => {
@@ -2502,19 +2563,16 @@ impl TyCtxt {
                         ),
                     ))
                 }
-                // catch :: IO a -> (SomeException -> IO a) -> IO a
-                // (simplified: exception type is String)
+                // catch :: IO a -> (e -> IO a) -> IO a
                 "catch" => {
+                    let e = TyVar::new_star(998);
                     let io_a = Ty::App(
                         Box::new(Ty::Con(self.builtins.io_con.clone())),
                         Box::new(Ty::Var(a.clone())),
                     );
-                    let handler = Ty::fun(
-                        self.builtins.string_ty.clone(),
-                        io_a.clone(),
-                    );
+                    let handler = Ty::fun(Ty::Var(e.clone()), io_a.clone());
                     Scheme::poly(
-                        vec![a.clone()],
+                        vec![a.clone(), e],
                         Ty::fun(io_a.clone(), Ty::fun(handler, io_a)),
                     )
                 }
@@ -2616,6 +2674,8 @@ impl TyCtxt {
                 }
                 // try :: IO a -> IO (Either SomeException a)
                 "try" => {
+                    // try :: IO a -> IO (Either e a)
+                    let e = TyVar::new_star(998);
                     let io_a = Ty::App(
                         Box::new(Ty::Con(self.builtins.io_con.clone())),
                         Box::new(Ty::Var(a.clone())),
@@ -2623,7 +2683,7 @@ impl TyCtxt {
                     let either_exc_a = Ty::App(
                         Box::new(Ty::App(
                             Box::new(Ty::Con(self.builtins.either_con.clone())),
-                            Box::new(self.builtins.string_ty.clone()),
+                            Box::new(Ty::Var(e.clone())),
                         )),
                         Box::new(Ty::Var(a.clone())),
                     );
@@ -2632,7 +2692,7 @@ impl TyCtxt {
                         Box::new(either_exc_a),
                     );
                     Scheme::poly(
-                        vec![a.clone()],
+                        vec![a.clone(), e],
                         Ty::fun(io_a, io_either),
                     )
                 }
@@ -4084,10 +4144,11 @@ impl TyCtxt {
                     let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
                     Scheme::poly(vec![a.clone()], Ty::fun(list_a.clone(), list_a))
                 }
-                // toList :: [a] -> [a] (Many a ≈ [a] in our model)
+                // toList :: c -> [a] (generic: works for Many, HashMap, Map, Set, etc.)
+                // Using a -> [b] to allow HashMap k v -> [(k, v)] as well as [a] -> [a]
                 "toList" => {
-                    let list_a = Ty::List(Box::new(Ty::Var(a.clone())));
-                    Scheme::poly(vec![a.clone()], Ty::fun(list_a.clone(), list_a))
+                    let list_b = Ty::List(Box::new(Ty::Var(b.clone())));
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), list_b))
                 }
                 // unMany :: Many a -> Seq a (≈ [a] -> [a])
                 "unMany" => {
@@ -5339,6 +5400,124 @@ impl TyCtxt {
                     Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))
                 }
 
+                // STM functions — need proper polymorphic types for
+                // applicative chains like `E <$> newTVarIO 0 <*> newTVarIO True`
+                "newTVarIO" => {
+                    // newTVarIO :: a -> IO (TVar a)
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let io_tvar_a = Ty::App(Box::new(Ty::Con(self.builtins.io_con.clone())), Box::new(tvar_a));
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), io_tvar_a))
+                }
+                "newTVar" => {
+                    // newTVar :: a -> STM (TVar a)
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let stm_con = TyCon::new(Symbol::intern("STM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let stm_tvar_a = Ty::App(Box::new(Ty::Con(stm_con)), Box::new(tvar_a));
+                    Scheme::poly(vec![a.clone()], Ty::fun(Ty::Var(a.clone()), stm_tvar_a))
+                }
+                "readTVar" => {
+                    // readTVar :: TVar a -> STM a
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let stm_con = TyCon::new(Symbol::intern("STM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let stm_a = Ty::App(Box::new(Ty::Con(stm_con)), Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(tvar_a, stm_a))
+                }
+                "readTVarIO" => {
+                    // readTVarIO :: TVar a -> IO a
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let io_a = Ty::App(Box::new(Ty::Con(self.builtins.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(tvar_a, io_a))
+                }
+                "writeTVar" => {
+                    // writeTVar :: TVar a -> a -> STM ()
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let stm_con = TyCon::new(Symbol::intern("STM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let stm_unit = Ty::App(Box::new(Ty::Con(stm_con)), Box::new(Ty::Tuple(vec![])));
+                    Scheme::poly(vec![a.clone()], Ty::fun(tvar_a, Ty::fun(Ty::Var(a.clone()), stm_unit)))
+                }
+                "modifyTVar" | "modifyTVar'" => {
+                    // modifyTVar :: TVar a -> (a -> a) -> STM ()
+                    let tvar_con = TyCon::new(Symbol::intern("TVar"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let stm_con = TyCon::new(Symbol::intern("STM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let tvar_a = Ty::App(Box::new(Ty::Con(tvar_con)), Box::new(Ty::Var(a.clone())));
+                    let stm_unit = Ty::App(Box::new(Ty::Con(stm_con)), Box::new(Ty::Tuple(vec![])));
+                    let a_to_a = Ty::fun(Ty::Var(a.clone()), Ty::Var(a.clone()));
+                    Scheme::poly(vec![a.clone()], Ty::fun(tvar_a, Ty::fun(a_to_a, stm_unit)))
+                }
+                "atomically" => {
+                    // atomically :: STM a -> IO a
+                    let stm_con = TyCon::new(Symbol::intern("STM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let stm_a = Ty::App(Box::new(Ty::Con(stm_con)), Box::new(Ty::Var(a.clone())));
+                    let io_a = Ty::App(Box::new(Ty::Con(self.builtins.io_con.clone())), Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(stm_a, io_a))
+                }
+
+                // Numeric conversion functions: (RealFrac a, Integral b) => a -> b
+                "round" | "truncate" | "ceiling" | "floor" => {
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))
+                }
+                // fromIntegral :: (Integral a, Num b) => a -> b
+                // realToFrac :: (Real a, Fractional b) => a -> b
+                "fromIntegral" | "realToFrac" | "toInteger" | "toRational" => {
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))
+                }
+
+                // Aeson operators — need polymorphic types for applicative parsing
+                ".:?" | ".:" => {
+                    // (.:?) :: FromJSON a => Object -> Key -> Parser (Maybe a)
+                    // (.:)  :: FromJSON a => Object -> Key -> Parser a
+                    // Simplified: a -> b -> c (polymorphic in all three)
+                    Scheme::poly(vec![a.clone(), b.clone(), c.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))))
+                }
+                ".!=" => {
+                    // (.!=) :: Parser (Maybe a) -> a -> Parser a
+                    // Simplified: a -> b -> c (polymorphic)
+                    Scheme::poly(vec![a.clone(), b.clone(), c.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))))
+                }
+                ".=" => {
+                    // (.=) :: ToJSON v => Key -> v -> Pair
+                    Scheme::poly(vec![a.clone(), b.clone(), c.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))))
+                }
+                "withObject" => {
+                    // withObject :: String -> (Object -> Parser a) -> Value -> Parser a
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(b.clone()))))
+                }
+
+                // Options.Applicative functions — need polymorphic types
+                // Guard with StubValue to avoid matching user-defined functions with common names
+                "strOption" | "strArgument" | "switch" | "flag" | "flag'"
+                | "argument" | "many" | "some" | "optional" | "execParser"
+                | "info" | "infoOption" | "helper" | "fullDesc" | "progDesc"
+                | "header" | "footer" | "long" | "short" | "metavar" | "value"
+                | "showDefault" | "help" | "command" | "subparser" | "hsubparser"
+                | "str" | "auto" | "customExecParser" | "<**>"
+                    if def_info.kind == DefKind::StubValue => {
+                    // Permissive: a -> b
+                    Scheme::poly(vec![a.clone(), b.clone()], Ty::fun(Ty::Var(a.clone()), Ty::Var(b.clone())))
+                }
+                "option" | "maybeReader"
+                    if def_info.kind == DefKind::StubValue => {
+                    // option :: ReadM a -> Mod OptionFields a -> Parser a
+                    // Needs at least a -> b -> c to avoid sharing
+                    Scheme::poly(vec![a.clone(), b.clone(), c.clone()], Ty::fun(Ty::Var(a.clone()), Ty::fun(Ty::Var(b.clone()), Ty::Var(c.clone()))))
+                }
+
+                // Options.Applicative: eitherReader :: (String -> Either String a) -> ReadM a
+                "eitherReader" if def_info.kind == DefKind::StubValue => {
+                    let readm_con = TyCon::new(Symbol::intern("ReadM"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)));
+                    let either_con = TyCon::new(Symbol::intern("Either"), Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Arrow(Box::new(Kind::Star), Box::new(Kind::Star)))));
+                    let string_ty = Ty::List(Box::new(Ty::Con(self.builtins.char_con.clone())));
+                    let either_string_a = Ty::App(Box::new(Ty::App(Box::new(Ty::Con(either_con)), Box::new(string_ty.clone()))), Box::new(Ty::Var(a.clone())));
+                    let func_ty = Ty::fun(string_ty, either_string_a);
+                    let readm_a = Ty::App(Box::new(Ty::Con(readm_con)), Box::new(Ty::Var(a.clone())));
+                    Scheme::poly(vec![a.clone()], Ty::fun(func_ty, readm_a))
+                }
+
                 // Unknown builtins - skip here, will be handled in second pass
                 _ => continue,
             };
@@ -5351,10 +5530,10 @@ impl TyCtxt {
         // with their interface type schemes (if available) or fresh type variables.
         // We do this in a separate pass to avoid borrow conflicts with the closures above.
         for (_def_id, def_info) in defs.iter() {
-            // Skip constructors (handled in first pass)
+            // Skip constructors (handled in first pass) and pattern variables (local bindings)
             if matches!(
                 def_info.kind,
-                DefKind::Constructor | DefKind::StubConstructor
+                DefKind::Constructor | DefKind::StubConstructor | DefKind::PatVar
             ) {
                 continue;
             }
@@ -5367,8 +5546,8 @@ impl TyCtxt {
             let scheme = if let Some(ref iface_scheme) = def_info.type_scheme {
                 iface_scheme.clone()
             } else {
-                let fresh = self.fresh_ty();
-                Scheme::mono(fresh)
+                let fresh_var = self.fresh_ty_var();
+                Scheme::poly(vec![fresh_var.clone()], Ty::Var(fresh_var))
             };
             self.env.insert_global(def_info.id, scheme);
         }
@@ -5915,12 +6094,16 @@ impl TyCtxt {
             // - Data/Newtype: registered in register_data_type/register_newtype
             // - TypeAlias: handled during type resolution
             // - Fixity: no type checking needed
-            // - Foreign: uses declared type
+            // - Foreign: register declared type in the environment
+            Item::Foreign(fd) => {
+                // Foreign imports carry their type scheme from the stub.
+                // Register it so type checking sees the proper polymorphic type.
+                self.env.insert_global(fd.id, fd.ty.clone());
+            }
             Item::Data(_)
             | Item::Newtype(_)
             | Item::TypeAlias(_)
             | Item::Fixity(_)
-            | Item::Foreign(_)
             | Item::StandaloneDeriving(_)
             | Item::PatternSynonym(_)
             | Item::TypeFamily(_)

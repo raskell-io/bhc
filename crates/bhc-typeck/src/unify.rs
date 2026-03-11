@@ -38,7 +38,7 @@
 
 use bhc_intern::Symbol;
 use bhc_span::Span;
-use bhc_types::{Scheme, Ty, TyCon, TyList, TyNat, TyVar};
+use bhc_types::{Kind, Scheme, Ty, TyCon, TyList, TyNat, TyVar};
 
 use crate::context::TyCtxt;
 use crate::diagnostics;
@@ -490,6 +490,23 @@ fn unify_inner(ctx: &mut TyCtxt, t1: &Ty, t2: &Ty, span: Span) {
         // List types: unify element types
         (Ty::List(elem1), Ty::List(elem2)) => {
             unify_inner(ctx, elem1, elem2, span);
+        }
+
+        // Cross-type: App(f, a) vs List(elem) — treat List(elem) as App([], elem)
+        // This allows HKT-style types like `f a` to unify with `[a]`
+        (Ty::App(f, a), Ty::List(elem)) => {
+            let list_con = Ty::Con(TyCon::new(Symbol::intern("[]"), Kind::star_to_star()));
+            unify_inner(ctx, f, &list_con, span);
+            let a_applied = ctx.apply_subst(a);
+            let elem_applied = ctx.apply_subst(elem);
+            unify_inner(ctx, &a_applied, &elem_applied, span);
+        }
+        (Ty::List(elem), Ty::App(f, a)) => {
+            let list_con = Ty::Con(TyCon::new(Symbol::intern("[]"), Kind::star_to_star()));
+            unify_inner(ctx, &list_con, f, span);
+            let elem_applied = ctx.apply_subst(elem);
+            let a_applied = ctx.apply_subst(a);
+            unify_inner(ctx, &elem_applied, &a_applied, span);
         }
 
         // Forall types: instantiate with fresh variables before unifying.
