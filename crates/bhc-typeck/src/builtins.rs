@@ -4312,6 +4312,38 @@ impl Builtins {
                     ),
                 ),
             );
+
+            // atomicModifyIORef :: IORef a -> (a -> (a, b)) -> IO b
+            let b = TyVar::new_star(BUILTIN_TYVAR_B);
+            let b_ty = Ty::Var(b.clone());
+            let io_b = Ty::App(
+                Box::new(Ty::Con(self.io_con.clone())),
+                Box::new(b_ty.clone()),
+            );
+            let pair_ab = Ty::Tuple(vec![a_ty.clone(), b_ty.clone()]);
+            env.register_value(
+                DefId::new(10405),
+                Symbol::intern("atomicModifyIORef"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        a_ty.clone(),
+                        Ty::fun(Ty::fun(a_ty.clone(), pair_ab.clone()), io_b.clone()),
+                    ),
+                ),
+            );
+            // atomicModifyIORef' :: IORef a -> (a -> (a, b)) -> IO b
+            env.register_value(
+                DefId::new(10406),
+                Symbol::intern("atomicModifyIORef'"),
+                Scheme::poly(
+                    vec![a.clone(), b.clone()],
+                    Ty::fun(
+                        a_ty.clone(),
+                        Ty::fun(Ty::fun(a_ty.clone(), pair_ab), io_b),
+                    ),
+                ),
+            );
         }
 
         // Data.Either extra operations at fixed DefIds 10600-10601

@@ -1397,7 +1397,7 @@ impl Compiler {
             }
         }
 
-        let exports = Self::build_module_exports_from_hir(module_name, &hir, &lower_ctx);
+        let exports = Self::build_module_exports_from_hir(module_name, &hir, &lower_ctx, Some(registry));
 
         debug!(module = %unit.module_name, object = %object_path.display(), "code generation complete");
         self.callbacks
@@ -1424,6 +1424,7 @@ impl Compiler {
         module_name: &str,
         hir: &HirModule,
         lower_ctx: &LowerContext,
+        registry: Option<&ModuleRegistry>,
     ) -> ModuleExports {
         let mut exports = ModuleExports::new(Symbol::intern(module_name));
 
@@ -1459,6 +1460,7 @@ impl Compiler {
 
         // Build set of exported names from the module's explicit export list.
         // If `hir.exports` is None, export everything. If Some, only export listed items.
+        eprintln!("[TRACE exports] module={} hir.exports={}", module_name, if hir.exports.is_some() { "Some" } else { "None" });
         let export_filter: Option<(
             rustc_hash::FxHashSet<Symbol>,  // exported value/type names
             rustc_hash::FxHashSet<Symbol>,  // exported constructor names (from Type(..))
@@ -1470,10 +1472,12 @@ impl Compiler {
                 match &export.children {
                     bhc_hir::ExportChildren::All => {
                         // Type(..) or Class(..) — export all constructors/methods of this type
-                        // Find constructors belonging to this type in HIR
+                        // First try to find constructors in local HIR items
+                        let mut found_locally = false;
                         for item in &hir.items {
                             if let bhc_hir::Item::Data(data_def) = item {
                                 if data_def.name == export.name {
+                                    found_locally = true;
                                     for con in &data_def.cons {
                                         con_names.insert(con.name);
                                         // Also export record field accessors as values
@@ -1487,6 +1491,7 @@ impl Compiler {
                             }
                             if let bhc_hir::Item::Newtype(nt) = item {
                                 if nt.name == export.name {
+                                    found_locally = true;
                                     con_names.insert(nt.con.name);
                                     // Also export record field accessors
                                     if let bhc_hir::ConFields::Named(fields) = &nt.con.fields {
@@ -1499,8 +1504,41 @@ impl Compiler {
                             // Also handle class methods as values
                             if let bhc_hir::Item::Class(class_def) = item {
                                 if class_def.name == export.name {
+                                    found_locally = true;
                                     for method in &class_def.methods {
                                         names.insert(method.name);
+                                    }
+                                }
+                            }
+                        }
+                        // If not found locally, this is a re-exported type.
+                        // Search the registry's module exports for constructors belonging to this type.
+                        if !found_locally {
+                            // First try lower_ctx.defs
+                            for def_info in lower_ctx.defs.values() {
+                                if def_info.kind == bhc_lower::DefKind::Constructor {
+                                    if def_info.type_con_name == Some(export.name) {
+                                        con_names.insert(def_info.name);
+                                        if let Some(ref fns) = def_info.field_names {
+                                            for fname in fns {
+                                                names.insert(*fname);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Then search registry for re-exported constructors
+                            if let Some(reg) = registry {
+                                for compiled in reg.modules.values() {
+                                    for (con_name, con_info) in &compiled.exports.constructors {
+                                        if con_info.type_con_name == export.name {
+                                            con_names.insert(*con_name);
+                                            if let Some(ref fns) = con_info.field_names {
+                                                for fname in fns {
+                                                    names.insert(*fname);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1617,6 +1655,45 @@ impl Compiler {
                     exports.values.insert(def_info.name, def_info.id);
                 }
                 _ => {}
+            }
+        }
+
+        // For re-export modules: if the export filter allows items not found in
+        // lower_ctx.defs (because they come from imported modules), merge them
+        // from the registry.
+        if let (Some((ref filter_names, ref filter_cons)), Some(reg)) = (&export_filter, registry) {
+            eprintln!("[TRACE re-export] module={} filter_names={:?} filter_cons={:?} registry_modules={:?}",
+                module_name,
+                filter_names.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                filter_cons.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                reg.modules.keys().collect::<Vec<_>>());
+            for compiled in reg.modules.values() {
+                // Merge values
+                for (&name, &def_id) in &compiled.exports.values {
+                    if !exports.values.contains_key(&name)
+                        && (filter_names.contains(&name) || filter_cons.contains(&name))
+                    {
+                        exports.values.insert(name, def_id);
+                    }
+                }
+                // Merge types
+                for (&name, &def_id) in &compiled.exports.types {
+                    if !exports.types.contains_key(&name) && filter_names.contains(&name) {
+                        exports.types.insert(name, def_id);
+                    }
+                }
+                // Merge constructors
+                for (name, con_info) in &compiled.exports.constructors {
+                    if !exports.constructors.contains_key(name)
+                        && (filter_cons.contains(name) || filter_names.contains(name))
+                    {
+                        exports.constructors.insert(*name, con_info.clone());
+                        // Also as value
+                        if !exports.values.contains_key(name) {
+                            exports.values.insert(*name, con_info.def_id);
+                        }
+                    }
+                }
             }
         }
 
@@ -1814,7 +1891,7 @@ impl Compiler {
         // We build exports even if type checking failed, since exports come from
         // the HIR (which parsed and lowered successfully). This allows downstream
         // modules to still be checked rather than being skipped entirely.
-        let exports = Self::build_module_exports_from_hir(module_name, &hir, &lower_ctx);
+        let exports = Self::build_module_exports_from_hir(module_name, &hir, &lower_ctx, Some(registry));
 
         // Extract inferred type schemes for exported values so downstream
         // modules can type-check against correct signatures.
@@ -2860,6 +2937,7 @@ impl Compiler {
 
         // Phase 3: Compile each module in dependency order with cross-module context
         let mut object_paths = Vec::new();
+        let mut compile_outputs = Vec::new();
 
         for idx in &ordered {
             let (ref path, ref mod_name, _) = module_info[*idx];
@@ -2870,7 +2948,61 @@ impl Compiler {
             registry
                 .modules
                 .insert(mod_name.clone(), compiled_info);
+
+            // In compile-only mode, move .o to odir and generate .bhi
+            if self.session.options.compile_only {
+                let final_obj = if let Some(ref odir) = self.session.options.output_object_dir {
+                    let dest = odir.join(format!(
+                        "{}.o",
+                        mod_name.rsplit('.').next().unwrap_or(mod_name)
+                    ));
+                    std::fs::create_dir_all(odir.as_std_path()).map_err(|e| {
+                        CompileError::CodegenError(format!("failed to create odir: {}", e))
+                    })?;
+                    std::fs::rename(&obj_path, dest.as_std_path())
+                        .or_else(|_| std::fs::copy(&obj_path, dest.as_std_path()).map(|_| ()))
+                        .map_err(|e| {
+                            CompileError::CodegenError(format!("failed to write object: {}", e))
+                        })?;
+                    dest
+                } else {
+                    Utf8PathBuf::from(obj_path.to_str().unwrap_or_default())
+                };
+
+                // Generate .bhi interface file
+                if let Some(ref hidir) = self.session.options.output_interface_dir {
+                    // Re-parse the AST for interface generation (the AST was consumed earlier)
+                    let unit2 = CompilationUnit::from_path(path.clone())?;
+                    let file_id = FileId::new(0);
+                    if let Ok(ast) = self.parse(&unit2, file_id) {
+                        let (hir, lower_ctx) = self.lower_with_registry(&ast, &registry)?;
+                        let typed = self.type_check(&hir, file_id, &lower_ctx)?;
+                        let iface = bhc_interface::generate::generate_interface(
+                            mod_name,
+                            &ast,
+                            &typed,
+                        );
+                        let iface_path = bhc_interface::interface_path(hidir, mod_name);
+                        if let Some(parent) = iface_path.parent() {
+                            std::fs::create_dir_all(parent.as_std_path()).ok();
+                        }
+                        iface.write_to_file(&iface_path).ok();
+                    }
+                }
+
+                compile_outputs.push(CompileOutput {
+                    path: final_obj,
+                    output_type: OutputType::Object,
+                });
+            }
+
             object_paths.push(obj_path);
+        }
+
+        // In compile-only mode, return per-module outputs
+        if self.session.options.compile_only {
+            info!(modules = ordered.len(), "multi-module compile-only complete");
+            return Ok(compile_outputs);
         }
 
         // Phase 4: Single link step at the end

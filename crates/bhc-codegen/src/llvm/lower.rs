@@ -3767,6 +3767,8 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "writeIORef" => Some(2),
             "modifyIORef" => Some(2),
             "modifyIORef'" => Some(2),
+            "atomicModifyIORef" => Some(2),
+            "atomicModifyIORef'" => Some(2),
 
             // Character operations
             "ord" => Some(1),
@@ -4710,6 +4712,7 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             "readIORef" => self.lower_builtin_read_ioref(args[0]),
             "writeIORef" => self.lower_builtin_write_ioref(args[0], args[1]),
             "modifyIORef" | "modifyIORef'" => self.lower_builtin_modify_ioref(args[0], args[1]),
+            "atomicModifyIORef" | "atomicModifyIORef'" => self.lower_builtin_atomic_modify_ioref(args[0], args[1]),
 
             // Character operations
             "ord" => self.lower_builtin_ord(args[0]),
@@ -18170,6 +18173,79 @@ impl<'ctx, 'm> Lowering<'ctx, 'm> {
             .map_err(|e| CodegenError::Internal(format!("modifyIORef write failed: {:?}", e)))?;
 
         Ok(Some(ptr_type.const_null().into()))
+    }
+
+    /// Lower `atomicModifyIORef ref f` — read, apply f (returns tuple), write first, return second.
+    /// Simplified: in our single-threaded RTS, atomic = non-atomic.
+    /// f :: a -> (a, b), we apply f, treat result as tuple, extract fst to write back, return snd.
+    fn lower_builtin_atomic_modify_ioref(
+        &mut self,
+        ref_expr: &Expr,
+        func_expr: &Expr,
+    ) -> CodegenResult<Option<BasicValueEnum<'ctx>>> {
+        let ref_val = self.lower_expr(ref_expr)?.ok_or_else(|| CodegenError::Internal("atomicModifyIORef: no ref".to_string()))?;
+        let ref_ptr = match ref_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("atomicModifyIORef expects pointer".to_string())) };
+        let func_val = self.lower_expr(func_expr)?.ok_or_else(|| CodegenError::Internal("atomicModifyIORef: no function".to_string()))?;
+        let func_ptr = match func_val { BasicValueEnum::PointerValue(p) => p, _ => return Err(CodegenError::TypeError("atomicModifyIORef: function must be closure".to_string())) };
+
+        // Read current value
+        let read_fn = self.functions.get(&VarId::new(1000503)).ok_or_else(|| {
+            CodegenError::Internal("bhc_read_ioref not declared".to_string())
+        })?;
+        let current_val = self.builder()
+            .build_call(*read_fn, &[ref_ptr.into()], "atomic_read")
+            .map_err(|e| CodegenError::Internal(format!("atomicModifyIORef read failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("atomicModifyIORef: read returned void".to_string()))?;
+
+        // Apply function: f(current_val) -> (new_a, result_b)
+        let ptr_type = self.type_mapper().ptr_type();
+        let fn_ptr = self.extract_closure_fn_ptr(func_ptr)?;
+        let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let tuple_val = self.builder()
+            .build_indirect_call(fn_type, fn_ptr, &[func_ptr.into(), current_val.into()], "atomic_apply")
+            .map_err(|e| CodegenError::Internal(format!("atomicModifyIORef apply failed: {:?}", e)))?
+            .try_as_basic_value()
+            .basic()
+            .ok_or_else(|| CodegenError::Internal("atomicModifyIORef: apply returned void".to_string()))?;
+
+        // The result is a tuple (a, b) represented as a heap object.
+        // Extract field 0 (the new value) and field 1 (the result).
+        // Tuples in BHC are allocated as: [tag, field0, field1, ...]
+        let tuple_ptr = match tuple_val {
+            BasicValueEnum::PointerValue(p) => p,
+            _ => return Ok(Some(ptr_type.const_null().into())),
+        };
+
+        // Treat tuple as array of pointers: [tag, fst, snd, ...]
+        // tag at offset 0, fst at offset 1, snd at offset 2 (each pointer-sized)
+        let i64_type = self.type_mapper().i64_type();
+        let fst_gep = unsafe {
+            self.builder().build_gep(ptr_type, tuple_ptr, &[i64_type.const_int(1, false)], "fst_ptr")
+        }.map_err(|e| CodegenError::Internal(format!("atomicModifyIORef: fst gep: {:?}", e)))?;
+        let fst_val = self.builder()
+            .build_load(ptr_type, fst_gep, "fst_val")
+            .map_err(|e| CodegenError::Internal(format!("atomicModifyIORef: load fst: {:?}", e)))?;
+
+        let snd_gep = unsafe {
+            self.builder().build_gep(ptr_type, tuple_ptr, &[i64_type.const_int(2, false)], "snd_ptr")
+        }.map_err(|e| CodegenError::Internal(format!("atomicModifyIORef: snd gep: {:?}", e)))?;
+        let snd_val = self.builder()
+            .build_load(ptr_type, snd_gep, "snd_val")
+            .map_err(|e| CodegenError::Internal(format!("atomicModifyIORef: load snd: {:?}", e)))?;
+
+        // Write fst (new value) back to the IORef
+        let write_fn = self.functions.get(&VarId::new(1000504)).ok_or_else(|| {
+            CodegenError::Internal("bhc_write_ioref not declared".to_string())
+        })?;
+        let fst_ptr = self.value_to_ptr(fst_val)?;
+        self.builder()
+            .build_call(*write_fn, &[ref_ptr.into(), fst_ptr.into()], "")
+            .map_err(|e| CodegenError::Internal(format!("atomicModifyIORef write failed: {:?}", e)))?;
+
+        // Return snd (the result b)
+        Ok(Some(snd_val))
     }
 
     /// Lower a character predicate (isAlpha, isDigit, isSpace, etc.)

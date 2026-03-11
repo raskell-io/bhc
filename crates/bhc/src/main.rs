@@ -577,18 +577,20 @@ fn compile_modules_only(files: &[PathBuf], cli: &Cli) -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    for path in &utf8_paths {
-        match compiler.compile_module_only(path) {
-            Ok(output) => {
+    // Use compile_files_ordered for multi-module context sharing
+    // (cross-module record updates, constructor imports, etc.)
+    match compiler.compile_files_ordered(utf8_paths.iter().map(|p| p.as_path())) {
+        Ok(outputs) => {
+            for output in &outputs {
                 tracing::info!("Generated: {}", output.path);
                 if !cli.quiet {
                     println!("{}", output.path);
                 }
             }
-            Err(e) => {
-                eprintln!("error: {}", e);
-                std::process::exit(1);
-            }
+        }
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
         }
     }
 
