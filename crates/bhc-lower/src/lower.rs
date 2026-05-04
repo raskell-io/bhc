@@ -3662,7 +3662,14 @@ fn register_standard_module_exports(
         }
     });
 
-    for &export in exports {
+    for &raw_export in exports {
+        // Operator names may appear in the export list wrapped in parens
+        // (e.g., "(<>)", "(!)"). Normalize to the bare operator name so
+        // lookups at infix use sites match — `arr ! x` resolves `!`, not `(!)`.
+        let export = raw_export
+            .strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or(raw_export);
         let unqualified = Symbol::intern(export);
 
         // Detect if this export is a constructor (starts with uppercase or ':')

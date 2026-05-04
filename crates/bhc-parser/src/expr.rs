@@ -128,6 +128,31 @@ impl<'src> Parser<'src> {
                     let full_name = format!("{}.{}", qual.as_str(), sym.as_str());
                     (Ident::from_str(&full_name), prec, assoc)
                 }
+                // Single-char tokens that can also appear as binary operators.
+                // The lexer emits them as standalone tokens because they have
+                // other meanings (bang patterns, implicit params, magic hash).
+                // In infix position they are operators.
+                TokenKind::Bang => {
+                    let (prec, assoc) = self.get_operator_info("!");
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::from_str("!"), prec, assoc)
+                }
+                TokenKind::Question => {
+                    let (prec, assoc) = self.get_operator_info("?");
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::from_str("?"), prec, assoc)
+                }
+                TokenKind::Hash => {
+                    let (prec, assoc) = self.get_operator_info("#");
+                    if prec < min_prec {
+                        break;
+                    }
+                    (Ident::from_str("#"), prec, assoc)
+                }
                 _ => break,
             };
 
